@@ -358,6 +358,8 @@ namespace npbnlp {
 				}
 
 				long _check_acceptable(long c, long b, long m) {
+					if (m < 0)
+						return 0;
 					//long k = _base[b] + c + m;
 					long k = c + m;
 					if (!_is_empty(k))
@@ -422,8 +424,9 @@ namespace npbnlp {
 					long m = 0;
 					while (1) {
 						m = h - sibling[0];
-						auto c = h;
+						//auto c = h;
 						h = -_check[h];
+						/*
 						if (m < 0) {
 							if (c == _tail) {
 								_extend();
@@ -431,6 +434,7 @@ namespace npbnlp {
 							}
 							continue;
 						}
+						*/
 						bool accept = true;
 						for (auto& s : sibling) {
 							if (!_check_acceptable(s, b, m)) {
@@ -489,8 +493,9 @@ namespace npbnlp {
 					long m = 0;
 					while (1) {
 						m = h - _c[subtree.sibling[0].id];
-						auto c = h;
+						//auto c = h;
 						h = -_check[h];
+						/*
 						if (m < 0) {
 							if (c == _tail) {
 								_extend();
@@ -498,6 +503,7 @@ namespace npbnlp {
 							}
 							continue;
 						}
+						*/
 						bool accept = true;
 						for (auto& s : subtree.sibling) {
 							if (!_check_acceptable(s, b, m)) {

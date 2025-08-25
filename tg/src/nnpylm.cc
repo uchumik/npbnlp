@@ -7,7 +7,7 @@
 #include<omp.h>
 #endif
 
-#define C 50000
+#define C 1
 using namespace std;
 using namespace npbnlp;
 
@@ -17,13 +17,13 @@ static unordered_map<int, int> freq;
 nnpylm::nnpylm(int n, int m, int l): _n(n),  _chunk(new hpyp(_n)), _word(new hpyp(m)), _letter(new vpyp(l)) {
 	_chunk->set_base(_word.get());
 	_word->set_base(_letter.get());
-	_letter->set_v(C);
+	//_letter->set_v(C);
 }
 
 nnpylm::nnpylm():_n(1), _chunk(new hpyp(_n)), _word(new hpyp(2)), _letter(new vpyp(10)) {
 	_chunk->set_base(_word.get());
 	_word->set_base(_letter.get());
-	_letter->set_v(C);
+	//_letter->set_v(C);
 }
 
 nnpylm::~nnpylm() {

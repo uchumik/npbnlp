@@ -14,7 +14,7 @@ using namespace std;
 using namespace npbnlp;
 using gamma_dist = gamma_distribution<>;
 
-#define VOCAB 100000
+#define VOCAB 1
 #define STRENGTH 1
 #define DISCOUNT 0.5
 #define POISSON_A 0.2
@@ -284,10 +284,13 @@ double hpyp::lp(chunk& ch, const context *h) {
 	if (!h) {
 		return _lpb(ch);
 	}
-	bool chk = false;
-	double lpr = _cache.get(ch, h, chk);
+	//bool chk = false;
+	//double lpr = _cache.get(ch, h, chk);
+	double lpr = 0;
+	/*
 	if (chk)
 		return lpr;
+		*/
 	double c = h->c();
 	double t = h->t();
 	double cu = h->cu(ch.id);
@@ -300,7 +303,8 @@ double hpyp::lp(chunk& ch, const context *h) {
 		lpr = log(b)+lp(ch,h->parent())-log(d);
 	else
 		lpr = math::lse(log(a)-log(d), log(b)+lp(ch, h->parent())-log(d));
-	return _cache.set(ch, h, lpr);
+	return lpr;
+	//return _cache.set(ch, h, lpr);
 
 }
 
@@ -309,9 +313,12 @@ double hpyp::lp(word& w, const context *h) {
 		return _lpb(w);
 	}
 	bool chk = false;
+	double lpr = 0;
+	/*
 	double lpr = _cache.get(w, h, chk);
 	if (chk)
 		return lpr;
+		*/
 	double c = h->c();
 	double t = h->t();
 	double cu = h->cu(w.id);
@@ -324,7 +331,9 @@ double hpyp::lp(word& w, const context *h) {
 		lpr = log(b)+lp(w,h->parent())-log(d);
 	else
 		lpr = math::lse(log(a)-log(d), log(b)+lp(w, h->parent())-log(d));
-	return _cache.set(w, h, lpr);
+	//cout << "c:" << c << " t:" << t << " cu:" << cu << " tu:" << tu << " n:" << n << " stlength:" << (*_strength)[n] << " discount:" << (*_discount)[n] << " v:" << _v << " lp:" << lpr << endl;
+	return lpr;
+	//return _cache.set(w, h, lpr);
 }
 
 double hpyp::lp(int k, const context *h) {
@@ -339,10 +348,13 @@ double hpyp::lp(int k, const context *h) {
 		//return log(_v-_h->v())-log(_v);
 	}
 	*/
-	bool chk = false;
+	//bool chk = false;
+	double lpr = 0;
+	/*
 	double lpr = _cache.get(k, h, chk);
 	if (chk)
 		return lpr;
+		*/
 	double c = h->c();
 	double t = h->t();
 	double cu = h->cu(k);
@@ -362,7 +374,9 @@ double hpyp::lp(int k, const context *h) {
 		lpr = log(b)+lp(k,h->parent())-log(d);
 	else
 		lpr = math::lse(log(a)-log(d), log(b)+lp(k, h->parent())-log(d));
-	return _cache.set(k, h, lpr);
+	//cout << "c:" << c << " t:" << t << " cu:" << cu << " tu:" << tu << " n:" << n << " stlength:" << (*_strength)[n] << " discount:" << (*_discount)[n] << " v:" << _v << " lp:" << lpr << endl;
+	return lpr;
+	//return _cache.set(k, h, lpr);
 }
 
 context* hpyp::h() const {
@@ -519,9 +533,12 @@ void hpyp::_estimate_poisson() {
 
 bool hpyp::add(int k, context *h) {
 	bool add_to_parent = false;
-	while (h && (add_to_parent = h->add(k, this)))
+	while (h && (add_to_parent = h->add(k, this))) {
 		h = h->parent();
-	_cache.clear();
+		if (!h)
+			++_v;
+	}
+	//_cache.clear();
 	return add_to_parent;
 }
 
@@ -534,7 +551,7 @@ void hpyp::add(word& w, context *h) {
 		wrap::add_a(w, _base);
 		(*_bc)[w.id].push_back(w);
 	}
-	_cache.clear();
+	//_cache.clear();
 }
 
 void hpyp::add(chunk& c, context *h) {
@@ -546,15 +563,17 @@ void hpyp::add(chunk& c, context *h) {
 		wrap::add_a(c, _base);
 		(*_cbc)[c.id].push_back(c);
 	}
-	_cache.clear();
+	//_cache.clear();
 }
 
 bool hpyp::remove(int k, context *h) {
 	bool remove_from_parent = false;
 	while (h && (remove_from_parent = h->remove(k))){
 		h = h->parent();
+		if (!h)
+			--_v;
 	}
-	_cache.clear();
+	//_cache.clear();
 	return remove_from_parent;
 }
 
@@ -572,7 +591,7 @@ void hpyp::remove(word& w, context *h) {
 	}
 	if (_bc && _bc->empty())
 		_bc = nullptr;
-	_cache.clear();
+	//_cache.clear();
 }
 
 void hpyp::remove(chunk& c, context *h) {
@@ -588,7 +607,7 @@ void hpyp::remove(chunk& c, context *h) {
 	}
 	if (_cbc && _cbc->empty())
 		_cbc = nullptr;
-	_cache.clear();
+	//_cache.clear();
 }
 
 void hpyp::estimate(int iter) {
@@ -614,7 +633,7 @@ void hpyp::estimate(int iter) {
 			(*_strength)[j] = gm((*g)());
 		}
 	}
-	_cache.clear();
+	//_cache.clear();
 }
 
 void hpyp::poisson_correction(int n) {

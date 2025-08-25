@@ -9,8 +9,8 @@
 #include<omp.h>
 #endif
 
-#define C 50000
-#define K 1000
+#define C 1
+#define K 1
 
 using namespace std;
 using namespace npbnlp;
@@ -19,26 +19,31 @@ static unordered_map<int, int> wfreq;
 static unordered_map<int, int> pfreq;
 
 ihmm::ihmm():_n(2),_m(10),_v(C),_k(10),_K(K),_a(1),_b(1),_pos(new hpyp(_n)),_word(new vector<shared_ptr<hpyp> >),_letter(new vector<shared_ptr<vpyp> >) {
-	_pos->set_v(_K);
+	//_pos->set_v(_K);
 	for (auto i = 0; i < _k+1; ++i) {
 		_word->push_back(shared_ptr<hpyp>(new hpyp(1)));
 		_letter->push_back(shared_ptr<vpyp>(new vpyp(_m)));
-		(*_letter)[i]->set_v(_v);
+		//(*_letter)[i]->set_v(_v);
 		(*_word)[i]->set_base((*_letter)[i].get());
 	}
 }
 
 ihmm::ihmm(int n, int m, int k):_n(n),_m(m),_v(C),_k(k),_K(K),_a(1),_b(1),_pos(new hpyp(_n)),_word(new vector<shared_ptr<hpyp> >),_letter(new vector<shared_ptr<vpyp> >) {
-	_pos->set_v(_K);
+	//_pos->set_v(_K);
 	for (auto i = 0; i < _k+1; ++i) {
 		_word->push_back(shared_ptr<hpyp>(new hpyp(1)));
 		_letter->push_back(shared_ptr<vpyp>(new vpyp(_m)));
-		(*_letter)[i]->set_v(_v);
+		//(*_letter)[i]->set_v(_v);
 		(*_word)[i]->set_base((*_letter)[i].get());
 	}
 }
 
 ihmm::~ihmm() {
+}
+
+void ihmm::set_k(int k) {
+	if (k > 0)
+		_K = k;
 }
 
 void ihmm::set(int v, int k) {
@@ -425,7 +430,7 @@ void ihmm::_resize() {
 	_word->resize(_k+1, shared_ptr<hpyp>(new hpyp(1)));
 	_letter->resize(_k+1, shared_ptr<vpyp>(new vpyp(_m)));
 	(*_word)[_k]->set_base((*_letter)[_k].get());
-	(*_letter)[_k]->set_v(_v);
+	//(*_letter)[_k]->set_v(_v);
 }
 
 void ihmm::_shrink() {

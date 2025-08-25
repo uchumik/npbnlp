@@ -11,10 +11,16 @@
 using namespace npbnlp;
 using namespace std;
 
-context::context():_k(-1),_n(0),_customer(0),_table(0),_a(1),_b(1),_stop(0),_pass(0),_parent(NULL),_child(new children),_restaurant(new arrangement) {
+arrangements::arrangements():n(0),table(new vector<int>) {
 }
 
-context::context(int k, context *h):_k(k), _n(h->n()+1),_customer(0),_table(0),_a(h->a()),_b(h->b()),_stop(0),_pass(0),_parent(h),_child(new children),_restaurant(new arrangement) {
+arrangements::~arrangements() {
+}
+
+context::context():_k(-1),_n(0),_customer(0),_table(0),_a(1),_b(1),_stop(0),_pass(0),_parent(NULL),_child(new children),_restaurant(new restaurant)/*_restaurant(new arrangement)*/ {
+}
+
+context::context(int k, context *h):_k(k), _n(h->n()+1),_customer(0),_table(0),_a(h->a()),_b(h->b()),_stop(0),_pass(0),_parent(h),_child(new children),_restaurant(new restaurant)/*_restaurant(new arrangement)*/ {
 }
 
 context::~context() {
@@ -54,18 +60,21 @@ int context::pass() const {
 
 int context::cu(int k) const {
 	const auto it = _restaurant->find(k);
+	if (it == _restaurant->cend()) {
+		return 0;
+	} else {
+		return it->second->n;
+	}
+	/*
+	const auto it = _restaurant->find(k);
 	int n = 0;
 	if (it == _restaurant->cend())
 		return n;
-	/*
-#ifdef _OPENMP
-#pragma omp parallel for reduction(+:n)
-#endif
-*/
 	for (auto i = it->second->cbegin(); i != it->second->cend(); ++i) {
 		n += *i;
 	}
 	return n;
+	*/
 }
 
 int context::tu(int k) const {
@@ -73,7 +82,8 @@ int context::tu(int k) const {
 	if (it == _restaurant->cend())
 		return 0;
 	else
-		return it->second->size();
+		return it->second->table->size();
+		//return it->second->size();
 }
 
 
@@ -173,11 +183,14 @@ int context::sample(lm *m) {
 shared_ptr<vector<int> > context::_get_restaurant(int k) {
 	auto it = _restaurant->find(k);
 	if (it != _restaurant->end()) {
-		return it->second;
+		//return it->second;
+		return it->second->table;
 	} else {
 		lock_guard<mutex> m(_mutex);
-		(*_restaurant)[k] = make_shared<vector<int> >();
-		return (*_restaurant)[k];
+		//(*_restaurant)[k] = make_shared<vector<int> >();
+		(*_restaurant)[k] = make_shared<arrangements>();
+		//return (*_restaurant)[k];
+		return (*_restaurant)[k]->table;
 	}
 }
 
@@ -194,6 +207,7 @@ bool context::_crp_add(int k, lm *m) {
 	table[size] = (m->strength(_n) + _table * m->discount(_n))*m->pr(k, _parent); 
 	z += table[size];
 	int id = rd::draw(z, table);
+	(*_restaurant)[k]->n++;
 	if (id == size) { // sit down new table
 		lock_guard<mutex> mtx(_mutex);
 		r.push_back(1);
@@ -217,6 +231,7 @@ bool context::_crp_remove(int k) {
 		z += table[i];
 	}
 	int id = rd::draw(z, table);
+	(*_restaurant)[k]->n--;
 	r[id]--;
 	if (r[id] == 0) {
 		lock_guard<mutex> m(_mutex);
@@ -226,10 +241,10 @@ bool context::_crp_remove(int k) {
 			_restaurant->erase(k);
 		}
 		/*
-		if (_restaurant->empty()) // this context has no customer 
-			if (_parent)
-				_parent->_child->erase(_k);
-		*/
+		   if (_restaurant->empty()) // this context has no customer 
+		   if (_parent)
+		   _parent->_child->erase(_k);
+		   */
 		return true;
 	}
 	return false;
@@ -240,8 +255,10 @@ void context::estimate_l(vector<double>& a, vector<double>& b, unordered_map<int
 	for (auto it = _restaurant->begin(); it != _restaurant->end(); ++it) {
 		word& w = (*corpus)[it->first][0];
 		type t = wordtype::get(w);
-		a[t] += w.len * it->second->size();
-		b[t] += it->second->size();
+		//a[t] += w.len * it->second->size();
+		//b[t] += it->second->size();
+		a[t] += w.len * it->second->table->size();
+		b[t] += it->second->table->size();
 		//++f[t];
 	}
 }
@@ -253,23 +270,14 @@ void context::estimate_d(vector<double>& a, vector<double>& b, lm *m) {
 	shared_ptr<generator> g = generator::create();
 	bernoulli_distribution d;
 	double y = 0;
-	/*
-#ifdef _OPENMP
-#pragma omp parallel for reduction(+:y)
-#endif
-	 */
 	for (int i = 0; i < _table; ++i) {
 		bernoulli_distribution::param_type mu( m->strength(_n)/(m->strength(_n)+m->discount(_n)*i) );
 		y += 1. - d((*g)(), mu);
 	}
 	double z = 0;
 	for (auto it = _restaurant->begin(); it != _restaurant->end(); ++it) {
-		/*
-#ifdef _OPENMP
-#pragma omp parallel for reduction(+:z)
-#endif
-		 */
-		for (auto c = it->second->begin(); c != it->second->end(); ++c) {
+		//for (auto c = it->second->begin(); c != it->second->end(); ++c) {
+		for (auto c = it->second->table->begin(); c != it->second->table->end(); ++c) {
 			for (int j = 1; j < *c; ++j) {
 				bernoulli_distribution::param_type mu( ((double)j-1)/((double)j-m->discount(_n)) );
 				z += 1. - d((*g)(), mu);
@@ -278,117 +286,126 @@ void context::estimate_d(vector<double>& a, vector<double>& b, lm *m) {
 	}
 	a[_n] += y;
 	b[_n] += z;
-}
-
-void context::estimate_t(vector<double>&a , vector<double>& b, lm *m) {
-	for (auto it = _child->begin(); it != _child->end(); ++it) {
-		it->second->estimate_t(a, b, m);
 	}
-	shared_ptr<generator> g = generator::create();
-	bernoulli_distribution d;
-	double y = 0;
-	/*
+
+	void context::estimate_t(vector<double>&a , vector<double>& b, lm *m) {
+		for (auto it = _child->begin(); it != _child->end(); ++it) {
+			it->second->estimate_t(a, b, m);
+		}
+		shared_ptr<generator> g = generator::create();
+		bernoulli_distribution d;
+		double y = 0;
+		/*
 #ifdef _OPENMP
 #pragma omp parallel for reduction(+:y)
 #endif
-	 */
-	for (int i = 1; i < _table; ++i) {
-		bernoulli_distribution::param_type mu( m->strength(_n)/(m->strength(_n)+m->discount(_n)*i) );
-		y += d((*g)(), mu);
+*/
+		for (int i = 1; i < _table; ++i) {
+			bernoulli_distribution::param_type mu( m->strength(_n)/(m->strength(_n)+m->discount(_n)*i) );
+			y += d((*g)(), mu);
+		}
+		double x = 0;
+		if (_table > 1) {
+			beta_distribution be;
+			x = log(be(m->strength(_n)+1,(double)_customer-1));
+		}
+		a[_n] += y;
+		b[_n] += x;
 	}
-	double x = 0;
-	if (_table > 1) {
-		beta_distribution be;
-		x = log(be(m->strength(_n)+1,(double)_customer-1));
-	}
-	a[_n] += y;
-	b[_n] += x;
-}
 
-void context::save(FILE *fp) {
-	if (fwrite(&_k, sizeof(int), 1, fp) != 1)
-		throw "failed to write _k in context::save";
-	if (fwrite(&_n, sizeof(int), 1, fp) != 1)
-		throw "failed to write _n in context::save";
-	if (fwrite(&_customer, sizeof(int), 1, fp) != 1)
-		throw "failed to write _customer in context::save";
-	if (fwrite(&_table, sizeof(int), 1, fp) != 1)
-		throw "failed to write _table in context::save";
-	if (fwrite(&_a, sizeof(int), 1, fp) != 1)
-		throw "failed to write _a in context::save";
-	if (fwrite(&_b, sizeof(int), 1, fp) != 1)
-		throw "failed to write _b in context::save";
-	if (fwrite(&_stop, sizeof(int), 1, fp) != 1)
-		throw "failed to write _stop in context::save";
-	if (fwrite(&_pass, sizeof(int), 1, fp) != 1)
-		throw "failed to write _pass in context::save";
-	int rests = _restaurant->size();
-	if (fwrite(&rests, sizeof(int), 1, fp) != 1)
-		throw "failed to write _restaurant->size() in context::save";
-	for (auto it = _restaurant->begin(); it != _restaurant->end(); ++it) {
-		if (fwrite(&it->first, sizeof(int), 1, fp) != 1)
-			throw "failed to write restaurant::key in context::save";
-		int tables = it->second->size();
-		if (fwrite(&tables, sizeof(int), 1, fp) != 1)
-			throw "failed to write restaurant::table_size in context::save";
-		if (fwrite(&(*it->second)[0], sizeof(int), tables, fp) != (size_t)tables)
-			throw "failed to write restaurant::table in context::save";
+	void context::save(FILE *fp) {
+		if (fwrite(&_k, sizeof(int), 1, fp) != 1)
+			throw "failed to write _k in context::save";
+		if (fwrite(&_n, sizeof(int), 1, fp) != 1)
+			throw "failed to write _n in context::save";
+		if (fwrite(&_customer, sizeof(int), 1, fp) != 1)
+			throw "failed to write _customer in context::save";
+		if (fwrite(&_table, sizeof(int), 1, fp) != 1)
+			throw "failed to write _table in context::save";
+		if (fwrite(&_a, sizeof(int), 1, fp) != 1)
+			throw "failed to write _a in context::save";
+		if (fwrite(&_b, sizeof(int), 1, fp) != 1)
+			throw "failed to write _b in context::save";
+		if (fwrite(&_stop, sizeof(int), 1, fp) != 1)
+			throw "failed to write _stop in context::save";
+		if (fwrite(&_pass, sizeof(int), 1, fp) != 1)
+			throw "failed to write _pass in context::save";
+		int rests = _restaurant->size();
+		if (fwrite(&rests, sizeof(int), 1, fp) != 1)
+			throw "failed to write _restaurant->size() in context::save";
+		for (auto it = _restaurant->begin(); it != _restaurant->end(); ++it) {
+			if (fwrite(&it->first, sizeof(int), 1, fp) != 1)
+				throw "failed to write restaurant::key in context::save";
+			if (fwrite(&it->second->n, sizeof(int), 1, fp) != 1) {
+				throw "failed to write restaurant::customer_num in context::save";
+			}
+			//int tables = it->second->size();
+			int tables = it->second->table->size();
+			if (fwrite(&tables, sizeof(int), 1, fp) != 1)
+				throw "failed to write restaurant::table_size in context::save";
+			//if (fwrite(&(*it->second)[0], sizeof(int), tables, fp) != (size_t)tables)
+			if (fwrite(&(*it->second->table)[0], sizeof(int), tables, fp) != (size_t)tables)
+				throw "failed to write restaurant::table in context::save";
 
+		}
+		int childs = _child->size();
+		if (fwrite(&childs, sizeof(int), 1, fp) != 1)
+			throw "failed to write _child->size() in context::save";
+		for (auto it = _child->begin(); it != _child->end(); ++it) {
+			if (fwrite(&it->first, sizeof(int), 1, fp) != 1)
+				throw "failed to write children::key in context::save";
+			it->second->save(fp);
+		}
 	}
-	int childs = _child->size();
-	if (fwrite(&childs, sizeof(int), 1, fp) != 1)
-		throw "failed to write _child->size() in context::save";
-	for (auto it = _child->begin(); it != _child->end(); ++it) {
-		if (fwrite(&it->first, sizeof(int), 1, fp) != 1)
-			throw "failed to write children::key in context::save";
-		it->second->save(fp);
-	}
-}
 
-void context::load(FILE *fp) {
-	if (fread(&_k, sizeof(int), 1, fp) != 1)
-		throw "failed to read _k in context::load";
-	if (fread(&_n, sizeof(int), 1, fp) != 1)
-		throw "failed to read _n in context::load";
-	if (fread(&_customer, sizeof(int), 1, fp) != 1)
-		throw "failed to read _customer in context::load";
-	if (fread(&_table, sizeof(int), 1, fp) != 1)
-		throw "failed to read _table in context::load";
-	if (fread(&_a, sizeof(int), 1, fp) != 1)
-		throw "failed to read _a in context::load";
-	if (fread(&_b, sizeof(int), 1, fp) != 1)
-		throw "failed to read _b in context::load";
-	if (fread(&_stop, sizeof(int), 1, fp) != 1)
-		throw "failed to read _stop in context::load";
-	if (fread(&_pass, sizeof(int), 1, fp) != 1)
-		throw "failed to read _pass in context::load";
-	int rests = _restaurant->size();
-	if (fread(&rests, sizeof(int), 1, fp) != 1)
-		throw "failed to read _restaurant->size() in context::load";
-	for (int i = 0; i < rests; ++i) {
-		int key;
-		if (fread(&key, sizeof(int), 1, fp) != 1)
-			throw "failed to read restaurant::key in context::load";
-		int tables;
-		if (fread(&tables, sizeof(int), 1, fp) != 1)
-			throw "failed to read restaurant::table_size in context::load";
-		vector<int>& r = *_get_restaurant(key);
-		r.resize(tables);
-		if (fread(&r[0], sizeof(int), tables, fp) != (size_t)tables)
-			throw "failed to read restaurant::table in context::load";
-	}
-	int childs;
-	if (fread(&childs, sizeof(int), 1, fp) != 1)
-		throw "failed to read _child->size() in context::load";
-	for (int i = 0; i < childs; ++i) {
-		int key;
-		if (fread(&key, sizeof(int), 1, fp) != 1)
-			throw "failed to read children::key in context::load";
+	void context::load(FILE *fp) {
+		if (fread(&_k, sizeof(int), 1, fp) != 1)
+			throw "failed to read _k in context::load";
+		if (fread(&_n, sizeof(int), 1, fp) != 1)
+			throw "failed to read _n in context::load";
+		if (fread(&_customer, sizeof(int), 1, fp) != 1)
+			throw "failed to read _customer in context::load";
+		if (fread(&_table, sizeof(int), 1, fp) != 1)
+			throw "failed to read _table in context::load";
+		if (fread(&_a, sizeof(int), 1, fp) != 1)
+			throw "failed to read _a in context::load";
+		if (fread(&_b, sizeof(int), 1, fp) != 1)
+			throw "failed to read _b in context::load";
+		if (fread(&_stop, sizeof(int), 1, fp) != 1)
+			throw "failed to read _stop in context::load";
+		if (fread(&_pass, sizeof(int), 1, fp) != 1)
+			throw "failed to read _pass in context::load";
+		int rests = _restaurant->size();
+		if (fread(&rests, sizeof(int), 1, fp) != 1)
+			throw "failed to read _restaurant->size() in context::load";
+		for (int i = 0; i < rests; ++i) {
+			int key;
+			if (fread(&key, sizeof(int), 1, fp) != 1)
+				throw "failed to read restaurant::key in context::load";
+			int customer_num = 0;
+			if (fread(&customer_num, sizeof(int), 1, fp) != 1)
+				throw "failed to read restaurant::customer_num in context::load";
+			int tables;
+			if (fread(&tables, sizeof(int), 1, fp) != 1)
+				throw "failed to read restaurant::table_size in context::load";
+			vector<int>& r = *_get_restaurant(key);
+			r.resize(tables);
+			if (fread(&r[0], sizeof(int), tables, fp) != (size_t)tables)
+				throw "failed to read restaurant::table in context::load";
+			(*_restaurant)[key]->n = customer_num;
+		}
+		int childs;
+		if (fread(&childs, sizeof(int), 1, fp) != 1)
+			throw "failed to read _child->size() in context::load";
+		for (int i = 0; i < childs; ++i) {
+			int key;
+			if (fread(&key, sizeof(int), 1, fp) != 1)
+				throw "failed to read children::key in context::load";
 
-		shared_ptr<context> p = shared_ptr<context>(new context(key, this));
-		p->load(fp);
-		lock_guard<mutex> m(_mutex);
-		(*_child)[key] = p;
+			shared_ptr<context> p = shared_ptr<context>(new context(key, this));
+			p->load(fp);
+			lock_guard<mutex> m(_mutex);
+			(*_child)[key] = p;
+		}
 	}
-}
 

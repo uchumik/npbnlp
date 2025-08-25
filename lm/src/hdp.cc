@@ -147,7 +147,7 @@ void hdp::estimate(int iter) {
 			(*_alpha)[i] = gm((*g)());
 		}
 	}
-	_cache.clear();
+	//_cache.clear();
 }
 
 double hdp::pr(chunk& c, const context *h) {
@@ -189,10 +189,13 @@ double hdp::pr(int k, const context *h) {
 double hdp::lp(chunk& b, const context *h) {
 	if (!h)
 		return _lpb(b);
+	double lpr = 0;
+	/*
 	bool chk = false;
 	double lpr = _cache.get(b, h, chk);
 	if (chk)
 		return lpr;
+		*/
 	double c = h->c();
 	double cu = h->cu(b.id);
 	int n = h->n();
@@ -200,17 +203,21 @@ double hdp::lp(chunk& b, const context *h) {
 		lpr = log((*_alpha)[n])+lp(b, h->parent())-log(c+(*_alpha)[n]);
 	else
 		lpr = math::lse(log(cu)-log(c+(*_alpha)[n]), log((*_alpha)[n])+lp(b, h->parent())-log(c+(*_alpha)[n]));
-	return _cache.set(b, h, lpr);
+	return lpr;
+	//return _cache.set(b, h, lpr);
 }
 
 double hdp::lp(word& w, const context *h) {
 	if (!h) {
 		return _lpb(w);
 	}
+	double lpr = 0;
+	/*
 	bool chk = false;
 	double lpr = _cache.get(w, h, chk);
 	if (chk)
 		return lpr;
+		*/
 	double c = h->c();
 	double cu = h->cu(w.id);
 	int n = h->n();
@@ -228,7 +235,8 @@ double hdp::lp(word& w, const context *h) {
 		lpr = log((*_alpha)[n])+lp(w, h->parent())-log(c+(*_alpha)[n]);
 	else
 		lpr = math::lse(log(cu)-log(c+(*_alpha)[n]), log((*_alpha)[n])+lp(w, h->parent())-log(c+(*_alpha)[n]));
-	return _cache.set(w, h, lpr);
+	return lpr;
+	//return _cache.set(w, h, lpr);
 }
 
 double hdp::lp(int k, const context *h) {
@@ -241,10 +249,13 @@ double hdp::lp(int k, const context *h) {
 	   else if (!h)
 	   return -log(_v);
 	   */
+	double lpr = 0;
+	/*
 	bool chk = false;
 	double lpr = _cache.get(k, h, chk);
 	if (chk)
 		return lpr;
+		*/
 	double c = h->c();
 	double cu = h->cu(k);
 	int n = h->n();
@@ -252,7 +263,8 @@ double hdp::lp(int k, const context *h) {
 		lpr = log((*_alpha)[n])+lp(k, h->parent())-log(c+(*_alpha)[n]);
 	else
 		lpr = math::lse(log(cu)-log(c+(*_alpha)[n]), log((*_alpha)[n])+lp(k, h->parent())-log(c+(*_alpha)[n]));
-	return _cache.set(k, h, lpr);
+	return lpr;
+	//return _cache.set(k, h, lpr);
 }
 
 /*
@@ -346,7 +358,7 @@ bool hdp::add(int k, context *h) {
 	bool add_to_parent = false;
 	while (h && (add_to_parent = h->add(k, this)))
 		h = h->parent();
-	_cache.clear();
+	//_cache.clear();
 	return add_to_parent;
 }
 
@@ -354,7 +366,7 @@ bool hdp::remove(int k, context *h) {
 	bool remove_from_parent = false;
 	while (h && (remove_from_parent = h->remove(k)))
 		h = h->parent();
-	_cache.clear();
+	//_cache.clear();
 	return remove_from_parent;
 }
 
@@ -366,7 +378,7 @@ void hdp::add(word& w, context *h) {
 		wrap::add_a(w, _base);
 		(*_bc)[w.id].push_back(w);
 	}
-	_cache.clear();
+	//_cache.clear();
 }
 
 void hdp::remove(word& w, context *h) {
@@ -380,7 +392,7 @@ void hdp::remove(word& w, context *h) {
 	}
 	if (_bc && _bc->empty())
 		_bc = nullptr;
-	_cache.clear();
+	//_cache.clear();
 }
 
 void hdp::add(chunk& b, context *h) {
@@ -391,7 +403,7 @@ void hdp::add(chunk& b, context *h) {
 		wrap::add_a(b, _base);
 		(*_cbc)[b.id].push_back(b);
 	}
-	_cache.clear();
+	//_cache.clear();
 }
 
 void hdp::remove(chunk& c, context *h) {
@@ -405,7 +417,7 @@ void hdp::remove(chunk& c, context *h) {
 	}
 	if (_cbc && _cbc->empty())
 		_cbc = nullptr;
-	_cache.clear();
+	//_cache.clear();
 }
 
 int hdp::draw_n(nsentence& s, int i) {
