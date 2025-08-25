@@ -54,11 +54,14 @@ double vpyp::lp(int k, const context *h) {
 	else if (!h)
 		return -log(_v);
 		*/
-	bool chk = false;
+	//bool chk = false;
+	double ln_pr = 0;
+	/*
 	double ln_pr = _cache.get(k, h, chk);
 	if (chk)
 		return ln_pr;
 	ln_pr = 0;
+		*/
 	double z = 0;
 	const context *c = h;
 	while (c) {
@@ -70,17 +73,21 @@ double vpyp::lp(int k, const context *h) {
 		ln_pr = math::lse(ln_pr+ln_pr_pass,ln_pr_stop+hpyp::lp(k,c),(ln_pr==0));
 		c = c->parent();
 	}
-	return _cache.set(k, h, ln_pr-z);
+	return ln_pr-z;
+	//return _cache.set(k, h, ln_pr-z);
 }
 
 double vpyp::lp(word& w, const context *h) {
 	if (!h)
 		return _lpb(w);
 	bool chk = false;
+	double ln_pr = 0;
+	/*
 	double ln_pr = _cache.get(w, h, chk);
 	if (chk)
 		return ln_pr;
 	ln_pr = 0;
+	*/
 	double z = 0;
 	const context *c = h;
 	while (c) {
@@ -92,17 +99,21 @@ double vpyp::lp(word& w, const context *h) {
 		ln_pr = math::lse(ln_pr+ln_pr_pass, ln_pr_stop+hpyp::lp(w,c),(ln_pr == 0));
 		c = c->parent();
 	}
-	return _cache.set(w, h, ln_pr-z);
+	return ln_pr-z;
+	//return _cache.set(w, h, ln_pr-z);
 }
 
 double vpyp::lp(chunk& b, const context *h) {
 	if (!h)
 		return _lpb(b);
+	double ln_pr = 0;
+	/*
 	bool chk = false;
 	double ln_pr = _cache.get(b, h, chk);
 	if (chk)
 		return ln_pr;
 	ln_pr = 0;
+	*/
 	double z = 0;
 	const context *c = h;
 	while (c) {
@@ -114,7 +125,8 @@ double vpyp::lp(chunk& b, const context *h) {
 		ln_pr = math::lse(ln_pr+ln_pr_pass, ln_pr_stop+hpyp::lp(b,c),(ln_pr == 0));
 		c = c->parent();
 	}
-	return _cache.set(b, h, ln_pr-z);
+	return ln_pr-z;
+	//return _cache.set(b, h, ln_pr-z);
 }
 
 double vpyp::_lpb(word& w) const {

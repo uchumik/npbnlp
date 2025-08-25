@@ -1,8 +1,9 @@
 #include<getopt.h>
 #include<cstdlib>
 #include<cstdio>
-#include"npylm.h"
+#include"phsmm.h"
 #include"nnpylm.h"
+#include"ihmm.h"
 #include"util.h"
 #include"rd.h"
 
@@ -19,14 +20,14 @@ static int l = 20;
 static int threads = 4;
 static int epoch = 500;
 static int dmp = 0;
-static int tokenized = 0;
-static int vocab = 5000;
+//static int tokenized = 0;
+static int vocab = 0;
 static string train;
 static string test;
-static string tokenizer("npylm.model");
+static string tokenizer("phsmm.model");
 static string model("nnpylm.model");
 static string cdic("chunk.dic");
-static string wdic("word.dic");
+static string wdic("ma.dic");
 
 void progress(const char *s, int i, double pct) {
 	int val = (int) (pct * 100);
@@ -39,16 +40,16 @@ void progress(const char *s, int i, double pct) {
 void usage(int argc, char **argv) {
 	cout << "[Usage]" << *argv << " [options]\n";
 	cout << "[example]\n";
-	cout << *argv << " --train file --tokenizer npylm.model --model file_to_save --cdic dicfile --wdic word.dic\n";
-	cout << *argv << " --parse file --tokenizer npylm.model --model modelfile --cdic dicfile --wdic word.dic\n";
+	cout << *argv << " --train file --tokenizer phsmm.model --model file_to_save --cdic dicfile --wdic ma.dic\n";
+	cout << *argv << " --parse file --tokenizer phsmm.model --model modelfile --cdic dicfile --wdic ma.dic\n";
 	cout << "[options]\n";
 	cout << "-n, --order=int(default 2)\n";
 	cout << "-m, --word_order=int(default 3)\n";
 	cout << "-l, --letter_order=int(default 20)\n";
 	cout << "-e, --epoch=int(default 500)\n";
 	cout << "-t, --threads=int(default 4)\n";
-	cout << "-v, --vocab=int(means letter variations. default 5000)\n";
-	cout << "--tokenized=bool(default 0)\n";
+	cout << "-v, --vocab=int(means letter variations. default 0: train from data)\n";
+	//cout << "--tokenized=bool(default 0)\n";
 	exit(1);
 }
 
@@ -105,7 +106,7 @@ int read_param(int argc, char **argv) {
 			{"threads", required_argument, 0,0},
 			{"dump", required_argument, 0,0},
 			{"tokenizer", required_argument, 0,0},
-			{"tokenized", no_argument, &tokenized, 1},
+			//{"tokenized", no_argument, &tokenized, 1},
 			{0, 0, 0, 0}
 		};
 		int option_index = 0;
@@ -159,7 +160,7 @@ void dump(nsentence& s) {
 int tokenize(io& f, vector<sentence>& c) {
 	shared_ptr<wid> d = wid::create();
 	d->load(wdic.c_str());
-	npylm lm;
+	phsmm lm;
 	lm.load(tokenizer.c_str());
 	c.resize(f.head.size()-1);
 #ifdef _OPENMP
@@ -192,11 +193,7 @@ int tokenize(io& f, vector<sentence>& c) {
 int mcmc() {
 	io g(train.c_str());
 	vector<sentence> ws;
-	if (tokenized) {
-		util::store_sentences(g, ws);
-	} else {
-		tokenize(g, ws);
-	}
+	tokenize(g, ws);
 	nio f(ws);
 	/*
 	   for (auto i = 0; i < f.head.size()-1; ++i) {
@@ -207,21 +204,27 @@ int mcmc() {
 	   */
 	vector<nsentence> corpus(f.head.size()-1);
 
-	npylm lm;
+	phsmm lm;
 	lm.load(tokenizer.c_str());
+	m = lm.n();
+	l = lm.m();
+	/*
 	if (tokenized) {
 	} else {
 		m = lm.n();
 		l = lm.m();
 	}
+	*/
 	nnpylm chunker(n, m, l);
-	chunker.set(vocab);
+	if (vocab)
+		chunker.set(vocab);
 #ifdef _OPENMP
 	omp_set_num_threads(threads);
 #endif
 	for (auto i = 0; i < epoch; ++i) {
-		int rd[corpus.size()] = {0};
-		rd::shuffle(rd, corpus.size());;
+		vector<int> rd(corpus.size(), 0);
+		//int rd[corpus.size()] = {0};
+		rd::shuffle(rd.data(), corpus.size());;
 		int j = 0;
 		while (j < (int)corpus.size()) {
 			if (i > 0) {
@@ -256,9 +259,8 @@ int mcmc() {
 			}
 #endif
 			for (auto t = 0; t < threads; ++t) {
-				if (j+t < (int)corpus.size()) {
+				if (j+t < (int)corpus.size())
 					chunker.add(corpus[rd[j+t]]);
-				}
 			}
 			j += threads;
 #ifdef _OPENMP
@@ -285,18 +287,14 @@ int mcmc() {
 int parse() {
 	io g(test.c_str());
 	vector<sentence> ws;
-	if (tokenized) {
-		util::store_sentences(g, ws);
-	} else {
-		tokenize(g, ws);
-	}
+	tokenize(g, ws);
 	shared_ptr<cid> d = cid::create();
 	d->load(cdic.c_str());
 	nio f(ws);
 	/*
-	npylm lm;
-	lm.load(tokenizer.c_str());
-	*/
+	   npylm lm;
+	   lm.load(tokenizer.c_str());
+	   */
 	nnpylm chunker;//(n, lm.n(), lm.m());
 	chunker.load(model.c_str());
 #ifdef _OPENMP

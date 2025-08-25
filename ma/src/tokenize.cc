@@ -155,8 +155,9 @@ int mcmc() {
 	omp_set_num_threads(threads);
 #endif
 	for (auto i = 0; i < epoch; ++i) {
-		int rd[corpus.size()] = {0};
-		rd::shuffle(rd, corpus.size());
+		vector<int> rd(corpus.size(), 0);
+		//int rd[corpus.size()] = {0};
+		rd::shuffle(rd.data(), corpus.size());
 		int j = 0;
 		while (j < (int)corpus.size()) {
 			// remove
