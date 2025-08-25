@@ -7,7 +7,16 @@
 #include<vector>
 namespace npbnlp {
 	using children = std::unordered_map<int, std::shared_ptr<context> >;
-	using arrangement = std::unordered_map<int, std::shared_ptr<std::vector<int> > >;
+	//using arrangement_t = std::unordered_map<int, std::shared_ptr<std::vector<int> > >;
+	class arrangements {
+		public:
+			arrangements();
+			virtual ~arrangements();
+
+			int n;
+			std::shared_ptr<std::vector<int> > table;
+	};
+	using restaurant = std::unordered_map<int, std::shared_ptr<arrangements> >;
 	class context {
 		public:
 			context();
@@ -51,7 +60,8 @@ namespace npbnlp {
 			int _pass;
 			context *_parent;
 			std::shared_ptr<children> _child;
-			std::shared_ptr<arrangement> _restaurant;
+			//std::shared_ptr<arrangement> _restaurant;
+			std::shared_ptr<restaurant> _restaurant;
 			std::mutex _mutex;
 			bool _crp_add(int k, lm *m);
 			bool _crp_remove(int k);

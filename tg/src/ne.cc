@@ -1,6 +1,8 @@
 #include"nnpylm.h"
 #include"nphsmm.h"
 #include"npylm.h"
+#include"phsmm.h"
+#include"ihmm.h"
 #include"rd.h"
 #include"util.h"
 #include<getopt.h>
@@ -24,16 +26,16 @@ static int K = 50;
 static int threads = 4;
 static int epoch = 500;
 static int dmp = 0;
-static int tokenized = 0;
-static int vocab = 5000;
+//static int tokenized = 0;
+static int vocab = 0;
 static double a = 1;
 static double b = 5;
 static string train;
 static string test;
 static string model("nphsmm.model");
 static string cdic("ne.dic");
-static string tokenizer("npylm.model");
-static string wdic("word.dic");
+static string tokenizer("phsmm.model");
+static string wdic("ma.dic");
 
 void progress(const char *s, int i, double pct) {
 	int val = (int) (pct * 100);
@@ -46,17 +48,17 @@ void progress(const char *s, int i, double pct) {
 void usage(int argc, char **argv) {
 	cout << "[Usage]" << *argv << " [options]\n";
 	cout << "[example]\n";
-	cout << *argv << " --train file --tokenizer npylm.model --wdic word.dic --model file_to_save --cdic chunk.dic\n";
-	cout << *argv << " --parse file --tokenizer npylm.model --wdic word.dic --model modelfile --cdic chunk.dic\n";
+	cout << *argv << " --train file --tokenizer phsmm.model --wdic ma.dic --model file_to_save --cdic chunk.dic\n";
+	cout << *argv << " --parse file --tokenizer phsmm.model --wdic ma.dic --model modelfile --cdic chunk.dic\n";
 	cout << "[options]\n";
 	cout << "-n, --chunk_order=int(default 1)\n";
 	cout << "-m, --word_order=int(default 3)\n";
 	cout << "-l, --letter_order=int(default 20)\n";
-	cout << "-k, --class=int(default 500)\n";
+	cout << "-k, --class=int(default 50)\n";
 	cout << "-e, --epoch=int(default 500)\n";
 	cout << "-t, --threads=int(default 4)\n";
-	cout << "-v, --vocab=int(means letter variations. default 5000)\n";
-	cout << "--tokenized=bool(default 0)\n";
+	cout << "-v, --vocab=int(means letter variations. default 0: train from data)\n";
+	//cout << "--tokenized=bool(default 0)\n";
 	cout << "-a double(default 1), parameter of beta distribution for slice" << endl;
 	cout << "-b double(default 5), parameter of beta distribution for slice" << endl;
 	exit(1);
@@ -121,7 +123,7 @@ int read_param(int argc, char **argv) {
 			{"threads", required_argument, 0, 0},
 			{"dump", required_argument, 0, 0},
 			{"vocab", required_argument, 0, 0},
-			{"tokenized", no_argument, &tokenized, 1},
+			//{"tokenized", no_argument, &tokenized, 1},
 			{0, 0, 0, 0}
 		};
 		int option_index = 0;
@@ -188,7 +190,8 @@ void dump(nsentence& s) {
 int tokenize(io& f, vector<sentence>& c) {
 	shared_ptr<wid> d = wid::create();
 	d->load(wdic.c_str());
-	npylm lm;
+	//npylm lm;
+	phsmm lm;
 	lm.load(tokenizer.c_str());
 	c.resize(f.head.size()-1);
 #ifdef _OPENMP
@@ -227,8 +230,9 @@ int init(nio& f, vector<nsentence>& corpus) {
 	omp_set_num_threads(threads);
 #endif
 	for (int i = 0; i < NNPYLM_EPOCH; ++i) {
-		int rd[corpus.size()] = {0};
-		rd::shuffle(rd, corpus.size());
+		vector<int> rd(corpus.size(), 0);
+		//int rd[corpus.size()] = {0};
+		rd::shuffle(rd.data(), corpus.size());
 		int j = 0;
 		while (j < (int)corpus.size()) {
 			if (i > 0) {
@@ -284,20 +288,23 @@ int init(nio& f, vector<nsentence>& corpus) {
 
 int mcmc(nio& f, vector<nsentence>& corpus) {
 	nphsmm lm(n, m, l, k);
-	lm.set(vocab, K);
+	//lm.set(vocab, K);
+	lm.set_k(K);
 	lm.slice(a, b);
 #ifdef _OPENMP
 	omp_set_num_threads(threads);
 #endif
-	int rid[corpus.size()] = {0};
-	rd::shuffle(rid, corpus.size());
+	vector<int> rid(corpus.size(), 0);
+	//int rid[corpus.size()] = {0};
+	rd::shuffle(rid.data(), corpus.size());
 	for (auto i = 0; i < (int)corpus.size(); ++i)
 		lm.init(corpus[rid[i]]);
 	lm.estimate(20);
 	lm.poisson_correction(100);
 	for (auto i = 0; i < epoch; ++i) {
-		int rd[corpus.size()] = {0};
-		rd::shuffle(rd, corpus.size());
+		vector<int> rd(corpus.size(), 0);
+		//int rd[corpus.size()] = {0};
+		rd::shuffle(rd.data(), corpus.size());
 		int j = 0;
 		while (j < (int)corpus.size()) {
 			for (auto t = 0; t < threads; ++t) {
@@ -361,7 +368,7 @@ int parse(nio& f) {
 	nphsmm lm;
 	try {
 		lm.load(model.c_str());
-		lm.set(vocab, K);
+		//lm.set(vocab, K);
 	} catch (const char *ex) {
 		throw ex;
 	}
@@ -385,11 +392,7 @@ int main(int argc, char **argv) {
 		if (!train.empty()) {
 			io g(train.c_str());
 			vector<sentence> ws;
-			if (tokenized) {
-				util::store_sentences(g, ws);
-			} else {
-				tokenize(g, ws);
-			}
+			tokenize(g, ws);
 			nio f(ws);
 			vector<nsentence> corpus(f.head.size()-1);
 			init(f, corpus);
@@ -398,11 +401,7 @@ int main(int argc, char **argv) {
 		if (!test.empty()) {
 			io g(test.c_str());
 			vector<sentence> ws;
-			if (tokenized) {
-				util::store_sentences(g, ws);
-			} else {
-				tokenize(g, ws);
-			}
+			tokenize(g, ws);
 			nio f(ws);
 			parse(f);
 		}

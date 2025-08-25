@@ -159,13 +159,15 @@ void dump(sentence& s) {
 
 int mcmc(io& f, vector<sentence>& corpus) {
 	ihmm hmm(n, m, k);
-	hmm.set(vocab, K);
+	//hmm.set(vocab, K);
+	hmm.set_k(K);
 	hmm.slice(a, b);
 #ifdef _OPENMP
 	omp_set_num_threads(threads);
 #endif
-	int rid[corpus.size()] = {0};
-	rd::shuffle(rid, corpus.size());
+	vector<int> rid(corpus.size(), 0);
+	//int rid[corpus.size()] = {0};
+	rd::shuffle(rid.data(), corpus.size());
 	for (auto i = 0; i < (int)corpus.size(); ++i) {
 		hmm.init(corpus[rid[i]]);
 		progress("init", i, (double)(i+1)/corpus.size());
@@ -174,8 +176,9 @@ int mcmc(io& f, vector<sentence>& corpus) {
 	printf("\r%*s", rpad,"");
 	hmm.estimate(20);
 	for (auto i = 0; i < epoch; ++i) {
-		int rd[corpus.size()] = {0};
-		rd::shuffle(rd, corpus.size());
+		vector<int> rd(corpus.size(), 0);
+		//int rd[corpus.size()] = {0};
+		rd::shuffle(rd.data(), corpus.size());
 		int j = 0;
 		while (j < (int)corpus.size()) {
 			// remove
@@ -185,7 +188,7 @@ int mcmc(io& f, vector<sentence>& corpus) {
 			}
 #ifdef _OPENMP
 #pragma omp parallel
-			{ // sample segmentations
+			{
 				auto t = omp_get_thread_num();
 				if (j+t < (int)corpus.size()) {
 					try {

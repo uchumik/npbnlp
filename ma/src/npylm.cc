@@ -15,12 +15,12 @@ static unordered_map<int, int> freq;
 
 npylm::npylm():_n(2),_word(new hpyp(_n)),_letter(new vpyp(10)) {
 	_word->set_base(_letter.get());
-	_letter->set_v(C);
+	//_letter->set_v(C);
 }
 
 npylm::npylm(int n, int m): _n(n),_word(new hpyp(n)),_letter(new vpyp(m)) {
 	_word->set_base(_letter.get());
-	_letter->set_v(C);
+	//_letter->set_v(C);
 }
 
 npylm::~npylm() {

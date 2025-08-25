@@ -6,8 +6,10 @@
 #include<omp.h>
 #endif
 
-#define C 50000
-#define K 1000
+//#define C 50000
+//#define K 1000
+#define C 1
+#define K 20
 using namespace std;
 using namespace npbnlp;
 
@@ -15,30 +17,35 @@ static unordered_map<int, int> cfreq;
 static unordered_map<int, int> kfreq;
 
 nphsmm::nphsmm(): _n(1), _m(2), _l(10), _k(20), _v(C), _K(K), _a(1), _b(1), _class(new hpyp(_n)), _chunk(new vector<shared_ptr<hpyp> >), _word(new vector<shared_ptr<hpyp> >), _letter(new vector<shared_ptr<vpyp> >) {
-	_class->set_v(K);
+	//_class->set_v(K);
 	for (auto i = 0; i < _k+1; ++i) {
 		_chunk->push_back(shared_ptr<hpyp>(new hpyp(_n)));
 		_word->push_back(shared_ptr<hpyp>(new hpyp(_m)));
 		_letter->push_back(shared_ptr<vpyp>(new vpyp(_l)));
-		(*_letter)[i]->set_v(_v);
+		//(*_letter)[i]->set_v(_v);
 		(*_word)[i]->set_base((*_letter)[i].get());
 		(*_chunk)[i]->set_base((*_word)[i].get());
 	}
 }
 
 nphsmm::nphsmm(int n, int m, int l, int k): _n(n), _m(m), _l(l), _k(k), _v(C), _K(K), _a(1), _b(1), _class(new hpyp(_n)), _chunk(new vector<shared_ptr<hpyp> >), _word(new vector<shared_ptr<hpyp> >), _letter(new vector<shared_ptr<vpyp> >) {
-	_class->set_v(K);
+	//_class->set_v(K);
 	for (auto i = 0; i < _k+1; ++i) {
 		_chunk->push_back(shared_ptr<hpyp>(new hpyp(_n)));
 		_word->push_back(shared_ptr<hpyp>(new hpyp(_m)));
 		_letter->push_back(shared_ptr<vpyp>(new vpyp(_l)));
-		(*_letter)[i]->set_v(_v);
+		//(*_letter)[i]->set_v(_v);
 		(*_word)[i]->set_base((*_letter)[i].get());
 		(*_chunk)[i]->set_base((*_word)[i].get());
 	}
 }
 
 nphsmm::~nphsmm() {
+}
+
+void nphsmm::set_k(int k) {
+	if (k > 0)
+		_K = k;
 }
 
 void nphsmm::set(int v, int k) {
@@ -133,7 +140,7 @@ void nphsmm::load(const char *file) {
 			_letter->push_back(shared_ptr<vpyp>(new vpyp(_l)));
 			(*_chunk)[k]->set_base((*_word)[k].get());
 			(*_word)[k]->set_base((*_letter)[k].get());
-			(*_letter)[k]->set_v(_v);
+			//(*_letter)[k]->set_v(_v);
 		}
 		for (auto i = 0; i < _k+1; ++i) {
 			(*_chunk)[i]->load(fp);
@@ -509,7 +516,7 @@ void nphsmm::_resize() {
 	_letter->resize(_k+1, shared_ptr<vpyp>(new vpyp(_l)));
 	(*_chunk)[_k]->set_base((*_word)[_k].get());
 	(*_word)[_k]->set_base((*_letter)[_k].get());
-	(*_letter)[_k]->set_v(_v);
+	//(*_letter)[_k]->set_v(_v);
 }
 
 void nphsmm::_shrink() {

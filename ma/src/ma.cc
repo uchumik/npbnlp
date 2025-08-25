@@ -175,23 +175,27 @@ void dump(sentence& s) {
 
 int mcmc(io& f, vector<sentence>& corpus) {
 	phsmm lm(n, m, l, k);
-	lm.set(vocab, K);
+	lm.set_k(K);
+	//lm.set(vocab, K);
 	lm.slice(a, b);
 #ifdef _OPENMP
 	threads = min(omp_get_max_threads(), threads);
 	omp_set_num_threads(threads);
 #endif
-	int rid[corpus.size()] = {0};
-	rd::shuffle(rid, corpus.size());
-	for (auto i = 0; i < (int)corpus.size(); ++i)
+	vector<int> rid(corpus.size(), 0);
+	//int rid[corpus.size()] = {0};
+	rd::shuffle(rid.data(), corpus.size());
+	for (auto i = 0; i < (int)corpus.size(); ++i) {
 		lm.init(corpus[rid[i]]);
+	}
 	//for (auto it = corpus.begin(); it != corpus.end(); ++it) {
 	//	lm.init(*it);
 	//}
 	lm.estimate(20);
 	for (auto i = 0; i < epoch; ++i) {
-		int rd[corpus.size()] = {0};
-		rd::shuffle(rd, corpus.size());
+		vector<int> rd(corpus.size(), 0);
+		//int rd[corpus.size()] = {0};
+		rd::shuffle(rd.data(), corpus.size());
 		int j = 0;
 		while (j < (int)corpus.size()) {
 			// remove
@@ -259,7 +263,7 @@ int parse() {
 	phsmm lm(n, m, l, k);
 	try {
 		lm.load(model.c_str());
-		lm.set(vocab, K);
+		//lm.set(vocab, K);
 	} catch (const char *ex) {
 		throw ex;
 	}
@@ -278,13 +282,14 @@ int parse() {
 
 int init(io& f, vector<sentence>& corpus) {
 	npylm lm(n, m);
-	lm.set(vocab);
+	//lm.set(vocab);
 #ifdef _OPENMP
 	omp_set_num_threads(threads);
 #endif
 	for (int i = 0; i < NPYLM_EPOCH; ++i) {
-		int rd[corpus.size()] = {0};
-		rd::shuffle(rd, corpus.size());
+		vector<int> rd(corpus.size(), 0);
+		//int rd[corpus.size()] = {0};
+		rd::shuffle(rd.data(), corpus.size());
 		int j = 0;
 		while (j < (int)corpus.size()) {
 			if (i > 0)
@@ -322,10 +327,8 @@ int init(io& f, vector<sentence>& corpus) {
 
 		}
 		lm.estimate(20);
-		/*
-		   if (i)
-		   lm.poisson_correction(100);
-		   */
+		if (i)
+			lm.poisson_correction(1000);
 		progress("init", i, (double)(i+1)/NPYLM_EPOCH);
 	}
 	int rpad = 2*PBWIDTH;

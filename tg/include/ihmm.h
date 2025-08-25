@@ -22,6 +22,7 @@ namespace npbnlp {
 			virtual void estimate(int iter);
 			virtual void poisson_correction(int n = 3000);
 			virtual void set(int v, int k);
+			virtual void set_k(int k);
 			virtual int n();
 			virtual int m();
 			virtual int k();
