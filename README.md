@@ -77,7 +77,7 @@ unsupervised learning libraries for NLP
 -k, --pos=int(default 50)
 -e, --epoch=int(default 500)
 -t, --threads=int(default 4)
--v, --vocab=int(means letter variations. default 5000)
+-v, --vocab=int(means letter variations. default 0)
 
 % ./ma/src/ma --model data/phsmm.n3.model --dic data/phsmm.n3.dic --train sample
 % ./ma/src/ma --model data/phsmm.n3.model --dic data/phsmm.n3.dic --parse sample
@@ -126,7 +126,7 @@ unsupervised learning libraries for NLP
 -k, --pos=int(default 50)
 -e, --epoch=int(default 500)
 -t, --threads=int(default 4)
--v, --vocab=int(means letter variations. default 5000)
+-v, --vocab=int(means letter variations. default 0)
 
 % head tokenized_sample
 村山 富市 首相 は 年頭 に あたり 首相 官邸 で 内閣 記者 会 と ### 日 会見 し 、 社会党 の 新 民主 連合 所属 議員 の 離党 問題 に ついて 「 政権 に 影響 を 及ぼす こと に は なら ない 。 離党 者 が いて も 、 その 範囲 に とどまる と 思う 」 と 述べ 、 大量 離党 に は 至ら ない と の 見通し を 示した 。 
@@ -149,8 +149,8 @@ unsupervised learning libraries for NLP
 % ./tg/src/ch                                                          
 [Usage]./tg/src/ch [options]
 [example]
-./tg/src/ch --train file --tokenizer npylm.model --model file_to_save --cdic dicfile --wdic word.dic
-./tg/src/ch --parse file --tokenizer npylm.model --model modelfile --cdic dicfile --wdic word.dic
+./tg/src/ch --train file --tokenizer phsmm.model --model file_to_save --cdic dicfile --wdic ma.dic
+./tg/src/ch --parse file --tokenizer phsmmm.model --model modelfile --cdic dicfile --wdic ma.dic
 [options]
 -n, --order=int(default 2)
 -e, --epoch=int(default 500)
@@ -159,8 +159,8 @@ unsupervised learning libraries for NLP
 % ./tg/src/ne
 [Usage]./tg/src/ne [options]
 [example]
-./tg/src/ne --train file --tokenizer npylm.model --wdic word.dic --model file_to_save --cdic chunk.dic
-./tg/src/ne --parse file --tokenizer npylm.model --wdic word.dic --model modelfile --cdic chunk.dic
+./tg/src/ne --train file --tokenizer phsmm.model --wdic ma.dic --model file_to_save --cdic chunk.dic
+./tg/src/ne --parse file --tokenizer phsmm.model --wdic ma.dic --model modelfile --cdic chunk.dic
 [options]
 -n, --chunk_order=int(default 1)
 -m, --word_order=int(default 3)
@@ -168,7 +168,7 @@ unsupervised learning libraries for NLP
 -k, --class=int(default 500)
 -e, --epoch=int(default 500)
 -t, --threads=int(default 4)
--v, --vocab=int(means letter variations. default 5000)
+-v, --vocab=int(means letter variations. default 0)
 ```
 
 ### grammar induction
@@ -183,7 +183,7 @@ unsupervised learning libraries for NLP
 -k, --max_category=int(default 100)
 -e, --epoch=int(default 500)
 -t, --threads=int(default 4)
--v, --vocab=int(means letter variations. default 5000)
+-v, --vocab=int(means letter variations. default 0)
 --dot=flag output in dot format for graphviz
 
 % head sample 
