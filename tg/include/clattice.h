@@ -7,7 +7,7 @@
 #include<vector>
 namespace npbnlp {
 	enum chsize {
-		C_MISC = 3,
+		C_MISC = 4,
 		C_ARABIC = 5,
 		C_LATIN = 5,
 		C_THAI = 5,
@@ -17,11 +17,11 @@ namespace npbnlp {
 		C_DIGIT = 5,
 		C_HANGUL = 5,
 		C_HIRAGANA = 3,
-		C_KATAKANA = 5,
-		C_HIRA_KATA = 5,
-		C_HIRA_HANJI = 5,
-		C_KATA_HANJI = 5,
-		C_HIRA_KATA_HANJI = 7,
+		C_KATAKANA = 3,
+		C_HIRA_KATA = 3,
+		C_HIRA_HANJI = 4,
+		C_KATA_HANJI = 4,
+		C_HIRA_KATA_HANJI = 4,
 		C_HANJI = 7,
 		C_KATA_OR_HIRA = 3,
 		C_SYNBOL = 3
