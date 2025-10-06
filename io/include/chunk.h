@@ -26,6 +26,7 @@ namespace npbnlp {
 			int head;
 			int len;
 			int id;
+			int type;
 			std::vector<int> n;
 			friend std::ostream& operator<<(std::ostream& os, const chunk& c) {
 				for (auto i = 0; i < c.len; ++i) {
@@ -38,6 +39,7 @@ namespace npbnlp {
 					if (i < c.len-1)
 						os << " ";
 				}
+				os << ":" << c.type;
 				if (c.id > 0)
 					os << ":" << c.id;
 				if (c.k > 0)
@@ -53,6 +55,7 @@ namespace npbnlp {
 			size_t id = 19780211;
 			for (int i = 0; i < c.len; ++i)
 				id = id*37*c[i];
+				//id = id*37*c.wd(i).pos;
 			return id;
 		}
 	};
@@ -62,6 +65,7 @@ namespace npbnlp {
 				return false;
 			int i = 0;
 			for (; a[i] == b[i] && i < a.len; ++i);
+			//for (; a.wd(i).pos == b.wd(i).pos && i < a.len; ++i);
 			return (i == a.len);
 		}
 	};

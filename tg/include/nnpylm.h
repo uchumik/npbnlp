@@ -31,9 +31,13 @@ namespace npbnlp {
 			std::shared_ptr<hpyp> _chunk;
 			std::shared_ptr<hpyp> _word;
 			std::shared_ptr<vpyp> _letter;
-			void _forward(clattice& l, int i, const context *c, chunk& ch, chunk& p, vt& a, vt& b, int n, bool unk);
+			double _change;
+			double _len;
+			double _prior;
+			void _forward(clattice& l, int i, const context *c, double& ln_prior, chunk& ch, chunk& p, vt& a, vt& b, int n, bool unk);
 			void _backward(clattice& l, int i, const context *c, chunk& ch, double& lp, vt& b, int n, bool unk);
 			void _ch_draw(std::vector<int>& c);
+			void _type_prior(clattice& l);
 			std::mutex _mutex;
 		private:
 
