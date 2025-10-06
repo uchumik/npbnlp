@@ -13,7 +13,7 @@
 #define check(opt,arg) (strcmp(opt,arg) == 0)
 #define PBSTR "||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||"
 #define PBWIDTH 60
-#define NNPYLM_EPOCH 100
+#define NNPYLM_EPOCH 20
 
 using namespace std;
 using namespace npbnlp;
@@ -307,10 +307,11 @@ int mcmc(nio& f, vector<nsentence>& corpus) {
 		rd::shuffle(rd.data(), corpus.size());
 		int j = 0;
 		while (j < (int)corpus.size()) {
-			for (auto t = 0; t < threads; ++t) {
-				if (j+t < (int)corpus.size())
-					lm.remove(corpus[rd[j+t]]);
-			}
+			if (i > 0)
+				for (auto t = 0; t < threads; ++t) {
+					if (j+t < (int)corpus.size())
+						lm.remove(corpus[rd[j+t]]);
+				}
 #ifdef _OPENMP
 #pragma omp parallel
 			{

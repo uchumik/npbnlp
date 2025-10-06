@@ -16,15 +16,16 @@ namespace npbnlp {
 		C_HEBREW = 5,
 		C_DIGIT = 5,
 		C_HANGUL = 5,
-		C_HIRAGANA = 3,
-		C_KATAKANA = 3,
-		C_HIRA_KATA = 3,
-		C_HIRA_HANJI = 4,
-		C_KATA_HANJI = 4,
-		C_HIRA_KATA_HANJI = 4,
+		C_HIRAGANA = 2,
+		C_KATAKANA = 10,
+		C_HIRA_KATA = 2,//5,
+		C_HIRA_HANJI = 2,//5,
+		C_KATA_HANJI = 7,
+		C_HIRA_KATA_HANJI = 2,//7,
 		C_HANJI = 7,
-		C_KATA_OR_HIRA = 3,
-		C_SYNBOL = 3
+		C_KATA_OR_HIRA = 1,//5,
+		C_SYNBOL = 5,
+		C_PUNC = 1
 	};
 	class clattice {
 		public:
@@ -37,6 +38,7 @@ namespace npbnlp {
 			std::vector<int>::iterator end(int i, int j);
 			std::vector<std::vector<chunk> > c;
 			std::vector<std::vector<std::vector<int> > > k;
+			std::vector<std::vector<double> > prior;
 			
 		private:
 			int _chsize(type& t, type& u);

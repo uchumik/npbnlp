@@ -147,26 +147,27 @@ void cid::_store(FILE *fp) {
 cid::cid(int id):_id(id) {
 }
 
-chunk::chunk():k(0), head(0), len(1), id(0), n(len+1,0), _doc(NULL)  {
+chunk::chunk():k(0), head(0), len(1), id(0), type(8), n(len+1,0), _doc(NULL)  {
 }
 
-chunk::chunk(vector<word>& d): k(0), head(0), len(0), id(0), n(len+1,0), _doc(&d) {
+chunk::chunk(vector<word>& d): k(0), head(0), len(0), id(0), type(8), n(len+1,0), _doc(&d) {
 }
 
-chunk::chunk(vector<word>& d, int head, int len): k(0), head(head), len(len), id(1), n(len+1,0), _doc(&d) {
+chunk::chunk(vector<word>& d, int head, int len): k(0), head(head), len(len), id(1), type(8), n(len+1,0), _doc(&d) {
 }
 
-chunk::chunk(const chunk& c): k(c.k), head(c.head), len(c.len), id(c.id), _doc(c._doc)  {
+chunk::chunk(const chunk& c): k(c.k), head(c.head), len(c.len), id(c.id), type(c.type), _doc(c._doc)  {
 	for (auto i = c.n.begin(); i < c.n.end(); ++i)
 		n.push_back(*i);
 }
 
-chunk::chunk(chunk&& c): k(c.k), head(c.head), len(c.len), id(c.id), _doc(c._doc) {
+chunk::chunk(chunk&& c): k(c.k), head(c.head), len(c.len), id(c.id), type(c.type), _doc(c._doc) {
 	n = move(c.n);
 	c.k = 0;
 	c.head = 0;
 	c.len = 1;
 	c.id = 0;
+	c.type = 8;
 	c._doc = nullptr;
 	/*
 	for (auto i = c.n.begin(); i < c.n.end(); ++i)
@@ -179,6 +180,7 @@ chunk& chunk::operator=(const chunk& c) {
 	head = c.head;
 	len = c.len;
 	id = c.id;
+	type = c.type;
 	_doc = c._doc;
 	for (auto i = c.n.begin(); i < c.n.end(); ++i)
 		n.push_back(*i);
@@ -192,12 +194,14 @@ chunk& chunk::operator=(chunk&& c) noexcept {
 	head = c.head;
 	len = c.len;
 	id = c.id;
+	type = c.type;
 	_doc = c._doc;
 	n = move(c.n);
 	c.k = 0;
 	c.head = 0;
 	c.len = 1;
 	c.id = 0;
+	c.type = 8;
 	c._doc = nullptr;
 	/*
 	for (auto i = c.n.begin(); i < c.n.end(); ++i)
@@ -232,6 +236,8 @@ void chunk::save(FILE *fp) {
 		throw "failed to write chunk.len";
 	if (fwrite(&id, sizeof(int), 1, fp) != 1)
 		throw "failed to write chunk.id";
+	if (fwrite(&type, sizeof(int), 1, fp) != 1)
+		throw "failed to write chunk.type";
 }
 
 void chunk::load(FILE *fp, vector<word>& w) {
@@ -245,5 +251,7 @@ void chunk::load(FILE *fp, vector<word>& w) {
 		throw "failed to read chunk.len";
 	if (fread(&id, sizeof(int), 1, fp) != 1)
 		throw "failed to read chunk.id";
+	if (fread(&type, sizeof(int), 1, fp) != 1)
+		throw "failed to read chunk.type";
 	_doc = &w;
 }
