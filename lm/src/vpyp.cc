@@ -169,7 +169,8 @@ double vpyp::_lpb(chunk& b) const {
 			else
 				h = c;
 		}
-		lp += _base->lp(b[i], h);
+		//lp += _base->lp(b[i], h);
+		lp += _base->lp(b.wd(i), h);
 	}
 	return lp;
 }

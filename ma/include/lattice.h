@@ -42,6 +42,7 @@ namespace npbnlp {
 			std::vector<std::vector<word> > w;
 			std::vector<double> mu;
 			std::vector<std::vector<std::vector<int> > > k;
+			std::vector<std::vector<double> > prior;
 			//std::vector<std::vector<int> > check;
 		protected:
 			int _segsize(type& t, type& u, int& chn);

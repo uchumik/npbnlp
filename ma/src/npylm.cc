@@ -2,25 +2,37 @@
 #include"convinience.h"
 #include"vtable.h"
 #include"rd.h"
+#include"negative_binomial.h"
 #include"wordtype.h"
 #ifdef _OPENMP
 #include<omp.h>
 #endif
 
-#define C 5000
+#define C 1
 using namespace std;
 using namespace npbnlp;
 
 static unordered_map<int, int> freq;
+static negative_binomial nb;
 
-npylm::npylm():_n(2),_word(new hpyp(_n)),_letter(new vpyp(10)) {
+npylm::npylm():_n(2),_word(new hpyp(_n)),_letter(new vpyp(10))/*, _prior(0), _change(1), _len(1)*/ {
 	_word->set_base(_letter.get());
 	//_letter->set_v(C);
+	// type change prior
+	/*
+	beta_distribution be;
+	_prior = 1.-be(_change, _len);
+	*/
 }
 
-npylm::npylm(int n, int m): _n(n),_word(new hpyp(n)),_letter(new vpyp(m)) {
+npylm::npylm(int n, int m): _n(n),_word(new hpyp(n)),_letter(new vpyp(m))/*, _prior(0), _change(1), _len(1)*/ {
 	_word->set_base(_letter.get());
 	//_letter->set_v(C);
+	// type change prior
+	/*
+	beta_distribution be;
+	_prior = 1.-be(_change, _len);
+	*/
 }
 
 npylm::~npylm() {
@@ -50,6 +62,16 @@ void npylm::add(sentence& s) {
 			w.id = (*dic)[w];
 		}
 		freq[w.id]++;
+		/*
+		type t = chartype::get(w[0]);
+		for (auto j = 0; j < w.len; ++j) {
+			type u = chartype::get(w[j]);
+			if (t != u)
+				++_change;
+			t = u;
+		}
+		_len += w.len;
+		*/
 	}
 	wrap::add_a(s, _word.get());
 }
@@ -64,11 +86,26 @@ void npylm::remove(sentence& s) {
 			dic->remove(w);
 			freq.erase(w.id);
 		}
+		/*
+		type t = chartype::get(w[0]);
+		for (auto j = 0; j < w.len; ++j) {
+			type u = chartype::get(w[j]);
+			if (t != u)
+				--_change;
+			t = u;
+		}
+		_len -= w.len;
+		*/
 	}
 	wrap::remove_a(s, _word.get());
 }
 
 void npylm::estimate(int iter) {
+	// type change prior
+	/*
+	beta_distribution be;
+	_prior = 1.-be(_change, _len);
+	*/
 	_word->gibbs(iter);
 	_word->estimate(iter);
 	_letter->estimate(iter);
@@ -85,6 +122,10 @@ void npylm::save(const char *file) {
 	try {
 		_word->save(fp);
 		_letter->save(fp);
+		/*
+		if (fwrite(&_prior, sizeof(double), 1, fp) != 1)
+			throw "failed to save type change prior in npylm::save";
+			*/
 	} catch (const char *ex) {
 		throw ex;
 	}
@@ -99,6 +140,10 @@ void npylm::load(const char *file) {
 		_word->load(fp);
 		_letter->load(fp);
 		_n = _word->n();
+		/*
+		if (fread(&_prior, sizeof(double), 1, fp) != 1)
+			throw "failed to read type change prior in npylm::load";
+			*/
 	} catch (const char *ex) {
 		throw ex;
 	}
@@ -107,21 +152,23 @@ void npylm::load(const char *file) {
 
 sentence npylm::sample(io& f, int i) {
 	lattice l(f, i);
+	//_type_prior(l);
 	vt dp;
 	// forward filtering backward sampling
 	for (auto t = 0; t < (int)l.w.size(); ++t) {
 		for (auto j = 0; j < l.size(t); ++j) {
 			const context *c = _word->h();
 			word& w = l.wd(t, j+1);
+			//double ln_prior = l.prior[t][j];
 			for (auto k = 0; k < l.size(t-w.len); ++k) {
 				word& prev = l.wd(t-w.len, k+1);
 				const context *h = NULL;
 				if (_n > 1)
 					h = c->find(prev.id);
 				if (h)
-					_forward(l, t-w.len-prev.len, h, w, prev, dp[t][j], dp[t-w.len][k], _n-1, false);
+					_forward(l, t-w.len-prev.len, h, /*ln_prior,*/ w, prev, dp[t][j], dp[t-w.len][k], _n-1, false);
 				else
-					_forward(l, t-w.len-prev.len, c, w, prev, dp[t][j], dp[t-w.len][k], _n-1, true);
+					_forward(l, t-w.len-prev.len, c, /*ln_prior,*/ w, prev, dp[t][j], dp[t-w.len][k], _n-1, true);
 			}
 		}
 	}
@@ -154,19 +201,21 @@ sentence npylm::sample(io& f, int i) {
 sentence npylm::parse(io& f, int i) {
 	lattice l(f, i);
 	vt dp;
+	//_type_prior(l);
 	for (auto t = 0; t < (int)l.w.size(); ++t) {
 		for (auto j = 0; j < l.size(t); ++j) {
 			const context *c = _word->h();
 			word& w = l.wd(t, j+1);
+			//double ln_prior = l.prior[t][j];
 			for (auto k = 0; k < l.size(t-w.len); ++k) {
 				word& prev = l.wd(t-w.len, k+1);
 				const context *h = NULL;
 				if (_n > 1)
 					h = c->find(prev.id);
 				if (h)
-					_forward(l, t-w.len-prev.len, h, w, prev, dp[t][j], dp[t-w.len][k], _n-1, false);
+					_forward(l, t-w.len-prev.len, h, /*ln_prior,*/ w, prev, dp[t][j], dp[t-w.len][k], _n-1, false);
 				else
-					_forward(l, t-w.len-prev.len, c, w, prev, dp[t][j], dp[t-w.len][k], _n-1, true);
+					_forward(l, t-w.len-prev.len, c, /*ln_prior,*/ w, prev, dp[t][j], dp[t-w.len][k], _n-1, true);
 			}
 		}
 	}
@@ -196,9 +245,9 @@ sentence npylm::parse(io& f, int i) {
 	return s;
 }
 
-void npylm::_forward(lattice& l, int i, const context *c, word& w, word& p, vt& a, vt& b, int n, bool unk) {
+void npylm::_forward(lattice& l, int i, const context *c, /*double& ln_prior,*/ word& w, word& p, vt& a, vt& b, int n, bool unk) {
 	if (n <= 1) {
-		a.v = math::lse(a.v, b.v+_word->lp(w, c), !a.is_init());
+		a.v = math::lse(a.v, b.v+_word->lp(w, c)/*+ln_prior*/, !a.is_init());
 		if (!a.is_init()) // initialized
 			a.set(true);
 	} else {
@@ -208,9 +257,9 @@ void npylm::_forward(lattice& l, int i, const context *c, word& w, word& p, vt& 
 			if (!unk)
 				h = c->find(prev.id);
 			if (h)
-				_forward(l, i-prev.len, h, w, prev, a[p.len-1], b[j], n-1, false);
+				_forward(l, i-prev.len, h, /*ln_prior,*/ w, prev, a[p.len-1], b[j], n-1, false);
 			else
-				_forward(l, i-prev.len, c, w, prev, a[p.len-1], b[j], n-1, true);
+				_forward(l, i-prev.len, c, /*ln_prior,*/ w, prev, a[p.len-1], b[j], n-1, true);
 		}
 	}
 }
@@ -231,3 +280,26 @@ void npylm::_backward(lattice& l, int i, const context *c, word& w, double& lpr,
 		}
 	}
 }
+
+/*
+void npylm::_type_prior(lattice& l) {
+	l.prior.resize(l.w.size());
+	for (auto t = 0; t < (int)l.w.size(); ++t) {
+		l.prior[t].resize(l.size(t), 0);
+		for (auto j = 0; j < l.size(t); ++j) {
+			word& w = l.wd(t, j+1);
+			type tp = chartype::get(w[0]);
+			int change = 0;
+			for (auto k = 1; k < w.len; ++k) {
+				type u = chartype::get(w[k]);
+				if (tp != u)
+					++change;
+				tp = u;
+			}
+			//double pr = nb.density(_prior, w.len-change, change);
+			l.prior[t][j] = log(nb.density(_prior, w.len-change, change));
+			//assert(l.prior[t][j] <= 0.);
+		}
+	}
+}
+*/

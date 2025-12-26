@@ -1,6 +1,7 @@
 #include"clattice.h"
 #include"chartype.h"
 #include"wordtype.h"
+#include"chunktype.h"
 #ifdef _OPENMP
 #include<omp.h>
 #endif
@@ -35,9 +36,11 @@ clattice::clattice(nio& f, int i) {
 				case 65292: // head = '，'
 					is_break = false;
 					;
+					/*
 				case 65285: // head = '％'
 					is_break = false;
 					;
+					*/
 				case 65286: // head = '＆'
 					is_break = false;
 					;
@@ -53,9 +56,11 @@ clattice::clattice(nio& f, int i) {
 				case 38: // head = '&'
 					is_break = false;
 					;
+					/*
 				case 37: // head = '%'
 					is_break = false;
 					;
+					*/
 					/*
 				case 65311: // head = '？'
 					;
@@ -75,7 +80,19 @@ clattice::clattice(nio& f, int i) {
 				default:
 					break;
 			}
+			switch ((*f.raw)[head+j][0]) {
+				case 65285: // head = '％'
+					is_break = false;
+					;
+				case 37: // head = '%'
+					is_break = false;
+					;
+				default:
+					break;
+			}
 			if (wt[k] == U_PUNC && k != j && is_break)
+				break;
+			else if (t == U_DIGIT && wt[j] == U_PUNC && is_break)
 				break;
 			chunk ch(*f.raw, head+k, 1+j-k);
 			ch.id = (*dic)[ch];
@@ -136,6 +153,8 @@ int clattice::_chsize(type& t, type& u) {
 				t = U_HIRAGANA;
 			else if (t == U_PUNC)
 				break;
+			else if (t == U_DIGIT)
+				break;
 			else if (t == U_HIRA_HANJI || t == U_HIRA_KATA || t == U_HIRA_KATA_HANJI) {
 			} else if (u != t)
 				t = U_MISC;
@@ -151,6 +170,8 @@ int clattice::_chsize(type& t, type& u) {
 				t = U_KATAKANA;
 			else if (t == U_PUNC)
 				break;
+			else if (t == U_DIGIT)
+				break;
 			else if (t == U_HIRA_KATA || t == U_KATA_HANJI || t == U_HIRA_KATA_HANJI) {
 			} else if (u != t)
 				t = U_MISC;
@@ -164,6 +185,8 @@ int clattice::_chsize(type& t, type& u) {
 				t = U_HIRA_KATA_HANJI;
 			else if (t == U_PUNC)
 				break;
+			else if (t == U_DIGIT)
+				break;
 			else if (t == U_HIRA_HANJI || t == U_KATA_HANJI || t == U_HIRA_KATA_HANJI) {
 			} else if (u != t)
 				t = U_MISC;
@@ -173,6 +196,10 @@ int clattice::_chsize(type& t, type& u) {
 				t = U_MISC;
 			else if (t == U_PUNC)
 				break;
+			else if (t == U_DIGIT)
+				break;
+			else if (u != t)
+				t = U_MISC;
 			break;
 		case U_HIRA_KATA:
 			if (t == U_HIRAGANA || t == U_KATAKANA)
@@ -181,6 +208,10 @@ int clattice::_chsize(type& t, type& u) {
 				t = U_HIRA_KATA_HANJI;
 			else if (t == U_PUNC)
 				break;
+			else if (t == U_DIGIT)
+				break;
+			else if (t != u)
+				t = U_MISC;
 			break;
 		case U_HIRA_HANJI:
 			if (t == U_HIRAGANA || t == U_HANJI)
@@ -189,6 +220,10 @@ int clattice::_chsize(type& t, type& u) {
 				t = U_HIRA_KATA_HANJI;
 			else if (t == U_PUNC)
 				break;
+			else if (t == U_DIGIT)
+				break;
+			else if (t != u)
+				t = U_MISC;
 			break;
 		case U_KATA_HANJI:
 			if (t == U_KATAKANA || t == U_HANJI)
@@ -197,25 +232,61 @@ int clattice::_chsize(type& t, type& u) {
 				t = U_HIRA_KATA_HANJI;
 			else if (t == U_PUNC)
 				break;
+			else if (t == U_DIGIT)
+				break;
+			else if (t != u)
+				t = U_MISC;
 			break;
 		case U_HIRA_KATA_HANJI:
 			if (t == U_HIRAGANA || t == U_KATAKANA || t == U_HANJI)
 				t = u;
 			else if (t == U_PUNC)
 				break;
-			break;
-		case U_SYNBOL:
-			if (t == U_LATIN)
+			else if (t == U_DIGIT)
 				break;
 			else if (t != u)
 				t = U_MISC;
 			break;
-		case U_PUNC:
-			if (t != U_MISC)
+		case U_LATIN:
+			if (t == U_KATAKANA)
 				break;
+			else if (t == U_PUNC)
+				t = U_LATIN;
+			else if (t == U_DIGIT)
+				break;
+			else if (t != u)
+				t = U_MISC;
+			break;
+		case U_DIGIT:
+			t = U_DIGIT;
+			/*
+			if (t == U_PUNC || t == U_SYNBOL)
+				t = U_DIGIT;
+				*/
+			//else if (t != u)
+			//	t = U_MISC;
+			break;
+		case U_SYNBOL:
+			if (t == U_LATIN || t == U_DIGIT)
+			//if (t == U_LATIN || t == U_DIGIT || t == U_PUNC)
+			//if (t == U_LATIN || t == U_DIGIT || t == U_KATAKANA)
+				break;
+			/*
+			else if (t == U_HIRAGANA || t == U_KATAKANA || t == U_HANJI || t == U_HIRA_HANJI || t == U_HIRA_KATA || t == U_KATA_HANJI || t == U_HIRA_KATA_HANJI || t == U_KATA_OR_HIRA)
+				return 1;
+				*/
+			else if (t != u)
+				t = U_MISC;
+			break;
+		case U_PUNC:
+			if (t == U_LATIN || t == U_DIGIT || t == U_KATAKANA)
+				break;
+			else if (t != U_MISC)
+				t = U_PUNC;
 			break;
 		default:
-			if (t != u) {
+			if (t != U_PUNC && t != u) {
+			//if (t != u) {
 				t = U_MISC;
 			}
 
@@ -259,3 +330,66 @@ int clattice::_chsize(type& t, type& u) {
 			return C_MISC;
 	}
 }
+
+clattice2::clattice2(nio& f, int i, std::vector<int>& chsize) {
+	int head = f.head[i];
+	int tail = f.head[i+1];
+	vector<type> wt;
+	for (auto j = head; j < tail; ++j) {
+		wt.push_back(wordtype::get((*f.raw)[j]));
+	}
+	c.resize(wt.size());
+	k.resize(wt.size());
+	shared_ptr<cid> dic = cid::create();
+	for (auto j = 0; j < (int)wt.size(); ++j) {
+		chtype t = chunktype2::start(wt[j]);
+		for (auto k = j; k >= 0 && j-k < chsize[t]; --k) {
+			chunk ch(*f.raw, head+k, 1+j-k);
+			ch.id = (*dic)[ch];
+			ch.type = t;
+			c[j].push_back(ch);
+			t = chunktype2::transition(t, wt[k-1], wt[k]);
+			if (t < 0)
+				break;
+		}
+		k[j].resize(c[j].size());
+	}
+}
+
+clattice2::~clattice2() {
+}
+
+chunk& clattice2::ch(int i, int len) {
+	if (i < 0 || i >= (int)c.size())
+		return eos;
+	if (len-1 >= (int)c[i].size())
+		throw "invalid chunk size";
+	return c[i][len-1];
+}
+
+chunk* clattice2::cp(int i, int len) {
+	if (i < 0 || i >= (int)c.size())
+		return &eos;
+	if (len-1 >= (int)c[i].size())
+		throw "invalid chunk size";
+	return &c[i][len-1];
+}
+
+int clattice2::size(int i) {
+	if (i < 0 || i >= (int)c.size())
+		return 1;
+	return c[i].size();
+}
+
+vector<int>::iterator clattice2::begin(int i, int j) {
+	if (i < 0 || i >= (int)k.size())
+		return bos.begin();
+	return k[i][j].begin();
+}
+
+vector<int>::iterator clattice2::end(int i, int j) {
+	if (i < 0 || i >= (int)k.size())
+		return bos.end();
+	return k[i][j].end();
+}
+

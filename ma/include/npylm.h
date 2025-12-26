@@ -29,8 +29,12 @@ namespace npbnlp {
 			int _n;
 			std::shared_ptr<hpyp> _word;
 			std::shared_ptr<vpyp> _letter;	
-			virtual void _forward(lattice& l, int i, const context *c, word& w, word& p, vt& a, vt& b, int n, bool unk);
+			//double _prior;
+			//int _change;
+			//int _len;
+			virtual void _forward(lattice& l, int i, const context *c, /*double& prior,*/ word& w, word& p, vt& a, vt& b, int n, bool unk);
 			virtual void _backward(lattice& l, int i, const context *c, word& w, double& lp, vt& b, int n, bool unk);
+			//virtual void _type_prior(lattice& l);
 			std::mutex _mutex;
 	};
 }
