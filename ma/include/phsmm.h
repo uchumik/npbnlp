@@ -40,13 +40,19 @@ namespace npbnlp {
 			std::shared_ptr<hpyp> _pos;
 			std::shared_ptr<std::vector<std::shared_ptr<hpyp> > > _word;
 			std::shared_ptr<std::vector<std::shared_ptr<vpyp> > > _letter;
+			std::shared_ptr<std::vector<double > > _lprior;
+			std::shared_ptr<std::vector<double > > _cprior;
+			std::shared_ptr<std::vector<int> > _num;
+			std::shared_ptr<std::vector<int> > _change;
+			std::shared_ptr<std::vector<int> > _len;
 			std::mutex _mutex;
 
-			void _forward(lattice& l, int i, const context *c, const context *t, word& w, int p, word& prev, int q, vt& a, vt& b, int n, int m, bool unk, bool not_exist);
+			void _forward(lattice& l, int i, const context *c, const context *t, double& ln_prior, word& w, int p, word& prev, int q, vt& a, vt& b, int n, int m, bool unk, bool not_exist);
 			void _backward(lattice& l, int i, const context *c, const context *t, word& w, int p, word& prev, int q, double& lpr, vt& b, int n, int m, bool unk, bool not_exist);
 			void _slice(lattice& l);
 			void _resize();
 			void _shrink();
+			void _type_prior(lattice& l);
 	};
 }
 

@@ -43,16 +43,16 @@ namespace npbnlp {
 			std::shared_ptr<std::vector<std::shared_ptr<hpyp> > > _word;
 			std::shared_ptr<std::vector<std::shared_ptr<vpyp> > > _letter;
 			std::shared_ptr<std::vector<double> > _prior;
-			std::shared_ptr<std::vector<double> > _length;
-			std::shared_ptr<std::vector<double> > _num;
-			std::shared_ptr<std::vector<double> > _change;
-			std::shared_ptr<std::vector<double> > _clength;
+			std::shared_ptr<std::vector<int> > _length;
+			std::shared_ptr<std::vector<int> > _num;
+			std::shared_ptr<std::vector<int> > _change;
+			std::shared_ptr<std::vector<int> > _clength;
 			std::shared_ptr<std::vector<double> > _cprior;
 			std::mutex _mutex;
-			void _forward(clattice& l, int i, const context *c, const context *z, double& prior, chunk& ch, int k, chunk& prev, int q, vt& a, vt& b, int n, bool unk, bool not_exsit);
-			void _backward(clattice& l, int i, const context *c, const context *z, chunk& ch, int k, chunk& prev, int q, double& lpr, vt& b, int n, bool unk, bool not_exist);
-			void _slice(clattice& l);
-			void _length_prior(clattice& l);
+			void _forward(clattice2& l, int i, const context *c, const context *z, double& prior, chunk& ch, int k, chunk& prev, int q, vt& a, vt& b, int n, bool unk, bool not_exsit);
+			void _backward(clattice2& l, int i, const context *c, const context *z, chunk& ch, int k, chunk& prev, int q, double& lpr, vt& b, int n, bool unk, bool not_exist);
+			void _slice(clattice2& l);
+			void _length_prior(clattice2& l);
 			void _resize();
 			void _shrink();
 		private:

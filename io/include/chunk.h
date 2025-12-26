@@ -52,12 +52,25 @@ namespace npbnlp {
 	};
 	struct chash {
 		size_t operator() (const chunk& c) const {
+			size_t seed = c.len;
+			for (int i = 0; i < c.len; ++i) {
+				auto x = c[i];
+				x = ((x >> 16) ^ x) * 0x45d9f3b;
+				x = ((x >> 16) ^ x) * 0x45d9f3b;
+				x = (x >> 16) ^ x;
+				seed ^= x + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+			}
+			return seed;
+		}
+		/*
+		size_t operator() (const chunk& c) const {
 			size_t id = 19780211;
 			for (int i = 0; i < c.len; ++i)
 				id = id*37*c[i];
 				//id = id*37*c.wd(i).pos;
 			return id;
 		}
+		*/
 	};
 	struct ccmp {
 		bool operator() (const chunk& a, const chunk& b) const {
@@ -65,6 +78,7 @@ namespace npbnlp {
 				return false;
 			int i = 0;
 			for (; a[i] == b[i] && i < a.len; ++i);
+			//return true;
 			//for (; a.wd(i).pos == b.wd(i).pos && i < a.len; ++i);
 			return (i == a.len);
 		}
@@ -85,6 +99,8 @@ namespace npbnlp {
 			static std::mutex _mutex;
 			static std::shared_ptr<std::vector<word> > _word;
 			static std::shared_ptr<std::vector<unsigned int> > _letter;
+			static std::shared_ptr<std::vector<word> > _load_word;
+			static std::shared_ptr<std::vector<unsigned int> > _load_letter;
 			int _id;
 			cdic _index;
 			std::vector<int> _misn;

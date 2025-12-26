@@ -3,12 +3,20 @@
 #include"vtable.h"
 #include"rd.h"
 #include"wordtype.h"
+#include"chunktype.h"
 #include"negative_binomial.h"
 #ifdef _OPENMP
 #include<omp.h>
 #endif
 
 #define C 1
+#define A 1.
+#define B 1.
+#define CHUNK_CDF_TH 0.999
+#define L 50
+#define ZERO 1e-16
+#define LZERO log(ZERO)
+
 using namespace std;
 using namespace npbnlp;
 
@@ -16,20 +24,48 @@ static unordered_map<int, int> freq;
 static negative_binomial nb;
 
 //nnpylm::nnpylm(int n, npylm *lm): _n(n), _lm(lm), _chunk(new hpyp(_n)), _word(lm->_word), _letter(lm->_letter) {
-nnpylm::nnpylm(int n, int m, int l): _n(n),  _chunk(new hpyp(_n)), _word(new hpyp(m)), _letter(new vpyp(l)), _change(1), _len(1), _prior(1) {
+nnpylm::nnpylm(int n, int m, int l): _n(n),  _chunk(new hpyp(_n)), _word(new hpyp(m)), _letter(new vpyp(l)), _num(new vector<int>(chunktype2::n, 0)), _change(new vector<int>(chunktype2::n, 0)), _len(new vector<int>(chunktype2::n, 0)), _lprior(new vector<double>(chunktype2::n, 0)), _cprior(new vector<double>(chunktype2::n, 0)), _chsize(new vector<int>(chunktype2::n, 0)) {
 	_chunk->set_base(_word.get());
 	_word->set_base(_letter.get());
 	//_letter->set_v(C);
 	beta_distribution be;
-	_prior = 1.-be(_change, _len);
+	for (auto& p : *_lprior) {
+		p = 1.-be(A, B);
+	}
+	for (auto& p : *_cprior) {
+		p = 1.-be(A, B);
+	}
+	for (auto k = 0; k < chunktype2::n; ++k) {
+		double cdf = 0;
+		int l = 1;
+		for (; cdf < CHUNK_CDF_TH && l < L; ++l) {
+			cdf = nb.cdf((*_lprior)[k], 1, l-1);
+		}
+		(*_chsize)[k] = l;
+	}
+	//_prior = 1.-be(_change, _len);
 }
 
-nnpylm::nnpylm():_n(1), _chunk(new hpyp(_n)), _word(new hpyp(2)), _letter(new vpyp(10)) {
+nnpylm::nnpylm():_n(1), _chunk(new hpyp(_n)), _word(new hpyp(2)), _letter(new vpyp(10)), _num(new vector<int>(chunktype2::n, 0)), _change(new vector<int>(chunktype2::n, 0)), _len(new vector<int>(chunktype2::n, 0)), _lprior(new vector<double>(chunktype2::n, 0)), _cprior(new vector<double>(chunktype2::n, 0)), _chsize(new vector<int>(chunktype2::n, 0)) {
 	_chunk->set_base(_word.get());
 	_word->set_base(_letter.get());
 	//_letter->set_v(C);
 	beta_distribution be;
-	_prior = 1.-be(_change, _len);
+	for (auto& p : *_lprior) {
+		p = 1.-be(A, B);
+	}
+	for (auto& p : *_cprior) {
+		p = 1.-be(A, B);
+	}
+	for (auto k = 0; k < chunktype2::n; ++k) {
+		double cdf = 0;
+		int l = 1;
+		for (; cdf < CHUNK_CDF_TH && l < L; ++l) {
+			cdf = nb.cdf((*_lprior)[k], 1, l-1);
+		}
+		(*_chsize)[k] = l;
+	}
+	//_prior = 1.-be(_change, _len);
 }
 
 nnpylm::~nnpylm() {
@@ -46,17 +82,19 @@ void nnpylm::add(nsentence& s) {
 			c.id = (*dic)[c];
 		}
 		freq[c.id]++;
+		if (c.type < 0)
+			continue;
+		int change = 0;
+		type t = wordtype::get(c.wd(0));
 		for (auto j = 0; j < c.len; ++j) {
-			word& w = c.wd(j);
-			type t = chartype::get(w[0]);
-			_len += w.len;
-			for (auto k = 1; k < w.len; ++k) {
-				type u = chartype::get(w[k]);
-				if (t != u)
-					++_change;
-				t = u;
-			}
+			type u = wordtype::get(c.wd(j));
+			if (t != u)
+				++change;
+			t = u;
 		}
+		(*_num)[c.type] += c.len-1;
+		(*_len)[c.type] += c.len;
+		(*_change)[c.type] += change;
 	}
 	wrap::add_a(s, _chunk.get());
 }
@@ -71,17 +109,19 @@ void nnpylm::remove(nsentence& s) {
 			dic->remove(c);
 			freq.erase(c.id);
 		}
+		if (c.type < 0)
+			continue;
+		int change = 0;
+		type t = wordtype::get(c.wd(0));
 		for (auto j = 0; j < c.len; ++j) {
-			word& w = c.wd(j);
-			type t = chartype::get(w[0]);
-			_len -= w.len;
-			for (auto k = 1; k < w.len; ++k) {
-				type u = chartype::get(w[k]);
-				if (t != u)
-					--_change;
-				t = u;
-			}
+			type u = wordtype::get(c.wd(j));
+			if (t != u)
+				++change;
+			t = u;
 		}
+		(*_num)[c.type] -= c.len-1;
+		(*_len)[c.type] -= c.len;
+		(*_change)[c.type] -= change;
 	}
 	wrap::remove_a(s, _chunk.get());
 }
@@ -93,7 +133,19 @@ void nnpylm::estimate(int iter) {
 	_word->estimate(iter);
 	_letter->estimate(iter);
 	beta_distribution be;
-	_prior = 1.-be(_change, _len);
+	for (auto t = 0; t < chunktype2::n; ++t) {
+		(*_lprior)[t] = 1.-be(A+(*_num)[t], B+(*_len)[t]);
+		(*_cprior)[t] = 1.-be(A+(*_change)[t], B+(*_len)[t]);
+	}
+	//_prior = 1.-be(_change, _len);
+	for (auto k = 0; k < chunktype2::n; ++k) {
+		double cdf = 0;
+		int l = 1;
+		for (; cdf < CHUNK_CDF_TH && l < L; ++l) {
+			cdf = nb.cdf((*_lprior)[k], 1, l-1);
+		}
+		(*_chsize)[k] = l;
+	}
 }
 
 void nnpylm::poisson_correction(int n) {
@@ -125,7 +177,12 @@ void nnpylm::save(const char *file) {
 		_chunk->save(fp);
 		_word->save(fp);
 		_letter->save(fp);
-		if (fwrite(&_prior, sizeof(double), 1, fp) != 1)
+		int n = _lprior->size();
+		if (fwrite(&n, sizeof(int), 1, fp) != 1)
+			throw "failed to save prior class num in nnpylm::save";
+		if (fwrite(&_lprior, sizeof(double), n, fp) != n)
+			throw "failed to save type duration prior in nnpylm::save";
+		if (fwrite(&_cprior, sizeof(double), n, fp) != n)
 			throw "failed to save type change prior in nnpylm::save";
 	} catch (const char *ex) {
 		throw ex;
@@ -142,15 +199,28 @@ void nnpylm::load(const char *file) {
 		_word->load(fp);
 		_letter->load(fp);
 		_n = _chunk->n();
-		if (fread(&_prior, sizeof(double), 1, fp) != 1)
-			throw "failed to load type change prior in nnpylm::save";
+		int n = 0;
+		if (fread(&n, sizeof(int), 1, fp) != 1)
+			throw "failed to read prior class num in nnpylm::load";
+		if (fread(&_lprior, sizeof(double), n, fp) != n)
+			throw "failed to load type duration prior in nnpylm::load";
+		if (fread(&_cprior, sizeof(double), n, fp) != n)
+			throw "failed to load type change prior in nnpylm::load";
+		for (auto k = 0; k < chunktype2::n; ++k) {
+			double cdf = 0;
+			int l = 1;
+			for (; cdf < CHUNK_CDF_TH && l < L; ++l) {
+				cdf = nb.cdf((*_lprior)[k], 1, l-1);
+			}
+			(*_chsize)[k] = l;
+		}
 	} catch (const char *ex) {
 		throw ex;
 	}
 }
 
 nsentence nnpylm::sample(nio& f, int i) {
-	clattice l(f, i);
+	clattice2 l(f, i, *_chsize);
 	vt dp;
 	_type_prior(l);
 	for (auto t = 0; t < (int)l.c.size(); ++t) {
@@ -197,7 +267,7 @@ nsentence nnpylm::sample(nio& f, int i) {
 }
 
 nsentence nnpylm::parse(nio& f, int i) {
-	clattice l(f, i);
+	clattice2 l(f, i, *_chsize);
 	vt dp;
 	_type_prior(l);
 	for (auto t = 0; t < (int)l.c.size(); ++t) {
@@ -243,7 +313,7 @@ nsentence nnpylm::parse(nio& f, int i) {
 	return s;
 }
 
-void nnpylm::_forward(clattice& l, int i, const context *c, double& ln_prior, chunk& ch, chunk& p, vt& a, vt& b, int n, bool unk) {
+void nnpylm::_forward(clattice2& l, int i, const context *c, double& ln_prior, chunk& ch, chunk& p, vt& a, vt& b, int n, bool unk) {
 	if (n <= 1) {
 		a.v = math::lse(a.v, b.v+_chunk->lp(ch, c)+ln_prior, !a.is_init());
 		if (!a.is_init())
@@ -262,7 +332,7 @@ void nnpylm::_forward(clattice& l, int i, const context *c, double& ln_prior, ch
 	}
 }
 
-void nnpylm::_backward(clattice& l, int i, const context *c, chunk& ch, double& lpr, vt& b, int n, bool unk) {
+void nnpylm::_backward(clattice2& l, int i, const context *c, chunk& ch, double& lpr, vt& b, int n, bool unk) {
 	if (n <= 1) {
 		lpr = math::lse(lpr, b.v+_chunk->lp(ch, c), (lpr == 1.));
 	} else {
@@ -279,7 +349,7 @@ void nnpylm::_backward(clattice& l, int i, const context *c, chunk& ch, double& 
 	}
 }
 
-void nnpylm::_type_prior(clattice& l) {
+void nnpylm::_type_prior(clattice2& l) {
 	l.prior.resize(l.c.size());
 	for (auto t = 0; t < (int)l.c.size(); ++t) {
 		l.prior[t].resize(l.c[t].size(), 0);
@@ -287,18 +357,21 @@ void nnpylm::_type_prior(clattice& l) {
 			chunk& c = l.c[t][i];
 			int change = 0;
 			int len = 0;
+			type tp = wordtype::get(c.wd(0));
 			for (auto j = 0; j < c.len; ++j) {
-				word& w = c.wd(j);
-				type tp = chartype::get(w[0]);
-				len += w.len;
-				for (auto k = 1; k < w.len; ++k) {
-					type u = chartype::get(w[k]);
-					if (tp != u)
-						++change;
-					tp = u;
-				}
+				type u = wordtype::get(c.wd(j));
+				if (tp != u)
+					++change;
+				tp = u;
 			}
-			l.prior[t][i] = log(nb.density(_prior, len-change, change));
+			double pr_dur = max(ZERO, nb.density((*_lprior)[c.type], 1, c.len-1));
+			double pr_chg = max(ZERO, nb.density((*_cprior)[c.type], c.len-change, change));
+			l.prior[t][i] = log(pr_dur)+log(pr_chg);
+			//l.prior[t][i] = log(nb.density((*_lprior)[c.type], 1, c.len-1)) + log(nb.density((*_cprior)[c.type], c.len-change, change));
+			// duration only
+			//l.prior[t][i] = log(nb.density((*_lprior)[c.type], 1, c.len-1));
+			// type change only
+			//l.prior[t][i] = log(nb.density((*_cprior)[c.type], len-change, change));
 		}
 	}
 }

@@ -5,6 +5,8 @@
 #include"ihmm.h"
 #include"rd.h"
 #include"util.h"
+#include"cio.h"
+#include"chunktype.h"
 #include<getopt.h>
 #ifdef _OPENMP
 #include<omp.h>
@@ -13,7 +15,7 @@
 #define check(opt,arg) (strcmp(opt,arg) == 0)
 #define PBSTR "||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||"
 #define PBWIDTH 60
-#define NNPYLM_EPOCH 20
+#define NNPYLM_EPOCH 0
 
 using namespace std;
 using namespace npbnlp;
@@ -25,17 +27,24 @@ static int k = 10;
 static int K = 50;
 static int threads = 4;
 static int epoch = 500;
+static int pre_epoch = 20;
 static int dmp = 0;
 //static int tokenized = 0;
 static int vocab = 0;
 static double a = 1;
 static double b = 5;
+static string pretrain;
 static string train;
 static string test;
 static string model("nphsmm.model");
 static string cdic("ne.dic");
 static string tokenizer("phsmm.model");
 static string wdic("ma.dic");
+
+static unordered_map<string, int> pos_index;
+static int pos_id = 1;
+static unordered_map<string, int> label_index;
+static int label_id = 2;
 
 void progress(const char *s, int i, double pct) {
 	int val = (int) (pct * 100);
@@ -61,12 +70,15 @@ void usage(int argc, char **argv) {
 	//cout << "--tokenized=bool(default 0)\n";
 	cout << "-a double(default 1), parameter of beta distribution for slice" << endl;
 	cout << "-b double(default 5), parameter of beta distribution for slice" << endl;
+	cout << "--pretrain =file(use as pretraining dataset in training\n";
 	exit(1);
 }
 
 int read_long_param(const char *opt, const char *arg) {
 	if (check(opt, "train")) {
 		train = arg;
+	} else if (check(opt, "pretrain")) {
+		pretrain = arg;
 	} else if (check(opt, "parse")) {
 		test = arg;
 	} else if (check(opt, "model")) {
@@ -111,6 +123,7 @@ int read_param(int argc, char **argv) {
 		{
 			{"train", required_argument, 0, 0},
 			{"parse", required_argument, 0, 0},
+			{"pretrain", required_argument, 0, 0},
 			{"cdic", required_argument, 0, 0},
 			{"wdic", required_argument, 0, 0},
 			{"model", required_argument, 0, 0},
@@ -221,11 +234,52 @@ int tokenize(io& f, vector<sentence>& c) {
 	return 0;
 }
 
-int init(nio& f, vector<nsentence>& corpus) {
+int nphsmm_pretrain(nphsmm& lm, vector<nsentence>& corpus) {
+	int n = corpus.size();
+	for (auto i = 0; i < pre_epoch; ++i) {
+		vector<int> rd(n, 0);
+		rd::shuffle(rd.data(), n);
+		for (auto j = 0; j < n; ++j) {
+			if (i > 0)
+				lm.remove(corpus[rd[j]]);
+			lm.add(corpus[rd[j]]);
+		}
+		lm.estimate(20);
+		progress("pretrain nphsmm", i, (double)(i+1)/pre_epoch);
+	}
+	int rpad = 2*PBWIDTH;
+	printf("\r%*s", rpad,"");
+	return 0;
+}
+
+int nnpy_pretrain(nnpylm& lm, vector<nsentence>& corpus) {
+	// pretraining
+	int n = corpus.size();
+	for (auto i = 0; i < pre_epoch; ++i) {
+		vector<int> rd(n, 0);
+		rd::shuffle(rd.data(), n);
+		for (auto j = 0; j < n; ++j) {
+			if (i > 0)
+				lm.remove(corpus[rd[j]]);
+			lm.add(corpus[rd[j]]);
+		}
+		lm.estimate(20);
+		progress("pretrain nnpylm", i, (double)(i+1)/pre_epoch);
+	}
+	int rpad = 2*PBWIDTH;
+	printf("\r%*s", rpad,"");
+	return 0;
+}
+
+int init(nio& f, vector<nsentence>& corpus, vector<nsentence>& supervised) {
 	nnpylm chunker(n, m, l);
+	/*
 	if (corpus.size() < f.head.size()-1) {
 		corpus.resize(f.head.size()-1);
 	}
+	*/
+	if (!supervised.empty())
+		nnpy_pretrain(chunker, supervised);
 #ifdef _OPENMP
 	omp_set_num_threads(threads);
 #endif
@@ -244,24 +298,28 @@ int init(nio& f, vector<nsentence>& corpus) {
 #ifdef _OPENMP
 #pragma omp parallel
 			{
-				auto t = omp_get_thread_num();
-				if (j+t < (int)corpus.size()) {
-					try {
-						nsentence s  = chunker.sample(f, rd[j+t]);
-						corpus[rd[j+t]] = s;
-					} catch (const char *ex) {
-						cerr << ex << endl;
+				if (i > 0) {
+					auto t = omp_get_thread_num();
+					if (j+t < (int)corpus.size()) {
+						try {
+							nsentence s  = chunker.sample(f, rd[j+t]);
+							corpus[rd[j+t]] = s;
+						} catch (const char *ex) {
+							cerr << ex << endl;
+						}
 					}
 				}
 			}
 #else
-			for (auto t = 0; t < threads; ++t) {
-				if (j+t < (int)corpus.size()) {
-					try {
-						nsentence s = chunker.sample(f, rd[j+t]);
-						corpus[rd[j+t]] = s;
-					} catch (const char *ex) {
-						cerr << ex << endl;
+			if (i > 0) {
+				for (auto t = 0; t < threads; ++t) {
+					if (j+t < (int)corpus.size()) {
+						try {
+							nsentence s = chunker.sample(f, rd[j+t]);
+							corpus[rd[j+t]] = s;
+						} catch (const char *ex) {
+							cerr << ex << endl;
+						}
 					}
 				}
 			}
@@ -278,29 +336,44 @@ int init(nio& f, vector<nsentence>& corpus) {
 			progress("init", i, (double)(i+1)/NNPYLM_EPOCH);
 		}
 		chunker.estimate(20);
-		if (i)
-			chunker.poisson_correction(5000);
+		/*
+		   if (i)
+		   chunker.poisson_correction(5000);
+		   */
 	}
 	int rpad = 2*PBWIDTH;
 	printf("\r%*s", rpad, "");
+	/*
+	   shared_ptr<cid> d = cid::create();
+	   d->save(cdic.c_str());
+	   */
 	return 0;
 }
 
-int mcmc(nio& f, vector<nsentence>& corpus) {
+int mcmc(nio& f, vector<nsentence>& corpus, vector<nsentence>& supervised) {
 	nphsmm lm(n, m, l, k);
 	//lm.set(vocab, K);
+	if (!pretrain.empty()) {
+		if (K < label_id) {
+			K = label_id;
+		}
+	}
 	lm.set_k(K);
 	lm.slice(a, b);
 #ifdef _OPENMP
 	omp_set_num_threads(threads);
 #endif
+	//shared_ptr<cid> d = cid::create();
+	//d->load(cdic.c_str());
 	vector<int> rid(corpus.size(), 0);
 	//int rid[corpus.size()] = {0};
+	/*
 	rd::shuffle(rid.data(), corpus.size());
 	for (auto i = 0; i < (int)corpus.size(); ++i)
 		lm.init(corpus[rid[i]]);
 	lm.estimate(20);
-	lm.poisson_correction(100);
+	*/
+	//lm.poisson_correction(100);
 	for (auto i = 0; i < epoch; ++i) {
 		vector<int> rd(corpus.size(), 0);
 		//int rd[corpus.size()] = {0};
@@ -349,7 +422,7 @@ int mcmc(nio& f, vector<nsentence>& corpus) {
 			progress("epoch",i, (double)(j+1)/corpus.size());
 		}
 		lm.estimate(20);
-		lm.poisson_correction(5000);
+		//lm.poisson_correction(5000);
 		if (dmp && (i+1)%dmp == 0) {
 			cout << endl;
 			for (auto s = corpus.begin(); s != corpus.end(); ++s)
@@ -370,6 +443,7 @@ int parse(nio& f) {
 	try {
 		lm.load(model.c_str());
 		//lm.set(vocab, K);
+		lm.slice(a, b);
 	} catch (const char *ex) {
 		throw ex;
 	}
@@ -387,17 +461,131 @@ int parse(nio& f) {
 	return 0;
 }
 
+int chunking(vector<vector<word> >& supervised, vector<vector<string> >& labels, vector<nsentence>& corpus) {
+	for (auto i = 0; i < (int)supervised.size(); ++i) {
+		int chunk_head = 0;
+		int chunk_len = 0;
+		int chunk_k = 0;
+		nsentence s;
+		for (auto j = 0; j < (int)supervised[i].size(); ++j) {
+			string& label = labels[i][j];
+			if (label[0] == 'B') {
+				string ne(label, 2, string::npos);
+				if (label_index.find(ne) == label_index.end()) {
+					label_index[ne] = label_id++;
+				}
+				chunk_head = j;
+				chunk_len = 1;
+				chunk_k = label_index[ne];
+			} else if (label[0] == 'I') {
+				chunk_len++;
+			} else if (label[0] == 'O') {
+				if (chunk_len > 0) {
+					chunk c(supervised[i], chunk_head, chunk_len);
+					c.k = chunk_k;
+					c.type = chunktype::get(c);
+					s.c.emplace_back(c);
+				}
+				chunk_head = j;
+				chunk_len = 1;
+				chunk_k = 1;
+			}
+		}
+		chunk c(supervised[i], chunk_head, chunk_len);
+		c.k = chunk_k;
+		c.type = chunktype::get(c);
+		s.c.emplace_back(c);
+		s.n.resize(s.c.size()+1, 0);
+		corpus.emplace_back(s);
+	}
+	return 0;
+}
+
+int load_label(cio& file, vector<vector<word> >& corpus, vector<vector<string> >& labels) {
+	int size = file.chunk->size();
+	shared_ptr<wid> dic = wid::create();
+	for (auto i = 0; i < size; ++i) {
+		io& f = (*file.chunk)[i];
+		vector<word> s;
+		vector<string> lb;
+		for (auto j = 0; j < (int)f.head.size()-1; ++j) {
+			int head = f.head[j];
+			int tail = f.head[j+1];
+			word w(*f.raw);
+			w.head = head;
+			int p = util::find(9, *f.raw, head, tail);
+			w.len = p - head;
+			w.id = dic->index(w);
+			int y = util::find(9, *f.raw, p+1, tail);
+			string pos;
+			for (auto k = p+1; k < y; ++k) {
+				char buf[5] = {0};
+				io::i2c((*f.raw)[k], buf);
+				pos += buf;
+			}
+			if (pos_index.find(pos) == pos_index.end()) {
+				pos_index[pos] = pos_id++;
+			}
+			w.pos = pos_index[pos];
+			w.m.resize(w.len+1, 0);
+			s.emplace_back(w);
+			int l = util::find(9, *f.raw, y+1, tail);
+			string pron;
+			for (auto k = y+1; k < l; ++k) {
+				char buf[5] = {0};
+				io::i2c((*f.raw)[k], buf);
+				pron += buf;
+			}
+			string label;
+			for (auto k = l+1; k < tail; ++k) {
+				char buf[5] = {0};
+				io::i2c((*f.raw)[k], buf);
+				label += buf;
+			}
+			lb.emplace_back(label);
+		}
+		corpus.emplace_back(s);
+		labels.emplace_back(lb);
+	}
+	return 0;
+}
+
+int init_corpus(nio& f, vector<nsentence>& corpus) {
+	for (auto i = 0; i < (int)f.head.size()-1; ++i) {
+		nsentence s;
+		chunk c(*f.raw, f.head[i], f.head[i+1]-f.head[i]);
+		c.k = 1;
+		c.type = chunktype::get(c);
+		s.c.emplace_back(c);
+		s.n.resize(s.c.size()+1, 0);
+		corpus.emplace_back(s);
+	}
+	return 0;
+}
+
 int main(int argc, char **argv) {
 	try {
 		read_param(argc, argv);
 		if (!train.empty()) {
 			io g(train.c_str());
+			cio *p = NULL;
+			vector<vector<word> > words;
+			vector<vector<string> > labels;
+			if (!pretrain.empty()) {
+				p = new cio(pretrain.c_str());
+				load_label(*p, words, labels);
+			}
+			vector<nsentence> supervised;
+			chunking(words, labels, supervised);
 			vector<sentence> ws;
 			tokenize(g, ws);
 			nio f(ws);
-			vector<nsentence> corpus(f.head.size()-1);
-			init(f, corpus);
-			mcmc(f, corpus);
+			vector<nsentence> corpus;
+			init_corpus(f, corpus);
+			//vector<nsentence> corpus(f.head.size()-1);
+			init(f, corpus, supervised);
+			mcmc(f, corpus, supervised);
+			delete p;
 		}
 		if (!test.empty()) {
 			io g(test.c_str());
