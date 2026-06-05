@@ -142,7 +142,12 @@ void usbd_w::_estimate_gen_cr_prior(cio& corpus, vector<vector<int> >& boundarie
 	}
 	for (auto i = 0; i < (int)corpus.chunk->size(); ++i) {
 		io& doc = (*corpus.chunk)[i];
-		b += doc.raw->size();
+		// general_prior is a per-word-boundary Bernoulli prob, applied per word
+		// in _cumurative/_eos. The denominator must therefore be the number of
+		// word positions (trials), not the character count, or the estimate is
+		// underestimated by ~avg word length and drives under-segmentation.
+		sentence s = _load_sentence(doc, false);
+		b += s.size();
 		int match = 0;
 		int j = 0, k = 0;
 		while (1) {
