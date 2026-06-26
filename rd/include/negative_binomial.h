@@ -20,6 +20,7 @@ namespace npbnlp {
 			negative_binomial();
 			virtual ~negative_binomial();
 			double density(double p, int x, int y);
+			double cdf(double p, int x, int y);
 		private:
 			int combination(int x, int y);
 	};

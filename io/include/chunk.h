@@ -36,10 +36,12 @@ namespace npbnlp {
 						io::i2c(w[j], buf);
 						os << buf;
 					}
+					/*
 					if (i < c.len-1)
 						os << " ";
+						*/
 				}
-				os << ":" << c.type;
+				//os << ":" << c.type;
 				if (c.id > 0)
 					os << ":" << c.id;
 				if (c.k > 0)

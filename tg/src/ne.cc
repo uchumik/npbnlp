@@ -28,11 +28,13 @@ static int K = 50;
 static int threads = 4;
 static int epoch = 500;
 static int pre_epoch = 20;
+static int snap = 5;
 static int dmp = 0;
 //static int tokenized = 0;
 static int vocab = 0;
 static double a = 1;
 static double b = 5;
+static string prefix("nphsmm");
 static string pretrain;
 static string train;
 static string test;
@@ -68,9 +70,10 @@ void usage(int argc, char **argv) {
 	cout << "-t, --threads=int(default 4)\n";
 	cout << "-v, --vocab=int(means letter variations. default 0: train from data)\n";
 	//cout << "--tokenized=bool(default 0)\n";
-	cout << "-a double(default 1), parameter of beta distribution for slice" << endl;
-	cout << "-b double(default 5), parameter of beta distribution for slice" << endl;
-	cout << "--pretrain =file(use as pretraining dataset in training\n";
+	cout << "-a double(default 1), parameter of beta distribution for slice\n";
+	cout << "-b double(default 5), parameter of beta distribution for slice\n";
+	cout << "--pretrain=file(use as pretraining dataset in training\n";
+	cout << "--prefix=str(use as prefix for saving snapshot of model\n";
 	exit(1);
 }
 
@@ -79,6 +82,8 @@ int read_long_param(const char *opt, const char *arg) {
 		train = arg;
 	} else if (check(opt, "pretrain")) {
 		pretrain = arg;
+	} else if (check(opt, "prefix")) {
+		prefix = arg;
 	} else if (check(opt, "parse")) {
 		test = arg;
 	} else if (check(opt, "model")) {
@@ -124,6 +129,7 @@ int read_param(int argc, char **argv) {
 			{"train", required_argument, 0, 0},
 			{"parse", required_argument, 0, 0},
 			{"pretrain", required_argument, 0, 0},
+			{"prefix", required_argument, 0, 0},
 			{"cdic", required_argument, 0, 0},
 			{"wdic", required_argument, 0, 0},
 			{"model", required_argument, 0, 0},
@@ -350,6 +356,17 @@ int init(nio& f, vector<nsentence>& corpus, vector<nsentence>& supervised) {
 	return 0;
 }
 
+int snapshot(nphsmm& model, int iter) {
+	char mfile[512] = {};
+	char dfile[512] = {};
+	sprintf(mfile, "%s_iter%03d.model", prefix.c_str(), iter);
+	sprintf(dfile, "%s_iter%03d.dic", prefix.c_str(), iter);
+	model.save(mfile);
+	shared_ptr<cid> d = cid::create();
+	d->save(dfile);
+	return 0;
+}
+
 int mcmc(nio& f, vector<nsentence>& corpus, vector<nsentence>& supervised) {
 	nphsmm lm(n, m, l, k);
 	//lm.set(vocab, K);
@@ -360,6 +377,8 @@ int mcmc(nio& f, vector<nsentence>& corpus, vector<nsentence>& supervised) {
 	}
 	lm.set_k(K);
 	lm.slice(a, b);
+	if (!supervised.empty())
+		nphsmm_pretrain(lm, supervised);
 #ifdef _OPENMP
 	omp_set_num_threads(threads);
 #endif
@@ -428,6 +447,9 @@ int mcmc(nio& f, vector<nsentence>& corpus, vector<nsentence>& supervised) {
 			for (auto s = corpus.begin(); s != corpus.end(); ++s)
 				dump(*s);
 		}
+		if ((i+1)%snap == 0) {
+			snapshot(lm, i);
+		}
 	}
 	cout << endl;
 	lm.save(model.c_str());
@@ -480,15 +502,23 @@ int chunking(vector<vector<word> >& supervised, vector<vector<string> >& labels,
 			} else if (label[0] == 'I') {
 				chunk_len++;
 			} else if (label[0] == 'O') {
-				if (chunk_len > 0) {
+			//} else { // if (label[0] == 'O') {
+				//if (chunk_len > 0) {
+				if (chunk_len > 0 && chunk_k > 1) { // for partial annotation
 					chunk c(supervised[i], chunk_head, chunk_len);
 					c.k = chunk_k;
 					c.type = chunktype::get(c);
 					s.c.emplace_back(c);
 				}
+			/*
+				if (label_index.find(label) == label_index.end()) {
+					label_index[label] = label_id++;
+				}
+				*/
 				chunk_head = j;
 				chunk_len = 1;
 				chunk_k = 1;
+				//chunk_k = label_index[label];
 			}
 		}
 		chunk c(supervised[i], chunk_head, chunk_len);
@@ -542,7 +572,11 @@ int load_label(cio& file, vector<vector<word> >& corpus, vector<vector<string> >
 				io::i2c((*f.raw)[k], buf);
 				label += buf;
 			}
-			lb.emplace_back(label);
+			//if (label[0] == 'O') {
+			//	lb.emplace_back(pos);
+			//} else {
+				lb.emplace_back(label);
+			//}
 		}
 		corpus.emplace_back(s);
 		labels.emplace_back(lb);
@@ -583,7 +617,7 @@ int main(int argc, char **argv) {
 			vector<nsentence> corpus;
 			init_corpus(f, corpus);
 			//vector<nsentence> corpus(f.head.size()-1);
-			init(f, corpus, supervised);
+			//init(f, corpus, supervised);
 			mcmc(f, corpus, supervised);
 			delete p;
 		}

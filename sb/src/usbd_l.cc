@@ -531,12 +531,29 @@ void usbd_l::eval(cio& target, cio& correct, vector<double>& c) {
 		while (1) {
 			if ((*correct.chunk)[i].head[j] == (*target.chunk)[i].head[k]) {
 				++tp, ++j, ++k;
-			} else if ((*correct.chunk)[i].head[j] > (*target.chunk)[i].head[k]) {
-				++j;
-				++fn;
 			} else if ((*correct.chunk)[i].head[j] < (*target.chunk)[i].head[k]) {
-				++k;
+				++j; // correct boundary missing in target -> false negative
+				++fn;
+			} else {
+				++k; // spurious boundary in target -> false positive
 				++fp;
+			}
+			if (j >= (int)(*correct.chunk)[i].head.size() && k < (int)(*target.chunk)[i].head.size()) {
+				int last = (*correct.chunk)[i].head[(*correct.chunk)[i].head.size()-1];
+				for (; k < (int)(*target.chunk)[i].head.size(); ++k) {
+					if ((*target.chunk)[i].head[k] == last)
+						++tp;
+					else
+						++fp;
+				}
+			} else if (j < (int)(*correct.chunk)[i].head.size() && k >= (int)(*target.chunk)[i].head.size()) {
+				int last = (*target.chunk)[i].head[(*target.chunk)[i].head.size()-1];
+				for (; j < (int)(*correct.chunk)[i].head.size(); ++j) {
+					if ((*correct.chunk)[i].head[j] == last)
+						++tp;
+					else
+						++fn;
+				}
 			}
 			if (j >= (int)(*correct.chunk)[i].head.size() && k >= (int)(*target.chunk)[i].head.size())
 				break;

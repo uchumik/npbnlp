@@ -24,7 +24,8 @@ namespace npbnlp {
 				rd::shuffle(rd, c.len+1);
 				for (int i = 0; i < c.len+1; ++i) {
 					context *h = lm->make(c, rd[i]);
-					lm->add(c[rd[i]], h);
+					//lm->add(c[rd[i]], h);
+					lm->add(c.wd(rd[i]), h);
 				}
 			}
 			static void add(word& w, hpyp *lm) {
@@ -40,7 +41,8 @@ namespace npbnlp {
 				rd::shuffle(rd, c.len+1);
 				for (int i = 0; i < c.len+1; ++i) {
 					context *h = lm->make(c, rd[i]);
-					lm->add(c[rd[i]], h);
+					//lm->add(c[rd[i]], h);
+					lm->add(c.wd(rd[i]), h);
 				}
 			}
 			static void remove_h(word& w, hdp *lm) {
@@ -52,7 +54,8 @@ namespace npbnlp {
 			static void remove_h(chunk& c, hdp *lm) {
 				for (int i = 0; i < c.len+1; ++i) {
 					context *h = lm->find(c, i);
-					lm->remove(c[i], h);
+					//lm->remove(c[i], h);
+					lm->remove(c.wd(i), h);
 				}
 			}
 			static void remove(word& w, hpyp *lm) {
@@ -64,7 +67,8 @@ namespace npbnlp {
 			static void remove(chunk& c, hpyp *lm) {
 				for (int i = 0; i < c.len+1; ++i) {
 					context *h = lm->find(c, i);
-					lm->remove(c[i], h);
+					//lm->remove(c[i], h);
+					lm->remove(c.wd(i), h);
 				}
 			}
 			static void add_h(sentence& s, hdp *lm) {
@@ -139,7 +143,8 @@ namespace npbnlp {
 				for (int i = 0; i < c.len+1; ++i) {
 					int n = lm->draw_n(c, rd[i]);
 					context *h = lm->make(c, rd[i], n);
-					lm->add(c[rd[i]], h);
+					//lm->add(c[rd[i]], h);
+					lm->add(c.wd(rd[i]), h);
 					c.n[rd[i]] = n;
 				}
 			}
@@ -154,7 +159,8 @@ namespace npbnlp {
 				for (int i = 0; i < c.len+1; ++i) {
 					int n = c.n[i];
 					context *h = lm->find(c, i, n);
-					lm->remove(c[i], h);
+					//lm->remove(c[i], h);
+					lm->remove(c.wd(i), h);
 				}
 			}
 			static void add_v(sentence& s, hpyp *lm) {

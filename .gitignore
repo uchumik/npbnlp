@@ -30,3 +30,16 @@
 *.exe
 *.out
 *.app
+
+# Claude Code personal config
+CLAUDE.local.md
+
+# Bluesky training data and derived models
+bluesky_english.txt
+bluesky_en.model
+bluesky_en.dic
+bluesky_en.model.lm
+bluesky_en.model.lm.nz
+bsky_thai_*
+bsky_zh_*
+exp_cjk_sbd/
