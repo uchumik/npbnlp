@@ -72,7 +72,7 @@ hpy::hpy(const hpy& lm) {
 	_v = lm._v;
 	_base = lm._base;
 	_discount = lm._discount;
-	_strength = lm._discount;
+	_strength = lm._strength;
 	//_nc = lm._nc;
 	_nz = lm._nz;
 }
@@ -82,7 +82,7 @@ hpy& hpy::operator=(const hpy& lm) {
 	_v = lm._v;
 	_base = lm._base;
 	_discount = lm._discount;
-	_strength = lm._discount;
+	_strength = lm._strength;
 	//_nc = lm._nc;
 	_nz = lm._nz;
 	return *this;
@@ -543,6 +543,19 @@ int hpy::save(const char *file) {
 		return 1;
 	if (fwrite(&_v, sizeof(int), 1, fp) != 1)
 		return 1;
+	// persist the estimated HPYLM hyperparameters (per-depth discount/strength);
+	// without these a reloaded model falls back to the constructor defaults and
+	// produces a different segmentation (see hpy::estimate).
+	int dsz = (int)_discount->size();
+	if (fwrite(&dsz, sizeof(int), 1, fp) != 1)
+		return 1;
+	if (dsz && fwrite(_discount->data(), sizeof(double), dsz, fp) != (size_t)dsz)
+		return 1;
+	int ssz = (int)_strength->size();
+	if (fwrite(&ssz, sizeof(int), 1, fp) != 1)
+		return 1;
+	if (ssz && fwrite(_strength->data(), sizeof(double), ssz, fp) != (size_t)ssz)
+		return 1;
 	fclose(fp);
 	//string nc(file);
 	//nc += ".nc";
@@ -561,6 +574,19 @@ int hpy::load(const char *file) {
 	if (fread(&_n, sizeof(int), 1, fp) != 1)
 		return 1;
 	if (fread(&_v, sizeof(int), 1, fp) != 1)
+		return 1;
+	// restore the estimated HPYLM hyperparameters written by hpy::save.
+	int dsz = 0;
+	if (fread(&dsz, sizeof(int), 1, fp) != 1)
+		return 1;
+	_discount = shared_ptr<vector<double> >(new vector<double>(dsz));
+	if (dsz && fread(_discount->data(), sizeof(double), dsz, fp) != (size_t)dsz)
+		return 1;
+	int ssz = 0;
+	if (fread(&ssz, sizeof(int), 1, fp) != 1)
+		return 1;
+	_strength = shared_ptr<vector<double> >(new vector<double>(ssz));
+	if (ssz && fread(_strength->data(), sizeof(double), ssz, fp) != (size_t)ssz)
 		return 1;
 	fclose(fp);
 	//string nc(file);

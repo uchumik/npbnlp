@@ -1,7 +1,10 @@
 #include<getopt.h>
 #include<cstdlib>
 #include<cstdio>
-#include"phsmm.h" #include"nnpylm.h" #include"chunktype.h" #include"ihmm.h"
+#include"phsmm.h"
+#include"nnpylm.h"
+#include"chunktype.h"
+#include"ihmm.h"
 #include"util.h"
 #include"rd.h"
 #include"cio.h"

@@ -15,7 +15,7 @@
 #define K 20
 #define A 1.
 #define B 2.
-#define L 20
+#define L 50
 #define ZERO 1e-16
 #define CHUNK_CDF_TH 0.999
 using namespace std;

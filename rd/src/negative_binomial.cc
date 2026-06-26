@@ -15,6 +15,8 @@ negative_binomial::~negative_binomial() {
 }
 
 double negative_binomial::density(double p, int x, int y) {
+	if (x <= 0)
+		return 0;
 	auto it = nb_lookup->find(make_pair(x, y));
 	int cmb = 0;
 	if (it != nb_lookup->end()) {
@@ -31,6 +33,15 @@ double negative_binomial::density(double p, int x, int y) {
 		d *= (1.-p);
 	}
 	return d*cmb;
+}
+
+double negative_binomial::cdf(double p, int x, int y) {
+	double cdf = 0;
+	if (y < 0)
+		return cdf;
+	for (auto k = 0; k <= y; ++k)
+		cdf += density(p, x, k);
+	return cdf;
 }
 
 int negative_binomial::combination(int x, int y) {

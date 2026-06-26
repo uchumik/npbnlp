@@ -1,5 +1,6 @@
 #include"usbd_l.h"
 #include"usbd_w.h"
+#include"usbd_lstm.h"
 
 using namespace std;
 using namespace npbnlp;
@@ -17,6 +18,9 @@ bool bd_wrap::create(int n, sequence_type type, smoothing s) {
 			return true;
 		case sequence_type::letter:
 			_d = shared_ptr<usbd>(new usbd_l(n, s));
+			return true;
+		case sequence_type::lstm:
+			_d = shared_ptr<usbd>(new usbd_lstm());
 			return true;
 		default:
 			return false;
