@@ -97,6 +97,16 @@ void bd_wrap::estimate_prior(cio& c, vector<vector<int> >& bd) {
 		_d->estimate_prior(c, bd);
 }
 
+void bd_wrap::enable_duration(double a0, double b0, double alpha, double beta) {
+	if (_d)
+		_d->enable_duration(a0, b0, alpha, beta);
+}
+
+void bd_wrap::estimate_duration(vector<vector<int> >& bd) {
+	if (_d)
+		_d->estimate_duration(bd);
+}
+
 void bd_wrap::eval(cio& c, cio& t, vector<double>& score) {
 	if (_d)
 		_d->eval(c, t, score);

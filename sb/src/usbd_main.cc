@@ -40,6 +40,9 @@ static int dmp = 0;
 static int f_set_default_prior = 0;
 static int f_set_cr_prior = 0;
 static int f_set_punc_prior = 0;
+static int f_duration = 0;
+static int f_dur_warmup = 5; // enable NB duration only after this many epochs (warm-start)
+static double dur_a0 = 1, dur_b0 = 1, dur_alpha = 1, dur_beta = 1; // duration hyperpriors
 
 void progress(int i, double pct) {
 	int val = (int) (pct * 100);
@@ -139,6 +142,24 @@ int read_long_param(const char *opt, const char *arg) {
 		pnc_prior = atof(arg);
 		f_set_punc_prior = 1;
 		return 0;
+	} else if (check(opt, "duration")) {
+		f_duration = atoi(arg);
+		return 0;
+	} else if (check(opt, "dur_warmup")) {
+		f_dur_warmup = atoi(arg);
+		return 0;
+	} else if (check(opt, "dur_a0")) {
+		dur_a0 = atof(arg);
+		return 0;
+	} else if (check(opt, "dur_b0")) {
+		dur_b0 = atof(arg);
+		return 0;
+	} else if (check(opt, "dur_alpha")) {
+		dur_alpha = atof(arg);
+		return 0;
+	} else if (check(opt, "dur_beta")) {
+		dur_beta = atof(arg);
+		return 0;
 	} else {
 		return 1;
 	}
@@ -169,6 +190,12 @@ int read_param(int argc, char **argv) {
 			{"default_prior", required_argument, 0, 0},
 			{"cr_prior", required_argument, 0, 0},
 			{"punc_prior", required_argument, 0, 0},
+			{"duration", required_argument, 0, 0},
+			{"dur_warmup", required_argument, 0, 0},
+			{"dur_a0", required_argument, 0, 0},
+			{"dur_b0", required_argument, 0, 0},
+			{"dur_alpha", required_argument, 0, 0},
+			{"dur_beta", required_argument, 0, 0},
 			{0, 0, 0, 0}
 		};
 		int option_index = 0;
@@ -301,6 +328,8 @@ void mcmc() {
 		bd.set_cr_prior(cr_prior);
 	if (f_set_punc_prior)
 		bd.set_punc_prior(pnc_prior);
+	// duration is warm-started inside the epoch loop (see f_dur_warmup), not here,
+	// so the LM-driven sampler can first establish sensible segment lengths.
 	if (type == sequence_type::lstm)
 		bd.init(file, 100);
 	io *pre = NULL;
@@ -352,6 +381,10 @@ void mcmc() {
 		}
 		bd.estimate_lm_hyper(20);
 		bd.estimate_prior(file, boundaries);
+		if (f_duration && i == f_dur_warmup)
+			bd.enable_duration(dur_a0, dur_b0, dur_alpha, dur_beta);
+		if (f_duration && i >= f_dur_warmup)
+			bd.estimate_duration(boundaries);
 		if (!valid.empty()) {
 			cio t(valid.c_str());
 #pragma omp parallel for
@@ -393,6 +426,10 @@ void mcmc() {
 		}
 		bd.estimate_lm_hyper(20);
 		bd.estimate_prior(file, boundaries);
+		if (f_duration && i == f_dur_warmup)
+			bd.enable_duration(dur_a0, dur_b0, dur_alpha, dur_beta);
+		if (f_duration && i >= f_dur_warmup)
+			bd.estimate_duration(boundaries);
 		if (!valid.empty()) {
 			cio t(valid.c_str());
 			for (auto k = 0; k < (int)t.chunk->size(); ++k) {

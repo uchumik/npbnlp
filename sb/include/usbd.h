@@ -32,6 +32,10 @@ namespace npbnlp {
 			virtual void remove(io& f, std::vector<int>& head) = 0;
 			virtual void estimate_lm_hyper(int iter) = 0;
 			virtual void estimate_prior(cio& c, std::vector<std::vector<int> >& boundaries) = 0;
+			// optional negative-binomial sentence-length (duration) prior; default no-op
+			// so word/lstm detectors need no change. usbd_l overrides.
+			virtual void enable_duration(double a0, double b0, double alpha, double beta) {}
+			virtual void estimate_duration(std::vector<std::vector<int> >& boundaries) {}
 			virtual void save(const char *file) = 0;
 			virtual void load(const char *file) = 0;
 			virtual void sample(io& f, std::vector<int>& b) = 0;
@@ -58,6 +62,8 @@ namespace npbnlp {
 			virtual void remove(io& f, std::vector<int>& head);
 			virtual void estimate_lm_hyper(int iter = 20);
 			virtual void estimate_prior(cio& c, std::vector<std::vector<int> >& boundaries);
+			virtual void enable_duration(double a0, double b0, double alpha, double beta);
+			virtual void estimate_duration(std::vector<std::vector<int> >& boundaries);
 			virtual void sample(io& f, std::vector<int>& b);
 			virtual void parse(io& f, std::vector<int>& b);
 			virtual void eval(cio& target, cio& correct, std::vector<double>& c);

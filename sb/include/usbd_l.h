@@ -28,6 +28,8 @@ namespace npbnlp {
 			virtual void remove(io& f, std::vector<int>& head);
 			virtual void estimate_lm_hyper(int iter);
 			virtual void estimate_prior(cio& c, std::vector<std::vector<int> >& boundaries);
+			virtual void enable_duration(double a0, double b0, double alpha, double beta);
+			virtual void estimate_duration(std::vector<std::vector<int> >& boundaries);
 			virtual void eval(cio& c, cio& t, std::vector<double>& score);
 			virtual void save(const char *file);
 			virtual void load(const char *file);
@@ -46,6 +48,17 @@ namespace npbnlp {
 			double _general_prior;
 			double _cr_prior;
 			double _pnc_prior;
+			// explicit negative-binomial sentence-length (duration) prior.
+			// model: (L-1) ~ NB(_dur_r, _dur_p) so P(L)=C(L-2+r,L-1) p^r (1-p)^{L-1}
+			// (Gamma-Poisson form, valid for real r; r=1 -> geometric = old _general_prior).
+			// replaces the per-position general boundary prior when _use_dur.
+			bool _use_dur;
+			double _dur_r;      // NB dispersion (real, sampled via Gamma+CRT)
+			double _dur_p;      // NB success prob (sampled via Beta)
+			double _dur_a0, _dur_b0;       // Gamma(a0, scale=1/b0) prior on _dur_r
+			double _dur_alpha, _dur_beta;  // Beta(alpha,beta) prior on _dur_p
+			double _dur_logp(int L) const; // log P(segment length L) under the NB duration
+			int _crt(int n, double r) const; // Chinese-restaurant-table aux draw for the r-update
 			void _sample(io& f, std::vector<int>& b);
 			void _parse(io& f, std::vector<int>& b);
 

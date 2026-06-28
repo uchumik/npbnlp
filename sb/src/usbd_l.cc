@@ -4,15 +4,19 @@
 #include"beta.h"
 #include"rd.h"
 #include<random>
+#include<cmath>
 #define BUFSIZE 256
 
 using namespace std;
 using namespace npbnlp;
 
+using gamma_dist = std::gamma_distribution<double>;
+
 usbd_l::usbd_l():usbd_l(3, smoothing::hpy) {
 }
 
-usbd_l::usbd_l(int n, smoothing s):_n(n),_lm(nullptr), _A(1),_B(1),_C(9),_D(1),_E(9),_F(1) {
+usbd_l::usbd_l(int n, smoothing s):_n(n),_lm(nullptr), _A(1),_B(1),_C(9),_D(1),_E(9),_F(1),
+	_use_dur(false), _dur_r(1.0), _dur_p(0.1), _dur_a0(1.0), _dur_b0(1.0), _dur_alpha(1.0), _dur_beta(1.0) {
 	switch (s) {
 		case smoothing::kn:
 			_lm = shared_ptr<dalm>(new kn(_n));
@@ -48,6 +52,13 @@ usbd_l::usbd_l(const usbd_l& d) {
 	_general_prior = d._general_prior;
 	_cr_prior = d._cr_prior;
 	_pnc_prior = d._pnc_prior;
+	_use_dur = d._use_dur;
+	_dur_r = d._dur_r;
+	_dur_p = d._dur_p;
+	_dur_a0 = d._dur_a0;
+	_dur_b0 = d._dur_b0;
+	_dur_alpha = d._dur_alpha;
+	_dur_beta = d._dur_beta;
 }
 
 usbd_l& usbd_l::operator=(const usbd_l& d) {
@@ -66,6 +77,13 @@ usbd_l& usbd_l::operator=(const usbd_l& d) {
 	_general_prior = d._general_prior;
 	_cr_prior = d._cr_prior;
 	_pnc_prior = d._pnc_prior;
+	_use_dur = d._use_dur;
+	_dur_r = d._dur_r;
+	_dur_p = d._dur_p;
+	_dur_a0 = d._dur_a0;
+	_dur_b0 = d._dur_b0;
+	_dur_alpha = d._dur_alpha;
+	_dur_beta = d._dur_beta;
 	return *this;
 }
 
@@ -134,6 +152,88 @@ void usbd_l::estimate_prior(cio& corpus, vector<vector<int> >& boundaries) {
 	_estimate_gen_cr_prior(corpus, boundaries);
 	// for punctuation
 	_estimate_punc_prior(corpus, boundaries);
+}
+
+void usbd_l::enable_duration(double a0, double b0, double alpha, double beta) {
+	_use_dur = true;
+	if (a0 > 0) _dur_a0 = a0;
+	if (b0 > 0) _dur_b0 = b0;
+	if (alpha > 0) _dur_alpha = alpha;
+	if (beta > 0) _dur_beta = beta;
+	_dur_r = _dur_a0 / _dur_b0;            // Gamma(a0, scale 1/b0) mean
+	if (_dur_r < 1.0) _dur_r = 1.0;
+	_dur_p = _dur_alpha / (_dur_alpha + _dur_beta);
+	if (_dur_p <= 0.0 || _dur_p >= 1.0) _dur_p = 0.1;
+}
+
+// log P(segment length L) under (L-1) ~ NB(_dur_r,_dur_p)  [Gamma-Poisson form, real r]
+//   P(L) = Gamma(L-1+r)/(Gamma(r) Gamma(L)) * p^r * (1-p)^{L-1}
+double usbd_l::_dur_logp(int L) const {
+	if (L < 1)
+		return -1e10;
+	double r = _dur_r, p = _dur_p;
+	return lgamma((double)(L-1)+r) - lgamma(r) - lgamma((double)L)
+	     + r*log(p) + (double)(L-1)*log(1.0-p);
+}
+
+// Chinese-restaurant-table aux: l ~ sum_{j=0}^{n-1} Bernoulli(r/(r+j)).
+int usbd_l::_crt(int n, double r) const {
+	if (n <= 0)
+		return 0;
+	if (n > 2000) n = 2000; // cap: tail terms have prob ~r/j and contribute negligibly
+	shared_ptr<generator> g = generator::create();
+	int l = 0;
+	for (int j = 0; j < n; ++j) {
+		bernoulli_distribution bern(r / (r + (double)j));
+		if (bern((*g)()))
+			++l;
+	}
+	return l;
+}
+
+// Re-sample the NB duration hyperparameters (p,r) from the sampled segment lengths.
+// p: conjugate Beta. r: Gamma prior + CRT augmentation (Zhou-Carin). Few Gibbs sweeps.
+void usbd_l::estimate_duration(vector<vector<int> >& boundaries) {
+	if (!_use_dur)
+		return;
+	vector<int> lens;
+	long total_len = 0; // sum of L_i
+	long n = 0;         // number of segments
+	for (auto& bd : boundaries) {
+		for (size_t k = 0; k+1 < bd.size(); ++k) {
+			int L = bd[k+1] - bd[k];
+			if (L < 1)
+				continue;
+			lens.emplace_back(L);
+			total_len += L;
+			++n;
+		}
+	}
+	if (n == 0)
+		return;
+	beta_distribution be;
+	gamma_dist gm;
+	shared_ptr<generator> g = generator::create();
+	for (int it = 0; it < 2; ++it) {
+		// p ~ Beta(alpha + n*r, beta + sum(L_i-1))   [successes=n*r, failures=sum(L_i)-n]
+		double succ = (double)n * _dur_r;
+		double fail = (double)(total_len - n);
+		_dur_p = be(_dur_alpha + succ, _dur_beta + fail);
+		if (_dur_p < 1e-6) _dur_p = 1e-6;
+		if (_dur_p > 1.0-1e-6) _dur_p = 1.0-1e-6;
+		// r ~ Gamma(a0 + sum CRT(L_i-1, r), scale = 1/(b0 - n*log(p)))
+		long sum_l = 0;
+		for (int L : lens)
+			sum_l += _crt(L-1, _dur_r);
+		double rate = _dur_b0 - (double)n * log(_dur_p); // >0 since log(p)<0
+		if (rate < 1e-9) rate = 1e-9;
+		gamma_dist::param_type param(_dur_a0 + (double)sum_l, 1.0/rate);
+		gm.param(param);
+		_dur_r = gm((*g)());
+		if (_dur_r < 1e-3) _dur_r = 1e-3;
+	}
+	fprintf(stderr, "[dur] r=%.4f p=%.5f mean_len=%.2f n_seg=%ld\n",
+		_dur_r, _dur_p, 1.0+_dur_r*(1.0-_dur_p)/_dur_p, n);
 }
 
 void usbd_l::add(io& d, vector<int>& head) {
@@ -304,6 +404,8 @@ void usbd_l::_sample(io& f, vector<int>& b) {
 			double lp_bos = bos[t-j+1][b];
 			double lp_eos = eos[t+1][e];
 			double lp = cum[t]-cum[t-j+b+1]+lp_bos+lp_eos;
+			if (_use_dur)
+				lp += _dur_logp(j); // per-segment NB sentence-length factor (replaces general per-pos prior)
 			dp[t][j-1].v = lp+alpha[t-j];
 		}
 	}
@@ -387,6 +489,8 @@ void usbd_l::_parse(io& f, vector<int>& b) {
 			double lp_bos = bos[t-j+1][b];
 			double lp_eos = eos[t+1][e];
 			double lp = cum[t]-cum[t-j+b+1]+lp_bos+lp_eos;
+			if (_use_dur)
+				lp += _dur_logp(j); // per-segment NB sentence-length factor (replaces general per-pos prior)
 			dp[t][j-1].v = lp+alpha[t-j];
 		}
 	}
@@ -433,7 +537,8 @@ void usbd_l::_cumurative(io& d, vector<double>& cum) {
 		} else if (is_punct) {
 			c += ln_pnc_prior;
 		} else {
-			c += ln_gen_prior;
+			if (!_use_dur)
+				c += ln_gen_prior;
 		}
 		cum.emplace_back(c);
 	}
@@ -470,7 +575,8 @@ void usbd_l::_bos(io& d, vector<vector<double> >& bos) {
 			} else if (is_punct) {
 				c += ln_pnc_prior;
 			} else {
-				c += ln_gen_prior;
+				if (!_use_dur)
+					c += ln_gen_prior;
 			}
 			bos[i-head].emplace_back(c);
 		}
@@ -504,7 +610,8 @@ void usbd_l::_eos(io& d, vector<vector<double> >& eos) {
 			} else if (is_punct) {
 				lp += ln_pnc_prior;
 			} else {
-				lp += ln_gen_prior;
+				if (!_use_dur)
+					lp += ln_gen_prior;
 			}
 			eos[i-head].emplace_back(lp);
 		}
@@ -595,6 +702,12 @@ void usbd_l::save(const char *file) {
 			throw "failed to write _cr_prior in usbd_l::save";
 		if (fwrite(&_pnc_prior, sizeof(double), 1, fp) != 1)
 			throw "failed to write _pnc_prior in usbd_l::save";
+		int use_dur = _use_dur ? 1 : 0;
+		if (fwrite(&use_dur, sizeof(int), 1, fp) != 1)
+			throw "failed to write use_dur in usbd_l::save";
+		double dur[6] = {_dur_r,_dur_p,_dur_a0,_dur_b0,_dur_alpha,_dur_beta};
+		if (fwrite(dur, sizeof(double), 6, fp) != 6)
+			throw "failed to write duration params in usbd_l::save";
 		int size = _punc.size();
 		if (fwrite(&size, sizeof(int), 1, fp) != 1)
 			throw "failed to write punc_size in usbd_l::save";
@@ -634,6 +747,14 @@ void usbd_l::load(const char *file) {
 			throw "failed to load _cr_prior in usbd_l::load";
 		if (fread(&_pnc_prior, sizeof(double), 1, fp) != 1)
 			throw "failed to load _pnc_prior in usbd_l::load";
+		int use_dur = 0;
+		if (fread(&use_dur, sizeof(int), 1, fp) != 1)
+			throw "failed to load use_dur in usbd_l::load";
+		_use_dur = (use_dur != 0);
+		double dur[6] = {0};
+		if (fread(dur, sizeof(double), 6, fp) != 6)
+			throw "failed to load duration params in usbd_l::load";
+		_dur_r=dur[0];_dur_p=dur[1];_dur_a0=dur[2];_dur_b0=dur[3];_dur_alpha=dur[4];_dur_beta=dur[5];
 		int size = 0;
 		if (fread(&size, sizeof(int), 1, fp) != 1)
 			throw "failed to load punc_size in usbd_l::load";
