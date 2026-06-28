@@ -109,6 +109,8 @@ int read_long_param(const char *opt, const char *arg) {
 			type = sequence_type::letter;
 		} else if (check(arg, "word")) {
 			type = sequence_type::word;
+		} else if (check(arg, "lstm")) {
+			type = sequence_type::lstm;
 		} else {
 			return 1;
 		}
@@ -299,6 +301,8 @@ void mcmc() {
 		bd.set_cr_prior(cr_prior);
 	if (f_set_punc_prior)
 		bd.set_punc_prior(pnc_prior);
+	if (type == sequence_type::lstm)
+		bd.init(file, 100);
 	io *pre = NULL;
 	if (!pretrain.empty()) {
 		pre = new io(pretrain.c_str());
@@ -352,9 +356,9 @@ void mcmc() {
 			cio t(valid.c_str());
 #pragma omp parallel for
 			for (auto k = 0; k < (int)t.chunk->size(); ++k) {
-				if (type == sequence_type::word) {
-					delete_nl((*t.chunk)[k]);
-				}
+				// strip gold newlines (CR candidates) from validation input so parse
+				// re-segments from run-on. delete_nl is a no-op for word mode.
+				delete_nl((*t.chunk)[k]);
 				vector<int> c;
 				bd.parse((*t.chunk)[k], c);
 				(*t.chunk)[k].head = move(c);
@@ -392,9 +396,9 @@ void mcmc() {
 		if (!valid.empty()) {
 			cio t(valid.c_str());
 			for (auto k = 0; k < (int)t.chunk->size(); ++k) {
-				if (type == sequence_type::word) {
-					delete_nl((*t.chunk)[k]);
-				}
+				// strip gold newlines (CR candidates) from validation input so parse
+				// re-segments from run-on. delete_nl is a no-op for word mode.
+				delete_nl((*t.chunk)[k]);
 				vector<int> c;
 				bd.parse((*t.chunk)[k], c);
 				(*t.chunk)[k].head = move(c);

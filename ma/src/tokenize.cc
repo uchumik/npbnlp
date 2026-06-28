@@ -149,7 +149,7 @@ int mcmc() {
 	vector<sentence> corpus;
 	util::store_sentences(f, corpus);
 	npylm lm(n, m);
-	lm.set(vocab);
+	//lm.set(vocab);
 #ifdef _OPENMP
 	threads = min(omp_get_max_threads(), threads);
 	omp_set_num_threads(threads);

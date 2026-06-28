@@ -12,12 +12,14 @@ using namespace npbnlp;
 shared_ptr<wid> wid::_idx;
 mutex wid::_mutex;
 shared_ptr<vector<unsigned int> > wid::_letter;
+shared_ptr<vector<unsigned int> > wid::_load_letter;
 
 shared_ptr<wid> wid::create() {
 	lock_guard<mutex> lock(_mutex);
 	if (_idx == nullptr) {
 		_idx = shared_ptr<wid>(new wid(4/*2*/));
 		_letter = make_shared<vector<unsigned int> >(); 
+		_load_letter = make_shared<vector<unsigned int> >(); 
 	}
 	return _idx;
 }
@@ -43,9 +45,9 @@ int wid::index(word& w) {
 }
 
 void wid::remove(word& w) {
+	lock_guard<mutex> m(_mutex);
 	auto it = _index.find(w);
 	if (it != _index.end()) {
-		lock_guard<mutex> m(_mutex);
 		_misn.push_back(it->second);
 		_index.erase(w);
 	}
@@ -88,15 +90,15 @@ bool wid::load(const char *file) {
 	int rawsize = 0;
 	if (fread(&rawsize, sizeof(int), 1, fp) != 1)
 		throw "failed to read _raw size in wid::load";
-	_letter->resize(rawsize);
-	if (fread(&(*_letter)[0], sizeof(unsigned int), (size_t)rawsize, fp) != (size_t)rawsize)
+	_load_letter->resize(rawsize);
+	if (fread(&(*_load_letter)[0], sizeof(unsigned int), (size_t)rawsize, fp) != (size_t)rawsize)
 		throw "failed to read _raw in wid::load";
 	int dicsize = 0;
 	if (fread(&dicsize, sizeof(unsigned int), 1, fp) != 1)
 		throw "failed to read size of indices in wid::load";
 	for (int i = 0; i < dicsize; ++i) {
 		word w;
-		w.load(fp, *_letter);
+		w.load(fp, *_load_letter);
 		int id = 0;
 		if (fread(&id, sizeof(int), 1, fp) != 1)
 			throw "failed to read word id in wid::load";
@@ -123,6 +125,7 @@ void wid::_store(FILE *fp) {
 		for (auto i = 0; i < c.len; ++i)
 			_letter->push_back(c[i]);
 		c.head = head;
+		c.id = it->second;
 		d.push_back(c);
 		id.push_back(it->second);
 	}

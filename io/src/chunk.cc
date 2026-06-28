@@ -8,6 +8,8 @@ shared_ptr<cid> cid::_idx;
 mutex cid::_mutex;
 shared_ptr<vector<unsigned int> > cid::_letter;
 shared_ptr<vector<word> > cid::_word;
+shared_ptr<vector<unsigned int> > cid::_load_letter;
+shared_ptr<vector<word> > cid::_load_word;
 
 shared_ptr<cid> cid::create() {
 	lock_guard<mutex> lock(_mutex);
@@ -15,6 +17,8 @@ shared_ptr<cid> cid::create() {
 		_idx = shared_ptr<cid>(new cid(4/*2*/));
 		_word = make_shared<vector<word> >();
 		_letter = make_shared<vector<unsigned int> >();
+		_load_word = make_shared<vector<word> >();
+		_load_letter = make_shared<vector<unsigned int> >();
 	}
 	return _idx;
 }
@@ -26,8 +30,8 @@ int cid::operator[](chunk& c) {
 }
 
 int cid::index(chunk& c) {
+	lock_guard<mutex> m(_mutex);
 	if (_index.find(c) == _index.end()) {
-		lock_guard<mutex> m(_mutex);
 		if (!_misn.empty()) {
 			_index[c] = _misn[_misn.size()-1];
 			_misn.pop_back();
@@ -39,9 +43,9 @@ int cid::index(chunk& c) {
 }
 
 void cid::remove(chunk& c) {
+	lock_guard<mutex> m(_mutex);
 	auto it = _index.find(c);
 	if (it != _index.end()) {
-		lock_guard<mutex> m(_mutex);
 		_misn.push_back(it->second);
 		_index.erase(c);
 	}
@@ -79,28 +83,39 @@ bool cid::load(const char *file) {
 	int rawsize = 0;
 	if (fread(&rawsize, sizeof(int), 1, fp) != 1)
 		throw "failed to read _letter->size() in cid::load";
-	_letter->resize(rawsize);
-	if (fread(&(*_letter)[0], sizeof(unsigned int), rawsize, fp) != (size_t)rawsize)
+	_load_letter->resize(rawsize);
+	if (fread(&(*_load_letter)[0], sizeof(unsigned int), rawsize, fp) != (size_t)rawsize)
 		throw "failed to read _letter in cid::load";
 	int wsize = 0;
 	if (fread(&wsize, sizeof(int), 1, fp) != 1)
 		throw "failed to read size of words in cid::load";
 	for (int i = 0; i < wsize; ++i) {
 		word w;
-		w.load(fp, *_letter);
-		_word->push_back(w);
+		w.load(fp, *_load_letter);
+		_load_word->push_back(w);
 	}
 	int csize = 0;
 	if (fread(&csize, sizeof(int), 1, fp) != 1)
 		throw "failed to read size of chunk indices in cid::load";
 	for (int i = 0; i < csize; ++i) {
 		chunk c;
-		c.load(fp, *_word);
+		c.load(fp, *_load_word);
 		int id = 0;
 		if (fread(&id, sizeof(int), 1, fp) != 1)
 			throw "failed to read chunk id in cid::load";
 		c.id = id;
 		_index[c] = id;
+		/*
+		cout << "load chunk:" << c << " len:" << c.len << " id:" << id;
+		for (auto j = 0; j < c.len; ++j) {
+			word& w = c.wd(j);
+			cout << " " << w << " letter:";
+			for (auto l = 0; l < w.len; ++l) {
+				cout << w[l] << " ";
+			}
+		}
+		cout << endl;
+		*/
 	}
 	fclose(fp);
 	return true;
@@ -109,20 +124,63 @@ bool cid::load(const char *file) {
 void cid::_store(FILE *fp) {
 	vector<chunk> d;
 	vector<int> id;
+	int index = 0;
 	for (auto it = _index.begin(); it != _index.end(); ++it) {
+		//cout << "chunk:" << it->first << " id:" << it->second << " len:" << it->first.len;
+		int chead = _word->size();
+		//c.id = it->second;
+		for (auto i = 0; i < it->first.len; ++i) {
+			word& w = it->first.wd(i);
+			//cout << " word:" << w;
+			int head = _letter->size();
+			for (auto j = 0; j < w.len; ++j) {
+				//cout << " letter_" << j << ":" << w[j];
+				_letter->emplace_back(w[j]);
+			}
+			word x(*_letter, head, w.len);
+			x.id = w.id;
+			x.pos = w.pos;
+			x.n = w.n;
+			for (auto j = 0; j < (int)w.m.size(); ++j)
+				x.m[j] = w.m[j];
+			/*
+			for (auto m : w.m) {
+				x.m.emplace_back(m);
+			}
+			*/
+			_word->emplace_back(x);
+		}
+		chunk c(*_word, chead, it->first.len);
+		c.k = it->first.k;
+		c.id = it->second;
+		c.type = it->first.type;
+		for (auto j = 0; j < (int)it->first.n.size(); ++j)
+			c.n[j] = it->first.n[j];
+		//cout << " to store chunk:" << c << " chunk_num:" << index++ << "/" << _index.size() << endl;
+		d.emplace_back(c);
+		id.emplace_back(it->second);
+		//d.emplace_back(chunk(*_word, chead, it->first.len));
+		/*
 		chunk c(it->first);
 		id.push_back(it->second);
-		c.head = _word->size();
+		int chead = _word->size();
+		//c.head = _word->size();
+		c.id = it->second;
 		for (auto i = 0; i < c.len; ++i) {
 			word& w = c.wd(i);
-			w.head = _letter->size();
+			int whead = _letter->size();
 			for (auto j = 0; j < w.len; ++j) {
 				_letter->push_back(w[j]);
 			}
+			w.head = whead;
 			_word->push_back(w);
 		}
-		d.push_back(c);
+		c.head = chead;
+		*/
+		//cout << " to store chunk:" << c << endl;
+		//d.push_back(c);
 	}
+	//cout << "save to dic" << endl;
 	int lsize = _letter->size();
 	if (fwrite(&lsize, sizeof(int), 1, fp) != 1)
 		throw "failed to write size of raw in cid::_store";
@@ -137,7 +195,15 @@ void cid::_store(FILE *fp) {
 	int csize = d.size();
 	if (fwrite(&csize, sizeof(int), 1, fp) != 1)
 		throw "failed to write size of chunks in cid::_store";
+	//cout << "save chunks to file" << endl;
 	for (auto i = 0; i < (int)d.size(); ++i) {
+		/*
+		cout << "save_chunk:" << d[i] << " id:" << id[i] << " token:";
+		for (auto j = 0; j < d[i].len; ++j) {
+			cout << " " << d[i].wd(j);
+		}
+		cout << endl;
+		*/
 		d[i].save(fp);
 		if (fwrite(&id[i], sizeof(int), 1, fp) != 1)
 			throw "failed to write chunk id in cid::_store";
@@ -147,31 +213,32 @@ void cid::_store(FILE *fp) {
 cid::cid(int id):_id(id) {
 }
 
-chunk::chunk():k(0), head(0), len(1), id(0), n(len+1,0), _doc(NULL)  {
+chunk::chunk():k(0), head(0), len(1), id(0), type(8), n(len+1,0), _doc(NULL)  {
 }
 
-chunk::chunk(vector<word>& d): k(0), head(0), len(0), id(0), n(len+1,0), _doc(&d) {
+chunk::chunk(vector<word>& d): k(0), head(0), len(0), id(0), type(8), n(len+1,0), _doc(&d) {
 }
 
-chunk::chunk(vector<word>& d, int head, int len): k(0), head(head), len(len), id(1), n(len+1,0), _doc(&d) {
+chunk::chunk(vector<word>& d, int head, int len): k(0), head(head), len(len), id(1), type(8), n(len+1,0), _doc(&d) {
 }
 
-chunk::chunk(const chunk& c): k(c.k), head(c.head), len(c.len), id(c.id), _doc(c._doc)  {
+chunk::chunk(const chunk& c): k(c.k), head(c.head), len(c.len), id(c.id), type(c.type), _doc(c._doc)  {
 	for (auto i = c.n.begin(); i < c.n.end(); ++i)
 		n.push_back(*i);
 }
 
-chunk::chunk(chunk&& c): k(c.k), head(c.head), len(c.len), id(c.id), _doc(c._doc) {
+chunk::chunk(chunk&& c): k(c.k), head(c.head), len(c.len), id(c.id), type(c.type), _doc(c._doc) {
 	n = move(c.n);
 	c.k = 0;
 	c.head = 0;
 	c.len = 1;
 	c.id = 0;
+	c.type = 8;
 	c._doc = nullptr;
 	/*
-	for (auto i = c.n.begin(); i < c.n.end(); ++i)
-		n.push_back(*i);
-		*/
+	   for (auto i = c.n.begin(); i < c.n.end(); ++i)
+	   n.push_back(*i);
+	   */
 }
 
 chunk& chunk::operator=(const chunk& c) {
@@ -179,6 +246,7 @@ chunk& chunk::operator=(const chunk& c) {
 	head = c.head;
 	len = c.len;
 	id = c.id;
+	type = c.type;
 	_doc = c._doc;
 	for (auto i = c.n.begin(); i < c.n.end(); ++i)
 		n.push_back(*i);
@@ -192,17 +260,19 @@ chunk& chunk::operator=(chunk&& c) noexcept {
 	head = c.head;
 	len = c.len;
 	id = c.id;
+	type = c.type;
 	_doc = c._doc;
 	n = move(c.n);
 	c.k = 0;
 	c.head = 0;
 	c.len = 1;
 	c.id = 0;
+	c.type = 8;
 	c._doc = nullptr;
 	/*
-	for (auto i = c.n.begin(); i < c.n.end(); ++i)
-		n.push_back(*i);
-		*/
+	   for (auto i = c.n.begin(); i < c.n.end(); ++i)
+	   n.push_back(*i);
+	   */
 	return *this;
 }
 
@@ -232,6 +302,8 @@ void chunk::save(FILE *fp) {
 		throw "failed to write chunk.len";
 	if (fwrite(&id, sizeof(int), 1, fp) != 1)
 		throw "failed to write chunk.id";
+	if (fwrite(&type, sizeof(int), 1, fp) != 1)
+		throw "failed to write chunk.type";
 }
 
 void chunk::load(FILE *fp, vector<word>& w) {
@@ -245,5 +317,7 @@ void chunk::load(FILE *fp, vector<word>& w) {
 		throw "failed to read chunk.len";
 	if (fread(&id, sizeof(int), 1, fp) != 1)
 		throw "failed to read chunk.id";
+	if (fread(&type, sizeof(int), 1, fp) != 1)
+		throw "failed to read chunk.type";
 	_doc = &w;
 }

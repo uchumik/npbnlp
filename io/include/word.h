@@ -92,6 +92,7 @@ namespace npbnlp {
 				return false;
 			int i = 0;
 			for (; a[i] == b[i] && i < a.len; ++i);
+			//return true;
 			return (i == a.len);
 		}
 	};
@@ -101,6 +102,7 @@ namespace npbnlp {
 			static std::shared_ptr<wid> _idx;
 			static std::mutex _mutex;
 			static std::shared_ptr<std::vector<unsigned int> > _letter;
+			static std::shared_ptr<std::vector<unsigned int> > _load_letter;
 			int _id;
 			wdic _index;
 			std::vector<int> _misn;

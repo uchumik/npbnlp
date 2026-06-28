@@ -142,7 +142,12 @@ void usbd_w::_estimate_gen_cr_prior(cio& corpus, vector<vector<int> >& boundarie
 	}
 	for (auto i = 0; i < (int)corpus.chunk->size(); ++i) {
 		io& doc = (*corpus.chunk)[i];
-		b += doc.raw->size();
+		// general_prior is a per-word-boundary Bernoulli prob, applied per word
+		// in _cumurative/_eos. The denominator must therefore be the number of
+		// word positions (trials), not the character count, or the estimate is
+		// underestimated by ~avg word length and drives under-segmentation.
+		sentence s = _load_sentence(doc, false);
+		b += s.size();
 		int match = 0;
 		int j = 0, k = 0;
 		while (1) {
@@ -572,12 +577,29 @@ void usbd_w::eval(cio& target, cio& correct, vector<double>& c) {
 		while (1) {
 			if ((*correct.chunk)[i].head[j] == (*target.chunk)[i].head[k]) {
 				++tp, ++j, ++k;
-			} else if ((*correct.chunk)[i].head[j] > (*target.chunk)[i].head[k]) {
-				++j;
-				++fn;
 			} else if ((*correct.chunk)[i].head[j] < (*target.chunk)[i].head[k]) {
-				++k;
+				++j; // correct boundary missing in target -> false negative
+				++fn;
+			} else {
+				++k; // spurious boundary in target -> false positive
 				++fp;
+			}
+			if (j >= (int)(*correct.chunk)[i].head.size() && k < (int)(*target.chunk)[i].head.size()) {
+				int last = (*correct.chunk)[i].head[(*correct.chunk)[i].head.size()-1];
+				for (; k < (int)(*target.chunk)[i].head.size(); ++k) {
+					if ((*target.chunk)[i].head[k] == last)
+						++tp;
+					else
+						++fp;
+				}
+			} else if (j < (int)(*correct.chunk)[i].head.size() && k >= (int)(*target.chunk)[i].head.size()) {
+				int last = (*target.chunk)[i].head[(*target.chunk)[i].head.size()-1];
+				for (; j < (int)(*correct.chunk)[i].head.size(); ++j) {
+					if ((*correct.chunk)[i].head[j] == last)
+						++tp;
+					else
+						++fn;
+				}
 			}
 			if (j >= (int)(*correct.chunk)[i].head.size() && k >= (int)(*target.chunk)[i].head.size())
 				break;

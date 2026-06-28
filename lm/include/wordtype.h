@@ -58,6 +58,14 @@ namespace npbnlp {
 							else if (u != t)
 								return U_MISC;
 							break;
+						case U_PUNC:
+							if (t == U_KATAKANA || t == U_HIRAGANA || t == U_HANJI)
+								;
+							else if (t == U_HIRA_KATA_HANJI || t == U_KATA_HANJI || t == U_HIRA_KATA || t == U_KATA_HANJI || t == U_KATA_OR_HIRA)
+								;
+							else if (u != t)
+								return U_MISC;
+							break;
 						default:
 							if (t != u)
 								return U_MISC;
@@ -116,6 +124,14 @@ namespace npbnlp {
 							else if (t == U_KATA_OR_HIRA)
 								t = U_HIRA_KATA_HANJI;
 							else if (t == U_HIRA_HANJI || t == U_KATA_HANJI || t == U_HIRA_KATA_HANJI) 
+								;
+							else if (u != t)
+								return U_MISC;
+							break;
+						case U_PUNC:
+							if (t == U_KATAKANA || t == U_HIRAGANA || t == U_HANJI)
+								;
+							else if (t == U_HIRA_KATA_HANJI || t == U_KATA_HANJI || t == U_HIRA_KATA || t == U_KATA_HANJI || t == U_KATA_OR_HIRA)
 								;
 							else if (u != t)
 								return U_MISC;

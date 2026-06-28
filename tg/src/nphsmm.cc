@@ -1,7 +1,10 @@
 #include"nphsmm.h"
 #include"convinience.h"
 #include"rd.h"
+#include"beta.h"
 #include"wordtype.h"
+#include"chunktype.h"
+#include"negative_binomial.h"
 #ifdef _OPENMP
 #include<omp.h>
 #endif
@@ -10,13 +13,19 @@
 //#define K 1000
 #define C 1
 #define K 20
+#define A 1.
+#define B 2.
+#define L 50
+#define ZERO 1e-16
+#define CHUNK_CDF_TH 0.999
 using namespace std;
 using namespace npbnlp;
 
 static unordered_map<int, int> cfreq;
 static unordered_map<int, int> kfreq;
+static negative_binomial nb;
 
-nphsmm::nphsmm(): _n(1), _m(2), _l(10), _k(20), _v(C), _K(K), _a(1), _b(1), _class(new hpyp(_n)), _chunk(new vector<shared_ptr<hpyp> >), _word(new vector<shared_ptr<hpyp> >), _letter(new vector<shared_ptr<vpyp> >) {
+nphsmm::nphsmm(): _n(1), _m(2), _l(10), _k(20), _v(C), _K(K), _a(1), _b(1), _class(new hpyp(_n)), _chunk(new vector<shared_ptr<hpyp> >), _word(new vector<shared_ptr<hpyp> >), _letter(new vector<shared_ptr<vpyp> >), _prior(new vector<double>(chunktype2::n, 0)), _length(new vector<int>(chunktype2::n, 0)), _num(new vector<int>(chunktype2::n, 0)), _change(new vector<int>(chunktype2::n, 0)), _clength(new vector<int>(chunktype2::n, 0)), _cprior(new vector<double>(chunktype2::n, 1)) {
 	//_class->set_v(K);
 	for (auto i = 0; i < _k+1; ++i) {
 		_chunk->push_back(shared_ptr<hpyp>(new hpyp(_n)));
@@ -26,9 +35,25 @@ nphsmm::nphsmm(): _n(1), _m(2), _l(10), _k(20), _v(C), _K(K), _a(1), _b(1), _cla
 		(*_word)[i]->set_base((*_letter)[i].get());
 		(*_chunk)[i]->set_base((*_word)[i].get());
 	}
+	beta_distribution be;
+	for (auto& p : *_prior) {
+		p = 1.-be(A, B);
+	}
+	for (auto& p : *_cprior) {
+		p = 1.-be(A, B);
+	}
+	for (auto k = 0; k < chunktype2::n; ++k) {
+		double cdf = 0;
+		int l = 1;
+		for (; cdf < CHUNK_CDF_TH && l < L; ++l) {
+			cdf = nb.cdf((*_prior)[k], 1, l-1);
+		}
+		(*_clength)[k] = l;
+	}
+	//_cprior = 1.-be(_change, _clength);
 }
 
-nphsmm::nphsmm(int n, int m, int l, int k): _n(n), _m(m), _l(l), _k(k), _v(C), _K(K), _a(1), _b(1), _class(new hpyp(_n)), _chunk(new vector<shared_ptr<hpyp> >), _word(new vector<shared_ptr<hpyp> >), _letter(new vector<shared_ptr<vpyp> >) {
+nphsmm::nphsmm(int n, int m, int l, int k): _n(n), _m(m), _l(l), _k(k), _v(C), _K(K), _a(1), _b(1), _class(new hpyp(_n)), _chunk(new vector<shared_ptr<hpyp> >), _word(new vector<shared_ptr<hpyp> >), _letter(new vector<shared_ptr<vpyp> >), _prior(new vector<double>(chunktype2::n, 0)), _length(new vector<int>(chunktype2::n, 0)), _num(new vector<int>(chunktype2::n, 0)), _change(new vector<int>(chunktype2::n, 0)), _clength(new vector<int>(chunktype2::n, 0)), _cprior(new vector<double>(chunktype2::n, 1)) {
 	//_class->set_v(K);
 	for (auto i = 0; i < _k+1; ++i) {
 		_chunk->push_back(shared_ptr<hpyp>(new hpyp(_n)));
@@ -38,6 +63,22 @@ nphsmm::nphsmm(int n, int m, int l, int k): _n(n), _m(m), _l(l), _k(k), _v(C), _
 		(*_word)[i]->set_base((*_letter)[i].get());
 		(*_chunk)[i]->set_base((*_word)[i].get());
 	}
+	beta_distribution be;
+	for (auto& p : *_prior) {
+		p = 1.-be(A, B);
+	}
+	for (auto& p : *_cprior) {
+		p = 1.-be(A, B);
+	}
+	for (auto k = 0; k < chunktype2::n; ++k) {
+		double cdf = 0;
+		int l = 1;
+		for (; cdf < CHUNK_CDF_TH && l < L; ++l) {
+			cdf = nb.cdf((*_prior)[k], 1, l-1);
+		}
+		(*_clength)[k] = l;
+	}
+	//_cprior = 1.-be(_change, _clength);
 }
 
 nphsmm::~nphsmm() {
@@ -99,6 +140,17 @@ void nphsmm::save(const char *file) {
 			throw "failed to write _a in nphsmm::save";
 		if (fwrite(&_b, sizeof(double), 1, fp) != 1)
 			throw "failed to write _b in nphsmm::save";
+		int n = _prior->size();
+		if (fwrite(&n, sizeof(int), 1, fp) != 1)
+			throw "failed to write prior class num in nphsmm::save";
+		if (fwrite(_prior->data(), sizeof(double), n, fp) != n)
+			throw "failed to write parameters of duration prior in nphsmm::save";
+		if (fwrite(_cprior->data(), sizeof(double), n, fp) != n)
+			throw "failed to write parameters of type change prior in nphsmm::save";
+		/*
+		if (fwrite(&_cprior, sizeof(double), 1, fp) != 1)
+			throw "failed to write type change prior in nphsmm::save";
+			*/
 		_class->save(fp);
 		for (auto i = 0; i < _k+1; ++i) {
 			(*_chunk)[i]->save(fp);
@@ -132,6 +184,19 @@ void nphsmm::load(const char *file) {
 			throw "failed to read _a in nphsmm::load";
 		if (fread(&_b, sizeof(double), 1, fp) != 1)
 			throw "failed to read _b in nphsmm::load";
+		int n = 0;
+		if (fread(&n, sizeof(int), 1, fp) != 1)
+			throw "failed to read prior class num in nphsmm::load";
+		_prior->resize(n);
+		if (fread(_prior->data(), sizeof(double), n, fp) != n)
+			throw "failed to read parameters of duration prior in nphsmm::load";
+		_cprior->resize(n);
+		if (fread(_cprior->data(), sizeof(double), n, fp) != n)
+			throw "failed to read parameters of type change prior in nphsmm::load";
+		/*
+		if (fread(&_cprior, sizeof(double), 1, fp) != 1)
+			throw "failed to read type change prior in nphsmm::load";
+			*/
 		_class->load(fp);
 		while ((int)_chunk->size() < _k+1) {
 			int k = _chunk->size();
@@ -146,6 +211,15 @@ void nphsmm::load(const char *file) {
 			(*_chunk)[i]->load(fp);
 			(*_word)[i]->load(fp);
 			(*_letter)[i]->load(fp);
+		}
+		// estimate chunk size
+		for (auto k = 0; k < chunktype2::n; ++k) {
+			double cdf = 0;
+			int l = 1;
+			for (; cdf < CHUNK_CDF_TH && l < L; ++l) {
+				cdf = nb.cdf((*_prior)[k], 1, l-1);
+			}
+			(*_clength)[k] = l;
 		}
 	} catch (const char *ex) {
 		throw ex;
@@ -186,10 +260,23 @@ void nphsmm::init(nsentence& s) {
 		if (x.k == _k) {
 			_resize();
 		}
+		int clen = 0;
+		int change = 0;
+		type t = wordtype::get(x.wd(0));
+		for (auto j = 0; j < x.len; ++j) {
+			type u = wordtype::get(x.wd(j));
+			if (t != u)
+				++change;
+			t = u;
+		}
+		(*_change)[x.type] += change;
+		(*_clength)[x.type] += x.len;
 		context *c = (*_chunk)[x.k]->make(s, i);
 		(*_chunk)[x.k]->add(x, c);
 		_class->add(x.k, h);
 		kfreq[x.k]++;
+		(*_length)[x.type] += x.len;
+		(*_num)[x.type] += x.len-1;
 	}
 	// eos
 	context *h = (*_chunk)[0]->make(s, s.size());
@@ -220,6 +307,8 @@ void nphsmm::add(nsentence& s) {
 	rd::shuffle(rd, s.size()+1);
 	for (int i = 0; i < s.size()+1; ++i) {
 		chunk& ch = s.ch(rd[i]);
+		while (_k <= ch.k && _k < _K)
+			_resize();
 		context *h = (*_chunk)[ch.k]->make(s, rd[i]);
 		(*_chunk)[ch.k]->add(ch, h);
 		context *c = _class->h();
@@ -228,8 +317,21 @@ void nphsmm::add(nsentence& s) {
 			c = c->make(x.k);
 		}
 		_class->add(ch.k, c);
-		if (ch.k == _k)
-			_resize();
+		if (!ch.id || ch.type < 0) // skip eos
+			continue;
+		int clen = 0;
+		int change = 0;
+		type t = wordtype::get(ch.wd(0));
+		for (auto j = 0; j < ch.len; ++j) {
+			type u = wordtype::get(ch.wd(j));
+			if (t != u)
+				++change;
+			t = u;
+		}
+		(*_num)[ch.type] += ch.len-1;
+		(*_length)[ch.type] += ch.len;
+		(*_change)[ch.type] += change;
+		//(*_clength)[ch.type] += ch.len;
 	}
 }
 
@@ -255,6 +357,21 @@ void nphsmm::remove(nsentence& s) {
 			c = c->find(x.k);
 		}
 		_class->remove(ch.k, c);
+		if (!ch.id || ch.type < 0) // skip eos
+			continue;
+		int clen = 0;
+		int change = 0;
+		type t = wordtype::get(ch.wd(0));
+		for (auto j = 0; j < ch.len; ++j) {
+			type u = wordtype::get(ch.wd(j));
+			if (t != u)
+				++change;
+			t = u;
+		}
+		(*_num)[ch.type] -= ch.len-1;
+		(*_length)[ch.type] -= ch.len;
+		(*_change)[ch.type] -= change;
+		//(*_clength)[ch.type] -= ch.len;
 	}
 	for (int k = _k-1; kfreq[k] == 0; --k) {
 		_shrink();
@@ -270,6 +387,20 @@ void nphsmm::estimate(int iter) {
 		(*_letter)[i]->estimate(iter);
 	}
 	_class->estimate(iter);
+	// chunk length prior
+	beta_distribution be;
+	for (auto t = 0; t < chunktype2::n; ++t) {
+		(*_prior)[t] = 1.-be(A+(*_num)[t], B+(*_length)[t]);
+		(*_cprior)[t] = 1.-be(A+(*_change)[t], B+(*_length)[t]);
+	}
+	for (auto k = 0; k < chunktype2::n; ++k) {
+		double cdf = 0;
+		int l = 1;
+		for (; cdf < CHUNK_CDF_TH && l < L; ++l) {
+			cdf = nb.cdf((*_prior)[k], 1, l-1);
+		}
+		(*_clength)[k] = l;
+	}
 }
 
 void nphsmm::poisson_correction(int n) {
@@ -279,12 +410,14 @@ void nphsmm::poisson_correction(int n) {
 }
 
 nsentence nphsmm::parse(nio& f, int i) {
-	clattice l(f, i);
+	clattice2 l(f, i, *_clength);
 	vt dp;
 	_slice(l);
+	_length_prior(l);
 	for (auto t = 0; t < (int)l.c.size(); ++t) {
 		for (auto j = 0; j < l.size(t); ++j) {
 			chunk& ch = l.ch(t, j+1);
+			double prior = l.prior[t][j];
 			for (auto k = l.begin(t, j); k != l.end(t, j); ++k) {
 				const context *c = (*_chunk)[*k]->h();
 				const context *z = _class->h();
@@ -298,13 +431,13 @@ nsentence nphsmm::parse(nio& f, int i) {
 						if (_n > 1)
 							u = z->find(*q);
 						if (h && u)
-							_forward(l, t-ch.len-prev.len, h, u, ch, *k, prev, *q, dp[t][j][*k], dp[t-ch.len][p][*q], _n-1, false, false);
+							_forward(l, t-ch.len-prev.len, h, u, prior, ch, *k, prev, *q, dp[t][j][*k], dp[t-ch.len][p][*q], _n-1, false, false);
 						else if (h)
-							_forward(l, t-ch.len-prev.len, h, z, ch, *k, prev, *q, dp[t][j][*k], dp[t-ch.len][p][*q], _n-1, false, true);
+							_forward(l, t-ch.len-prev.len, h, z, prior, ch, *k, prev, *q, dp[t][j][*k], dp[t-ch.len][p][*q], _n-1, false, true);
 						else if (u)
-							_forward(l, t-ch.len-prev.len, c, u, ch, *k, prev, *q, dp[t][j][*k], dp[t-ch.len][p][*q], _n-1, true, false);
+							_forward(l, t-ch.len-prev.len, c, u, prior, ch, *k, prev, *q, dp[t][j][*k], dp[t-ch.len][p][*q], _n-1, true, false);
 						else
-							_forward(l, t-ch.len-prev.len, c, z, ch, *k, prev, *q, dp[t][j][*k], dp[t-ch.len][p][*q], _n-1, true, true);
+							_forward(l, t-ch.len-prev.len, c, z, prior, ch, *k, prev, *q, dp[t][j][*k], dp[t-ch.len][p][*q], _n-1, true, true);
 					}
 				}
 			}
@@ -354,12 +487,14 @@ nsentence nphsmm::parse(nio& f, int i) {
 }
 
 nsentence nphsmm::sample(nio& f, int i) {
-	clattice l(f, i);
+	clattice2 l(f, i, *_clength);
 	vt dp;
 	_slice(l);
+	_length_prior(l);
 	for (auto t = 0; t < (int)l.c.size(); ++t) {
 		for (auto j = 0; j < l.size(t); ++j) {
 			chunk& ch = l.ch(t, j+1);
+			double prior = l.prior[t][j];
 			for (auto k = l.begin(t, j); k != l.end(t, j); ++k) {
 				const context *c = (*_chunk)[*k]->h();
 				const context *z = _class->h();
@@ -373,13 +508,13 @@ nsentence nphsmm::sample(nio& f, int i) {
 						if (_n > 1)
 							u = z->find(*q);
 						if (h && u)
-							_forward(l, t-ch.len-prev.len, h, u, ch, *k, prev, *q, dp[t][j][*k], dp[t-ch.len][p][*q], _n-1, false, false);
+							_forward(l, t-ch.len-prev.len, h, u, prior, ch, *k, prev, *q, dp[t][j][*k], dp[t-ch.len][p][*q], _n-1, false, false);
 						else if (h)
-							_forward(l, t-ch.len-prev.len, h, z, ch, *k, prev, *q, dp[t][j][*k], dp[t-ch.len][p][*q], _n-1, false, true);
+							_forward(l, t-ch.len-prev.len, h, z, prior, ch, *k, prev, *q, dp[t][j][*k], dp[t-ch.len][p][*q], _n-1, false, true);
 						else if (u)
-							_forward(l, t-ch.len-prev.len, c, u, ch, *k, prev, *q, dp[t][j][*k], dp[t-ch.len][p][*q], _n-1, true, false);
+							_forward(l, t-ch.len-prev.len, c, u, prior, ch, *k, prev, *q, dp[t][j][*k], dp[t-ch.len][p][*q], _n-1, true, false);
 						else
-							_forward(l, t-ch.len-prev.len, c, z, ch, *k, prev, *q, dp[t][j][*k], dp[t-ch.len][p][*q], _n-1, true, true);
+							_forward(l, t-ch.len-prev.len, c, z, prior, ch, *k, prev, *q, dp[t][j][*k], dp[t-ch.len][p][*q], _n-1, true, true);
 					}
 				}
 			}
@@ -428,9 +563,9 @@ nsentence nphsmm::sample(nio& f, int i) {
 	return s;
 }
 
-void nphsmm::_forward(clattice& l, int i, const context *c, const context *z, chunk& ch, int k, chunk& prev, int q, vt& a, vt& b, int n, bool unk, bool not_exist) {
+void nphsmm::_forward(clattice2& l, int i, const context *c, const context *z, double& prior, chunk& ch, int k, chunk& prev, int q, vt& a, vt& b, int n, bool unk, bool not_exist) {
 	if (n <= 1) {
-		a.v = math::lse(a.v, b.v+(*_chunk)[k]->lp(ch, c)+_class->lp(k, z), !a.is_init());
+		a.v = math::lse(a.v, b.v+(*_chunk)[k]->lp(ch, c)+_class->lp(k, z)+prior, !a.is_init());
 		if (!a.is_init())
 			a.set(true);
 	} else {
@@ -444,19 +579,19 @@ void nphsmm::_forward(clattice& l, int i, const context *c, const context *z, ch
 				if (!not_exist && n > 1)
 					u = z->find(*r);
 				if (h && u)
-					_forward(l, i-y.len, h, u, ch, k, y, *r, a[prev.len-1][q], b[j][*r], n-1, false, false);
+					_forward(l, i-y.len, h, u, prior, ch, k, y, *r, a[prev.len-1][q], b[j][*r], n-1, false, false);
 				else if (h)
-					_forward(l, i-y.len, h, z, ch, k, y, *r, a[prev.len-1][q], b[j][*r], n-1, false, true);
+					_forward(l, i-y.len, h, z, prior, ch, k, y, *r, a[prev.len-1][q], b[j][*r], n-1, false, true);
 				else if (u)
-					_forward(l, i-y.len, c, u, ch, k, y, *r, a[prev.len-1][q], b[j][*r], n-1, true, false);
+					_forward(l, i-y.len, c, u, prior, ch, k, y, *r, a[prev.len-1][q], b[j][*r], n-1, true, false);
 				else
-					_forward(l, i-y.len, c, z, ch, k, y, *r, a[prev.len-1][q], b[j][*r], n-1, true, true);
+					_forward(l, i-y.len, c, z, prior, ch, k, y, *r, a[prev.len-1][q], b[j][*r], n-1, true, true);
 			}
 		}
 	}
 }
 
-void nphsmm::_backward(clattice& l, int i, const context *c, const context *z, chunk& ch, int k, chunk& prev, int q, double& lpr, vt& b, int n, bool unk, bool not_exist) {
+void nphsmm::_backward(clattice2& l, int i, const context *c, const context *z, chunk& ch, int k, chunk& prev, int q, double& lpr, vt& b, int n, bool unk, bool not_exist) {
 	if (n <= 1) {
 		lpr = math::lse(lpr, b.v+(*_chunk)[k]->lp(ch, c)+_class->lp(k, z), (lpr == 1.));
 	} else {
@@ -482,7 +617,7 @@ void nphsmm::_backward(clattice& l, int i, const context *c, const context *z, c
 	}
 }
 
-void nphsmm::_slice(clattice& l) {
+void nphsmm::_slice(clattice2& l) {
 	beta_distribution be;
 	shared_ptr<generator> g = generator::create();
 	for (auto t = 0; t < (int)l.c.size(); ++t) {
@@ -503,6 +638,32 @@ void nphsmm::_slice(clattice& l) {
 				if (table[i] >= mu)
 					l.k[t][c->len-1].push_back(i+1);
 			}
+		}
+	}
+}
+
+void nphsmm::_length_prior(clattice2& l) {
+	l.prior.resize(l.c.size());
+	for (auto t = 0; t < (int)l.c.size(); ++t) {
+		l.prior[t].resize(l.c[t].size(), 0);
+		for (auto i = 0; i < (int)l.c[t].size(); ++i) {
+			chunk& c = l.c[t][i];
+			/*
+			   double ln_prior = 0;
+			   */
+			int change = 0;
+			int len = 0;
+			type tp = wordtype::get(c.wd(0));
+			for (auto j = 0; j < c.len; ++j) {
+				type u = wordtype::get(c.wd(j));
+				if (tp != u)
+					++change;
+				tp = u;
+			}
+			double pr_dur = max(ZERO, nb.density((*_prior)[c.type], 1, c.len-1));
+			double pr_chg = max(ZERO, nb.density((*_cprior)[c.type], c.len-change, change));
+			l.prior[t][i] = log(pr_dur)+log(pr_chg);
+			//l.prior[t][i] = log(nb.density((*_prior)[c.type], 1, c.len-1)) + log(nb.density((*_cprior)[c.type], c.len-change, change));
 		}
 	}
 }

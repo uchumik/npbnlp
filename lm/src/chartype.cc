@@ -1,5 +1,6 @@
 #include"chartype.h"
 #include"io.h"
+#include<iostream>
 
 using namespace std;
 using namespace icu;
@@ -57,6 +58,14 @@ type chartype::get(unsigned int c) {
 		case U_LETTER_NUMBER:
 		case U_OTHER_NUMBER:
 			return U_DIGIT;
+		case U_DASH_PUNCTUATION:
+		case U_START_PUNCTUATION:
+		case U_END_PUNCTUATION:
+		case U_CONNECTOR_PUNCTUATION:
+		case U_OTHER_PUNCTUATION:
+		case U_INITIAL_PUNCTUATION:
+		case U_FINAL_PUNCTUATION:
+			return U_PUNC;
 		case U_NON_SPACING_MARK:
 		case U_ENCLOSING_MARK:
 		case U_COMBINING_SPACING_MARK:
@@ -65,17 +74,10 @@ type chartype::get(unsigned int c) {
 		case U_PARAGRAPH_SEPARATOR:
 		case U_CONTROL_CHAR:
 		case U_FORMAT_CHAR:
-		case U_DASH_PUNCTUATION:
-		case U_START_PUNCTUATION:
-		case U_END_PUNCTUATION:
-		case U_CONNECTOR_PUNCTUATION:
-		case U_OTHER_PUNCTUATION:
 		case U_MATH_SYMBOL:
 		case U_CURRENCY_SYMBOL:
 		case U_MODIFIER_SYMBOL:
 		case U_OTHER_SYMBOL:
-		case U_INITIAL_PUNCTUATION:
-		case U_FINAL_PUNCTUATION:
 			return U_SYNBOL;
 	}
 	switch(block_property) {
