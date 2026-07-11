@@ -94,6 +94,16 @@ int main() {
 		return 1;
 	}
 
+	// WO-002: interleave estimate() (which runs gibbs() on every chunk/word LM)
+	// so the roundtrip also guards the _cbc table re-seating path. Count-
+	// preservation under gibbs means every root must still fall back to 0,0.
+	try {
+		lm.estimate(3);
+	} catch (const char *ex) {
+		fprintf(stderr, "exception during estimate(): %s\n", ex);
+		return 1;
+	}
+
 	try {
 		for (int i = NSENT-1; i >= 0; --i)
 			lm.remove(corpus[i]);
