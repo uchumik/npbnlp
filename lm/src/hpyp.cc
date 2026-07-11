@@ -627,14 +627,69 @@ bool hpyp::add(int k, context *h) {
 	return add_to_parent;
 }
 
+void hpyp::_seat_base(word& w) {
+	wrap::add_a(w, _base);
+}
+
+void hpyp::_seat_base(chunk& c) {
+	if (_cbase_add)
+		_cbase_add(c);
+	else
+		wrap::add_a(c, _base);
+}
+
+void hpyp::_unseat_base(word& w) {
+	wrap::remove_a(w, _base);
+}
+
+void hpyp::_unseat_base(chunk& c) {
+	if (_cbase_remove)
+		_cbase_remove(c);
+	else
+		wrap::remove_a(c, _base);
+}
+
+template<class T>
+void hpyp::_bc_add(shared_ptr<bcorpus<T> >& bc, T& x) {
+	if (bc == nullptr)
+		bc = shared_ptr<bcorpus<T> >(new bcorpus<T>);
+	_seat_base(x);
+	(*bc)[x.id].push_back(x);
+}
+
+template<class T>
+void hpyp::_bc_remove(shared_ptr<bcorpus<T> >& bc, T& x) {
+	int size = (*bc)[x.id].size();
+	int id = (*generator::create())()()%size;
+	T& b = (*bc)[x.id][id];
+	_unseat_base(b);
+	(*bc)[x.id].erase((*bc)[x.id].begin()+id);
+	if ((*bc)[x.id].empty())
+		bc->erase(x.id);
+	if (bc && bc->empty())
+		bc = nullptr;
+}
+
+template<class T>
+void hpyp::_gibbs_impl(bcorpus<T>& bc, int iter) {
+	for (int i = 0; i < iter; ++i) {
+		for (auto it = bc.begin(); it != bc.end(); ++it) {
+			int size = it->second.size();
+			int rd[size] = {0};
+			rd::shuffle(rd, size);
+			for (int j = 0; j < size; ++j) {
+				lock_guard<mutex> m(_mutex);
+				_unseat_base(it->second[rd[j]]);
+				_seat_base(it->second[rd[j]]);
+			}
+		}
+	}
+}
+
 void hpyp::add(word& w, context *h) {
 	if (add(w.id, h) && _base) {
 		lock_guard<mutex> m(_mutex);
-		if (_bc == nullptr) {
-			_bc = shared_ptr<base_corpus>(new base_corpus);
-		}
-		wrap::add_a(w, _base);
-		(*_bc)[w.id].push_back(w);
+		_bc_add(_bc, w);
 	}
 	//_cache.clear();
 }
@@ -642,14 +697,7 @@ void hpyp::add(word& w, context *h) {
 void hpyp::add(chunk& c, context *h) {
 	if (add(c.id, h) && _base) {
 		lock_guard<mutex> m(_mutex);
-		if (_cbc == nullptr) {
-			_cbc = shared_ptr<cbase_corpus>(new cbase_corpus);
-		}
-		if (_cbase_add)
-			_cbase_add(c);
-		else
-			wrap::add_a(c, _base);
-		(*_cbc)[c.id].push_back(c);
+		_bc_add(_cbc, c);
 	}
 	//_cache.clear();
 }
@@ -668,36 +716,16 @@ bool hpyp::remove(int k, context *h) {
 void hpyp::remove(word& w, context *h) {
 	if (remove(w.id, h) && _base) {
 		lock_guard<mutex> m(_mutex);
-		int size = (*_bc)[w.id].size();
-		int id = (*generator::create())()()%size;
-		word& b = (*_bc)[w.id][id];
-		wrap::remove_a(b, _base);
-		(*_bc)[w.id].erase((*_bc)[w.id].begin()+id);
-		if ((*_bc)[w.id].empty()) {
-			_bc->erase(w.id);
-		}
+		_bc_remove(_bc, w);
 	}
-	if (_bc && _bc->empty())
-		_bc = nullptr;
 	//_cache.clear();
 }
 
 void hpyp::remove(chunk& c, context *h) {
 	if (remove(c.id, h) && _base) {
 		lock_guard<mutex> m(_mutex);
-		int size = (*_cbc)[c.id].size();
-		int id = (*generator::create())()()%size;
-		chunk& b = (*_cbc)[c.id][id];
-		if (_cbase_remove)
-			_cbase_remove(b);
-		else
-			wrap::remove_a(b, _base);
-		(*_cbc)[c.id].erase((*_cbc)[c.id].begin()+id);
-		if ((*_cbc)[c.id].empty())
-			_cbc->erase(c.id);
+		_bc_remove(_cbc, c);
 	}
-	if (_cbc && _cbc->empty())
-		_cbc = nullptr;
 	//_cache.clear();
 }
 
@@ -736,20 +764,12 @@ void hpyp::poisson_correction(int n) {
 }
 
 void hpyp::gibbs(int iter) {
-	if (!_base || _bc == nullptr)
+	if (!_base)
 		return;
-	for (int i = 0; i < iter; ++i) {
-		for (auto it = _bc->begin(); it != _bc->end(); ++it) {
-			int size = it->second.size();
-			int rd[size] = {0};
-			rd::shuffle(rd, size);
-			for (int j = 0; j < size; ++j) {
-				lock_guard<mutex> m(_mutex);
-				wrap::remove_a(it->second[j], _base);
-				wrap::add_a(it->second[j], _base);
-			}
-		}
-	}
+	if (_bc)
+		_gibbs_impl(*_bc, iter);
+	if (_cbc)
+		_gibbs_impl(*_cbc, iter);
 }
 
 int hpyp::draw_k(context *h) {

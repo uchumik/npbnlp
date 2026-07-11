@@ -89,8 +89,10 @@ namespace npbnlp {
 			void save(FILE *fp);
 			void load(FILE *fp);
 		protected:
-			using base_corpus = std::unordered_map<int, std::vector<word> >;
-			using cbase_corpus = std::unordered_map<int, std::vector<chunk> >;
+			template<class T>
+			using bcorpus = std::unordered_map<int, std::vector<T> >;
+			using base_corpus = bcorpus<word>;
+			using cbase_corpus = bcorpus<chunk>;
 			int _n;
 			double _a;
 			double _b;
@@ -113,6 +115,18 @@ namespace npbnlp {
 			double _lpb(chunk& c) const;
 			double _lpb(word& w) const;
 			double _correct(word& w) const;
+			// base-corpus seating shims: hide the word/chunk overload and the
+			// chunk-side _cbase_add/_cbase_remove delegation behind one name so
+			// the templated corpus machinery below stays type-agnostic.
+			// (defined in hpyp.cc where wrap:: is visible.)
+			void _seat_base(word& w);
+			void _seat_base(chunk& c);
+			void _unseat_base(word& w);
+			void _unseat_base(chunk& c);
+			// unified add/remove/gibbs over either base corpus (_bc or _cbc).
+			template<class T> void _bc_add(std::shared_ptr<bcorpus<T> >& bc, T& x);
+			template<class T> void _bc_remove(std::shared_ptr<bcorpus<T> >& bc, T& x);
+			template<class T> void _gibbs_impl(bcorpus<T>& bc, int iter);
 			void _estimate_poisson();
 			void _estimate_length(int n);
 			void _sample(std::vector<unsigned int>& w);
