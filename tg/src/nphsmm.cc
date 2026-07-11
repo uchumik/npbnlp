@@ -810,7 +810,10 @@ void nphsmm::remove(nsentence& s) {
 		(*_change)[ch.type] -= change;
 		//(*_clength)[ch.type] -= ch.len;
 	}
-	for (int k = _k-1; kfreq[k] == 0; --k) {
+	// bound the shrink walk: kfreq[0] is structurally 0 (EOS seat is never
+	// counted), so a full teardown would otherwise walk k negative and
+	// pop_back the LM vectors past empty (UB). keep at least class 1.
+	for (int k = _k-1; k >= 1 && kfreq[k] == 0; --k) {
 		_shrink();
 	}
 }
