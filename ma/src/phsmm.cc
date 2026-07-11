@@ -39,7 +39,7 @@ struct phsmm_diag {
 					ph_slice_us.load()/1000, ph_slice_sent.load());
 	}
 };
-static phsmm_diag _phsmm_diag;
+static phsmm_diag phsmm_diag_reporter;
 
 // debug: print the forward marginal likelihood of a sentence for
 // numerical comparison between the original and marginalized paths

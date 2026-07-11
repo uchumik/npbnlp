@@ -41,7 +41,7 @@ struct diag_report {
 					sl_seg.load(), (double)sl_srv.load()/sl_seg.load(), sl_max.load());
 	}
 };
-static diag_report _diag;
+static diag_report diag_reporter;
 static inline long long diag_us(std::chrono::steady_clock::time_point a, std::chrono::steady_clock::time_point b) {
 	return std::chrono::duration_cast<std::chrono::microseconds>(b-a).count();
 }
