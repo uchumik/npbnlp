@@ -49,16 +49,5 @@ else()
 	target_link_libraries(npbnlp_py PUBLIC io rd lm tn icuuc sb gr ${Boost_LIBRARIES})
 endif()
 
-# libsb.so embeds usbd_lstm.cc whenever Torch was found locally (see
-# sb/src/CMakeLists.txt), but that CMakeLists only links Torch into the
-# `usbd` executable, not into the `sb` shared library itself - so libsb.so
-# carries unresolved Torch symbols that only surface on eager dlopen (which
-# is what Python's import does). Link Torch here too, scoped to our own
-# target, rather than touching the existing sb/src/CMakeLists.txt.
-find_package(Torch QUIET)
-if (Torch_FOUND)
-	target_link_libraries(npbnlp_py PUBLIC ${TORCH_LIBRARIES})
-endif()
-
 # for ICU
 target_link_directories(npbnlp_py PUBLIC /usr/local/lib)
