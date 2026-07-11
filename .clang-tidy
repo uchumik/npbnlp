@@ -20,7 +20,8 @@ Checks: >
   -performance-avoid-endl,
   -performance-enum-size,
   -modernize-use-nullptr,
-  -modernize-macro-to-enum
+  -modernize-macro-to-enum,
+  -modernize-use-override
 WarningsAsErrors: ''
 # Headers are linted only via the CI's dynamic --header-filter (changed
 # headers only); this default keeps local runs quiet on shared headers.
