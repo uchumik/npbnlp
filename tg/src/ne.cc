@@ -39,6 +39,7 @@ static int sweight = 1;
 static int ctx = 0;
 static int ctxgate = 0;
 static int wclass = 0;
+static double wbeta = 1.0;
 static std::shared_ptr<phsmm> toklm; // tokenizer kept alive for the lexical fill-in of the pos base
 static double a = 1;
 static double b = 5;
@@ -88,6 +89,7 @@ void usage(int argc, char **argv) {
 	cout << "--ctx=int(context-distribution factor window radius. default 0=off)\n";
 	cout << "--ctxgate(class-normalize the context factor as a softmax gate; needs --ctx)\n";
 	cout << "--wclass(per-word tokenizer-class channel: chunk class emits word.pos via theta)\n";
+	cout << "--wbeta=float(temperature of the per-word class channel, default 1.0)\n";
 	exit(1);
 }
 
@@ -137,6 +139,8 @@ int read_long_param(const char *opt, const char *arg) {
 		ctxgate = 1;
 	} else if (check(opt, "wclass")) {
 		wclass = 1;
+	} else if (check(opt, "wbeta")) {
+		wbeta = atof(arg);
 	} else {
 		return 1;
 	}
@@ -174,6 +178,7 @@ int read_param(int argc, char **argv) {
 			{"ctx", required_argument, 0, 0},
 			{"ctxgate", no_argument, 0, 0},
 			{"wclass", no_argument, 0, 0},
+			{"wbeta", required_argument, 0, 0},
 			//{"tokenized", no_argument, &tokenized, 1},
 			{0, 0, 0, 0}
 		};
@@ -409,6 +414,7 @@ int mcmc(nio& f, vector<nsentence>& corpus, vector<nsentence>& supervised) {
 	if (ctx > 0) lm.set_ctx(ctx);
 	if (ctxgate) lm.set_ctxgate(true);
 	if (wclass) lm.set_wclass(true);
+	if (wbeta != 1.0) lm.set_wbeta(wbeta);
 	if (toklm) lm.set_lex([](word& w, int p) { return toklm->lexlp(w, p); }, toklm->k());
 	//lm.set(vocab, K);
 	if (!pretrain.empty()) {

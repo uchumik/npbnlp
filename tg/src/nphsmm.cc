@@ -58,7 +58,7 @@ static void dbg_lk(vector<double>& t) {
 	fprintf(stderr, "lk %.10f\n", z);
 }
 
-nphsmm::nphsmm(): _n(1), _m(2), _l(10), _k(20), _v(C), _K(K), _a(1), _b(1), _original(false), _class(new hpyp(_n)), _chunk(new vector<shared_ptr<hpyp> >), _word(new vector<shared_ptr<hpyp> >), _letter(new vector<shared_ptr<vpyp> >), _prior(new vector<double>(chunktype2::n, 0)), _length(new vector<int>(chunktype2::n, 0)), _num(new vector<int>(chunktype2::n, 0)), _change(new vector<int>(chunktype2::n, 0)), _clength(new vector<int>(chunktype2::n, 0)), _cprior(new vector<double>(chunktype2::n, 1)), _bp(new vector<double>(chunktype2::n*chartype::n, 0)), _bcount(new vector<int>(chunktype2::n*chartype::n, 0)), _ccount(new vector<int>(chunktype2::n*chartype::n, 0)), _posbase(false), _posv(0), _posseq(new vector<shared_ptr<hpyp> >), _ctxj(0), _lctx(new vector<shared_ptr<hpyp> >), _rctx(new vector<shared_ptr<hpyp> >), _lbg(new hpyp(2)), _rbg(new hpyp(2)), _ctxgate(false), _wclass(false), _wc(new std::vector<int>()) {
+nphsmm::nphsmm(): _n(1), _m(2), _l(10), _k(20), _v(C), _K(K), _a(1), _b(1), _original(false), _class(new hpyp(_n)), _chunk(new vector<shared_ptr<hpyp> >), _word(new vector<shared_ptr<hpyp> >), _letter(new vector<shared_ptr<vpyp> >), _prior(new vector<double>(chunktype2::n, 0)), _length(new vector<int>(chunktype2::n, 0)), _num(new vector<int>(chunktype2::n, 0)), _change(new vector<int>(chunktype2::n, 0)), _clength(new vector<int>(chunktype2::n, 0)), _cprior(new vector<double>(chunktype2::n, 1)), _bp(new vector<double>(chunktype2::n*chartype::n, 0)), _bcount(new vector<int>(chunktype2::n*chartype::n, 0)), _ccount(new vector<int>(chunktype2::n*chartype::n, 0)), _posbase(false), _posv(0), _posseq(new vector<shared_ptr<hpyp> >), _ctxj(0), _lctx(new vector<shared_ptr<hpyp> >), _rctx(new vector<shared_ptr<hpyp> >), _lbg(new hpyp(2)), _rbg(new hpyp(2)), _ctxgate(false), _wclass(false), _wc(new std::vector<int>()), _wbeta(1.0) {
 	//_class->set_v(K);
 	for (auto i = 0; i < _k+1; ++i) {
 		_chunk->push_back(shared_ptr<hpyp>(new hpyp(_n)));
@@ -92,7 +92,7 @@ nphsmm::nphsmm(): _n(1), _m(2), _l(10), _k(20), _v(C), _K(K), _a(1), _b(1), _ori
 	//_cprior = 1.-be(_change, _clength);
 }
 
-nphsmm::nphsmm(int n, int m, int l, int k): _n(n), _m(m), _l(l), _k(k), _v(C), _K(K), _a(1), _b(1), _original(false), _class(new hpyp(_n)), _chunk(new vector<shared_ptr<hpyp> >), _word(new vector<shared_ptr<hpyp> >), _letter(new vector<shared_ptr<vpyp> >), _prior(new vector<double>(chunktype2::n, 0)), _length(new vector<int>(chunktype2::n, 0)), _num(new vector<int>(chunktype2::n, 0)), _change(new vector<int>(chunktype2::n, 0)), _clength(new vector<int>(chunktype2::n, 0)), _cprior(new vector<double>(chunktype2::n, 1)), _bp(new vector<double>(chunktype2::n*chartype::n, 0)), _bcount(new vector<int>(chunktype2::n*chartype::n, 0)), _ccount(new vector<int>(chunktype2::n*chartype::n, 0)), _posbase(false), _posv(0), _posseq(new vector<shared_ptr<hpyp> >), _ctxj(0), _lctx(new vector<shared_ptr<hpyp> >), _rctx(new vector<shared_ptr<hpyp> >), _lbg(new hpyp(2)), _rbg(new hpyp(2)), _ctxgate(false), _wclass(false), _wc(new std::vector<int>()) {
+nphsmm::nphsmm(int n, int m, int l, int k): _n(n), _m(m), _l(l), _k(k), _v(C), _K(K), _a(1), _b(1), _original(false), _class(new hpyp(_n)), _chunk(new vector<shared_ptr<hpyp> >), _word(new vector<shared_ptr<hpyp> >), _letter(new vector<shared_ptr<vpyp> >), _prior(new vector<double>(chunktype2::n, 0)), _length(new vector<int>(chunktype2::n, 0)), _num(new vector<int>(chunktype2::n, 0)), _change(new vector<int>(chunktype2::n, 0)), _clength(new vector<int>(chunktype2::n, 0)), _cprior(new vector<double>(chunktype2::n, 1)), _bp(new vector<double>(chunktype2::n*chartype::n, 0)), _bcount(new vector<int>(chunktype2::n*chartype::n, 0)), _ccount(new vector<int>(chunktype2::n*chartype::n, 0)), _posbase(false), _posv(0), _posseq(new vector<shared_ptr<hpyp> >), _ctxj(0), _lctx(new vector<shared_ptr<hpyp> >), _rctx(new vector<shared_ptr<hpyp> >), _lbg(new hpyp(2)), _rbg(new hpyp(2)), _ctxgate(false), _wclass(false), _wc(new std::vector<int>()), _wbeta(1.0) {
 	//_class->set_v(K);
 	for (auto i = 0; i < _k+1; ++i) {
 		_chunk->push_back(shared_ptr<hpyp>(new hpyp(_n)));
@@ -202,6 +202,10 @@ double nphsmm::_ctx_norm(clattice2& l, int t, int j, int start) {
 
 void nphsmm::set_wclass(bool f) {
 	_wclass = f;
+}
+
+void nphsmm::set_wbeta(double b) {
+	_wbeta = b;
 }
 
 // lazy-size the theta count table once _posv (tokenizer class count) is known.
@@ -484,6 +488,10 @@ void nphsmm::save(const char *file) {
 			throw "failed to write wclass header in nphsmm::save";
 		if (wn > 0 && fwrite(_wc->data(), sizeof(int), wn, fp) != (size_t)wn)
 			throw "failed to write wclass counts in nphsmm::save";
+		// per-word tokenizer-class channel temperature; appended last so legacy
+		// models (which lack it) load as 1.0 (see load()).
+		if (fwrite(&_wbeta, sizeof(double), 1, fp) != 1)
+			throw "failed to write _wbeta in nphsmm::save";
 	} catch (const char *ex) {
 		throw ex;
 	}
@@ -594,10 +602,15 @@ void nphsmm::load(const char *file) {
 			if (wn > 0 && fread(_wc->data(), sizeof(int), wn, fp) != (size_t)wn)
 				throw "failed to read wclass counts in nphsmm::load";
 		}
+		// per-word tokenizer-class channel temperature; absent in legacy models
+		// -> keep default 1.0 (fread failure is not an error here).
+		double wb = 1.0;
+		if (fread(&wb, sizeof(double), 1, fp) == 1)
+			_wbeta = wb;
 		if (getenv("NPBNLP_LOAD_STATS")) {
 			bool cbase_on = (bool)(*_chunk)[1]->has_cbase();
-			fprintf(stderr, "[load_stats] posbase=%d ctxj=%d ctxgate=%d wclass=%d posv=%d chunk_base=%s\n",
-					_posbase ? 1 : 0, _ctxj, _ctxgate ? 1 : 0, _wclass ? 1 : 0, _posv,
+			fprintf(stderr, "[load_stats] posbase=%d ctxj=%d ctxgate=%d wclass=%d posv=%d wbeta=%.3f chunk_base=%s\n",
+					_posbase ? 1 : 0, _ctxj, _ctxgate ? 1 : 0, _wclass ? 1 : 0, _posv, _wbeta,
 					cbase_on ? "POS(cbase)" : "WORD(_base)");
 		}
 		// estimate chunk size
@@ -857,7 +870,7 @@ nsentence nphsmm::parse(nio& f, int i) {
 			double ctxz = (_ctxj > 0 && _ctxgate) ? _ctx_norm(l, t, j, t-ch.len+1) : 0;
 			for (auto k = l.begin(t, j); k != l.end(t, j); ++k) {
 				double pc = prior + ((_ctxj > 0) ? l.lctx[t-ch.len+1][*k]+l.rctx[t][*k]-ctxz : 0)
-					+ (_wclass ? _wclass_lp(*k, ch) : 0);
+					+ (_wclass ? _wbeta*_wclass_lp(*k, ch) : 0);
 				const context *c = (*_chunk)[*k]->h();
 				const context *z = _class->h();
 				for (auto p = 0; p < l.size(t-ch.len); ++p) {
@@ -945,7 +958,7 @@ nsentence nphsmm::sample(nio& f, int i) {
 			double ctxz = (_ctxj > 0 && _ctxgate) ? _ctx_norm(l, t, j, t-ch.len+1) : 0;
 			for (auto k = l.begin(t, j); k != l.end(t, j); ++k) {
 				double pc = prior + ((_ctxj > 0) ? l.lctx[t-ch.len+1][*k]+l.rctx[t][*k]-ctxz : 0)
-					+ (_wclass ? _wclass_lp(*k, ch) : 0);
+					+ (_wclass ? _wbeta*_wclass_lp(*k, ch) : 0);
 				const context *c = (*_chunk)[*k]->h();
 				const context *z = _class->h();
 				for (auto p = 0; p < l.size(t-ch.len); ++p) {
@@ -1389,7 +1402,7 @@ void nphsmm::_mfill(clattice2& l, vt& dp, vt& am, vt& bos, vt& trm) {
 				const context *c = (*_chunk)[p]->h();
 				double lnp = pi+((_n == 1) ? l.emit[t][j][p] : 0)
 					+((_ctxj > 0) ? l.lctx[t-ch.len+1][p]+l.rctx[t][p]-ctxz : 0)
-					+(_wclass ? _wclass_lp(p, ch) : 0);
+					+(_wclass ? _wbeta*_wclass_lp(p, ch) : 0);
 				// own length is a kept key of am only when the emission context is non-empty;
 				// for nw == 0 it is the deepest length and is marginalized out
 				_mchain(l, s, nw, c, false, ch, p, lnp, as, dp[t][ch.len][p], (nw >= 1) ? am[t][ch.len] : am[t], trm);

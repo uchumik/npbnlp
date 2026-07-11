@@ -44,6 +44,7 @@ namespace npbnlp {
 			// on top of (not replacing) the word LM. Per-word => invariant to chunk
 			// count, so it sharpens class assignment without biasing merges.
 			virtual void set_wclass(bool f);
+			virtual void set_wbeta(double b);
 			virtual void estimate(int iter);
 			virtual void poisson_correction(int n = 100);
 			virtual void save(const char *file);
@@ -97,6 +98,7 @@ namespace npbnlp {
 			// lazily to (_K+1)*(_posv+1) once _posv (= tokenizer class count) is known.
 			bool _wclass;
 			std::shared_ptr<std::vector<int> > _wc;
+			double _wbeta;
 			std::mutex _mutex;
 			// logsumexp of the raw context factor over surviving classes at segment
 			// (t,j) starting at `start`; used as the normalizer for the softmax gate.
