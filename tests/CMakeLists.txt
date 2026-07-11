@@ -29,8 +29,16 @@ add_executable(test_serialize_compat
 	${CMAKE_SOURCE_DIR}/tg/src/ihmm.cc
 	${CMAKE_SOURCE_DIR}/tg/src/hlattice.cc
 	)
+add_executable(test_nphsmm_roundtrip
+	test_nphsmm_roundtrip.cc
+	${CMAKE_SOURCE_DIR}/tg/src/nphsmm.cc
+	${CMAKE_SOURCE_DIR}/tg/src/clattice.cc
+	${CMAKE_SOURCE_DIR}/tg/src/nnpylm.cc
+	${CMAKE_SOURCE_DIR}/tg/src/ihmm.cc
+	${CMAKE_SOURCE_DIR}/tg/src/hlattice.cc
+	)
 
-foreach(t test_io test_hpyp_symmetry test_hpyp_roundtrip test_npylm_smoke test_serialize_compat)
+foreach(t test_io test_hpyp_symmetry test_hpyp_roundtrip test_npylm_smoke test_serialize_compat test_nphsmm_roundtrip)
 	target_compile_options(${t} PUBLIC
 		$<$<CONFIG:Release>:-O2 -std=c++17>
 		$<$<CONFIG:Debug>:-g -std=c++17>
@@ -44,12 +52,14 @@ if (OpenMP_CXX_FOUND)
 	target_link_libraries(test_hpyp_roundtrip PUBLIC OpenMP::OpenMP_CXX io rd lm icuuc ${Boost_LIBRARIES})
 	target_link_libraries(test_npylm_smoke PUBLIC OpenMP::OpenMP_CXX io rd lm tn icuuc ${Boost_LIBRARIES})
 	target_link_libraries(test_serialize_compat PUBLIC OpenMP::OpenMP_CXX io rd lm tn icuuc ${Boost_LIBRARIES})
+	target_link_libraries(test_nphsmm_roundtrip PUBLIC OpenMP::OpenMP_CXX io rd lm tn icuuc ${Boost_LIBRARIES})
 else()
 	target_link_libraries(test_io PUBLIC io icuuc)
 	target_link_libraries(test_hpyp_symmetry PUBLIC io rd lm icuuc ${Boost_LIBRARIES})
 	target_link_libraries(test_hpyp_roundtrip PUBLIC io rd lm icuuc ${Boost_LIBRARIES})
 	target_link_libraries(test_npylm_smoke PUBLIC io rd lm tn icuuc ${Boost_LIBRARIES})
 	target_link_libraries(test_serialize_compat PUBLIC io rd lm tn icuuc ${Boost_LIBRARIES})
+	target_link_libraries(test_nphsmm_roundtrip PUBLIC io rd lm tn icuuc ${Boost_LIBRARIES})
 endif()
 
 add_test(NAME test_io COMMAND test_io ${CMAKE_CURRENT_SOURCE_DIR}/data/tiny_ja.txt)
@@ -57,3 +67,4 @@ add_test(NAME test_hpyp_symmetry COMMAND test_hpyp_symmetry)
 add_test(NAME test_hpyp_roundtrip COMMAND test_hpyp_roundtrip ${CMAKE_CURRENT_SOURCE_DIR}/data/tiny_ja.txt)
 add_test(NAME test_npylm_smoke COMMAND test_npylm_smoke ${CMAKE_CURRENT_SOURCE_DIR}/data/tiny_ja.txt)
 add_test(NAME test_serialize_compat COMMAND test_serialize_compat)
+add_test(NAME test_nphsmm_roundtrip COMMAND test_nphsmm_roundtrip)
