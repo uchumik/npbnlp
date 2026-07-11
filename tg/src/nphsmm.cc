@@ -779,12 +779,16 @@ void nphsmm::remove(nsentence& s) {
 	for (int i = 0; i < s.size()+1; ++i) {
 		chunk& ch = s.ch(i);
 		context *h = (*_chunk)[ch.k]->find(s, i);
+		if (!h)
+			throw "emission context not found in nphsmm::remove";
 		(*_chunk)[ch.k]->remove(ch, h);
 		context *c = _class->h();
-		for (int j = 1; j < _n; ++j) {
+		for (int j = 1; j < _n && c; ++j) {
 			chunk& x = s.ch(i-j);
 			c = c->find(x.k);
 		}
+		if (!c)
+			throw "class context not found in nphsmm::remove";
 		_class->remove(ch.k, c);
 		if (!ch.id || ch.type < 0) // skip eos
 			continue;
@@ -806,7 +810,10 @@ void nphsmm::remove(nsentence& s) {
 		(*_change)[ch.type] -= change;
 		//(*_clength)[ch.type] -= ch.len;
 	}
-	for (int k = _k-1; kfreq[k] == 0; --k) {
+	// bound the shrink walk: kfreq[0] is structurally 0 (EOS seat is never
+	// counted), so a full teardown would otherwise walk k negative and
+	// pop_back the LM vectors past empty (UB). keep at least class 1.
+	for (int k = _k-1; k >= 1 && kfreq[k] == 0; --k) {
 		_shrink();
 	}
 }
@@ -876,7 +883,7 @@ nsentence nphsmm::parse(nio& f, int i) {
 				for (auto p = 0; p < l.size(t-ch.len); ++p) {
 					const context *h = NULL;
 					chunk& prev = l.ch(t-ch.len, p+1);
-					if (_n > 1)
+					if (_n > 1 && prev.id != 1)
 						h = c->find(prev.id);
 					for (auto q = l.begin(t-ch.len, p); q != l.end(t-ch.len, p); ++q) {
 						const context *u = NULL;
@@ -908,7 +915,7 @@ nsentence nphsmm::parse(nio& f, int i) {
 		for (int p = 0; p < l.size(t); ++p) {
 			const context *h = NULL;
 			chunk& prev = l.ch(t, p+1);
-			if (_n > 1)
+			if (_n > 1 && prev.id != 1)
 				h = c->find(prev.id);
 			for (auto q = l.begin(t, p); q != l.end(t, p); ++q) {
 				const context *u = NULL;
@@ -964,7 +971,7 @@ nsentence nphsmm::sample(nio& f, int i) {
 				for (auto p = 0; p < l.size(t-ch.len); ++p) {
 					const context *h = NULL;
 					chunk& prev = l.ch(t-ch.len, p+1);
-					if (_n > 1)
+					if (_n > 1 && prev.id != 1)
 						h = c->find(prev.id);
 					for (auto q = l.begin(t-ch.len, p); q != l.end(t-ch.len, p); ++q) {
 						const context *u = NULL;
@@ -995,7 +1002,7 @@ nsentence nphsmm::sample(nio& f, int i) {
 		for (int p = 0; p < l.size(t); ++p) {
 			const context *h = NULL;
 			chunk& prev = l.ch(t, p+1);
-			if (_n > 1)
+			if (_n > 1 && prev.id != 1)
 				h = c->find(prev.id);
 			for (auto q = l.begin(t, p); q != l.end(t, p); ++q) {
 				const context *u = NULL;
@@ -1035,7 +1042,7 @@ void nphsmm::_forward(clattice2& l, int i, const context *c, const context *z, d
 		for (auto j = 0; j < l.size(i); ++j) {
 			chunk& y = l.ch(i, j+1);
 			const context *h = NULL;
-			if (!unk && n > 1)
+			if (!unk && n > 1 && y.id != 1)
 				h = c->find(y.id);
 			for (auto r = l.begin(i, j); r != l.end(i, j); ++r) {
 				const context *u = NULL;
@@ -1061,7 +1068,7 @@ void nphsmm::_backward(clattice2& l, int i, const context *c, const context *z, 
 		for (auto j = 0; j < l.size(i); ++j) {
 			chunk& y = l.ch(i, j+1);
 			const context *h = NULL;
-			if (!unk && n > 1)
+			if (!unk && n > 1 && y.id != 1)
 				h = c->find(y.id);
 			for (auto r = l.begin(i, j); r != l.end(i, j); ++r) {
 				const context *u = NULL;
@@ -1423,7 +1430,7 @@ void nphsmm::_mchain(clattice2& l, int pos, int d, const context *c, bool unk, c
 			if (!child.is_init())
 				continue;
 			chunk& y = (lam > 0 && pos >= 0) ? l.ch(pos, lam) : l.ch(-1, 1);
-			const context *h = (!unk) ? c->find(y.id) : NULL;
+			const context *h = (!unk && y.id != 1) ? c->find(y.id) : NULL;
 			_mchain(l, pos-y.len, d-1, (h) ? h : c, (unk || !h), ch, p, lnp, child, dpn[lam], (d > 1) ? an[lam] : an, trm);
 		}
 	}
@@ -1489,7 +1496,7 @@ void nphsmm::_mtable(clattice2& l, int pos, int d, int e, const context *c, bool
 			if (!child.is_init())
 				continue;
 			chunk& y = (lam > 0 && pos >= 0) ? l.ch(pos, lam) : l.ch(-1, 1);
-			const context *h = (!unk && _n > 1) ? c->find(y.id) : NULL;
+			const context *h = (!unk && _n > 1 && y.id != 1) ? c->find(y.id) : NULL;
 			cl.push_back(lam);
 			_mtable(l, pos-y.len, d-1, e, (h) ? h : c, (unk || !h), ch, child, trm, cl, cr, tbl, lpath, rpath);
 			cl.pop_back();
