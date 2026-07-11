@@ -89,7 +89,9 @@ jobs:
           fail=0
           for f in $changed; do
             if grep -q "\"$(pwd)/$f\"" compile_commands.json || grep -q "$f" compile_commands.json; then
-              clang-tidy -p . --warnings-as-errors='*' --header-filter="$hfilter" "$f" || fail=1
+              # -fno-openmp: the compile db carries gcc's -fopenmp, whose omp.h
+              # clang cannot locate; cache.h guards the include with #ifdef _OPENMP.
+              clang-tidy -p . --warnings-as-errors='*' --header-filter="$hfilter" --extra-arg=-fno-openmp "$f" || fail=1
             else
               echo "skip (not in compile db): $f"
             fi
