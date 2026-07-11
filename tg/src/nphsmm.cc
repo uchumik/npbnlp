@@ -779,12 +779,16 @@ void nphsmm::remove(nsentence& s) {
 	for (int i = 0; i < s.size()+1; ++i) {
 		chunk& ch = s.ch(i);
 		context *h = (*_chunk)[ch.k]->find(s, i);
+		if (!h)
+			throw "emission context not found in nphsmm::remove";
 		(*_chunk)[ch.k]->remove(ch, h);
 		context *c = _class->h();
-		for (int j = 1; j < _n; ++j) {
+		for (int j = 1; j < _n && c; ++j) {
 			chunk& x = s.ch(i-j);
 			c = c->find(x.k);
 		}
+		if (!c)
+			throw "class context not found in nphsmm::remove";
 		_class->remove(ch.k, c);
 		if (!ch.id || ch.type < 0) // skip eos
 			continue;
@@ -876,7 +880,7 @@ nsentence nphsmm::parse(nio& f, int i) {
 				for (auto p = 0; p < l.size(t-ch.len); ++p) {
 					const context *h = NULL;
 					chunk& prev = l.ch(t-ch.len, p+1);
-					if (_n > 1)
+					if (_n > 1 && prev.id != 1)
 						h = c->find(prev.id);
 					for (auto q = l.begin(t-ch.len, p); q != l.end(t-ch.len, p); ++q) {
 						const context *u = NULL;
@@ -908,7 +912,7 @@ nsentence nphsmm::parse(nio& f, int i) {
 		for (int p = 0; p < l.size(t); ++p) {
 			const context *h = NULL;
 			chunk& prev = l.ch(t, p+1);
-			if (_n > 1)
+			if (_n > 1 && prev.id != 1)
 				h = c->find(prev.id);
 			for (auto q = l.begin(t, p); q != l.end(t, p); ++q) {
 				const context *u = NULL;
@@ -964,7 +968,7 @@ nsentence nphsmm::sample(nio& f, int i) {
 				for (auto p = 0; p < l.size(t-ch.len); ++p) {
 					const context *h = NULL;
 					chunk& prev = l.ch(t-ch.len, p+1);
-					if (_n > 1)
+					if (_n > 1 && prev.id != 1)
 						h = c->find(prev.id);
 					for (auto q = l.begin(t-ch.len, p); q != l.end(t-ch.len, p); ++q) {
 						const context *u = NULL;
@@ -995,7 +999,7 @@ nsentence nphsmm::sample(nio& f, int i) {
 		for (int p = 0; p < l.size(t); ++p) {
 			const context *h = NULL;
 			chunk& prev = l.ch(t, p+1);
-			if (_n > 1)
+			if (_n > 1 && prev.id != 1)
 				h = c->find(prev.id);
 			for (auto q = l.begin(t, p); q != l.end(t, p); ++q) {
 				const context *u = NULL;
@@ -1035,7 +1039,7 @@ void nphsmm::_forward(clattice2& l, int i, const context *c, const context *z, d
 		for (auto j = 0; j < l.size(i); ++j) {
 			chunk& y = l.ch(i, j+1);
 			const context *h = NULL;
-			if (!unk && n > 1)
+			if (!unk && n > 1 && y.id != 1)
 				h = c->find(y.id);
 			for (auto r = l.begin(i, j); r != l.end(i, j); ++r) {
 				const context *u = NULL;
@@ -1061,7 +1065,7 @@ void nphsmm::_backward(clattice2& l, int i, const context *c, const context *z, 
 		for (auto j = 0; j < l.size(i); ++j) {
 			chunk& y = l.ch(i, j+1);
 			const context *h = NULL;
-			if (!unk && n > 1)
+			if (!unk && n > 1 && y.id != 1)
 				h = c->find(y.id);
 			for (auto r = l.begin(i, j); r != l.end(i, j); ++r) {
 				const context *u = NULL;
