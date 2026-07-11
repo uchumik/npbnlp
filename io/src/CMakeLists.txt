@@ -1,5 +1,5 @@
 include_directories(${CMAKE_SOURCE_DIR}/io/include)
-add_executable(test test.cc io.cc)
+add_executable(io_test test.cc io.cc)
 set(CMAKE_CXX_FLAGS "-std=c++17 -O3")
 set(BOOST_USE_STATIC_LIBS ON)
 set(BOOST_USE_MULTITHREAD ON)
@@ -17,4 +17,4 @@ target_compile_options(io PUBLIC
 target_link_libraries(io PUBLIC ${Boost_LIBRARIES})
 target_link_libraries(word_test PUBLIC ${Boost_LIBRARIES})
 target_link_libraries(sentence_test PUBLIC ${Boost_LIBRARIES})
-target_link_libraries(test PUBLIC ${Boost_LIBRARIES})
+target_link_libraries(io_test PUBLIC ${Boost_LIBRARIES})

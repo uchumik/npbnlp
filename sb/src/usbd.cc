@@ -1,6 +1,8 @@
 #include"usbd_l.h"
 #include"usbd_w.h"
+#ifdef NPBNLP_LSTM
 #include"usbd_lstm.h"
+#endif
 
 using namespace std;
 using namespace npbnlp;
@@ -20,8 +22,12 @@ bool bd_wrap::create(int n, sequence_type type, smoothing s) {
 			_d = shared_ptr<usbd>(new usbd_l(n, s));
 			return true;
 		case sequence_type::lstm:
+#ifdef NPBNLP_LSTM
 			_d = shared_ptr<usbd>(new usbd_lstm());
 			return true;
+#else
+			throw "lstm support is not built in usbd";
+#endif
 		default:
 			return false;
 	}

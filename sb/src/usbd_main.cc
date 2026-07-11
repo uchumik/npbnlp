@@ -110,7 +110,12 @@ int read_long_param(const char *opt, const char *arg) {
 		} else if (check(arg, "word")) {
 			type = sequence_type::word;
 		} else if (check(arg, "lstm")) {
+#ifdef NPBNLP_LSTM
 			type = sequence_type::lstm;
+#else
+			cerr << "lstm support is not built in usbd" << endl;
+			exit(1);
+#endif
 		} else {
 			return 1;
 		}
@@ -301,8 +306,10 @@ void mcmc() {
 		bd.set_cr_prior(cr_prior);
 	if (f_set_punc_prior)
 		bd.set_punc_prior(pnc_prior);
+#ifdef NPBNLP_LSTM
 	if (type == sequence_type::lstm)
 		bd.init(file, 100);
+#endif
 	io *pre = NULL;
 	if (!pretrain.empty()) {
 		pre = new io(pretrain.c_str());

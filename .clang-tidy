@@ -1,0 +1,16 @@
+# clang-tidy config for npbnlp (C++17). Tuned for a research codebase:
+# focus on real bugs and modernization, not pedantic naming/style churn.
+Checks: >
+  -*,
+  bugprone-*,
+  performance-*,
+  modernize-*,
+  clang-analyzer-*,
+  cppcoreguidelines-narrowing-conversions,
+  -modernize-use-trailing-return-type,
+  -modernize-avoid-c-arrays,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions
+WarningsAsErrors: ''
+HeaderFilterRegex: '(io|lm|ma|tg|pa|sb|re|rd|dt)/include/.*'
+FormatStyle: none

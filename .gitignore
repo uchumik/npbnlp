@@ -43,3 +43,51 @@ bluesky_en.model.lm.nz
 bsky_thai_*
 bsky_zh_*
 exp_cjk_sbd/
+
+# Models and dictionaries
+*.model
+*.dic
+*.model.lm*
+
+# CMake build artifacts
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+compile_commands.json
+
+# Logs
+*.log
+
+# Built binaries (extensionless)
+io/src/test
+io/src/word_test
+io/src/sentence_test
+lm/src/lm_test
+lm/src/hpy_test
+lm/src/vpy_test
+lm/src/npy_test
+lm/src/kn_test
+lm/src/hdp_test
+sb/src/usbd
+sb/src/eval
+sb/src/error
+sb/src/ckappa
+sb/src/fkappa
+sb/src/libsb.so
+io/src/io_test
+
+# CTest / pybind artifacts
+CTestTestfile.cmake
+Testing/
+DartConfiguration.tcl
+_deps/
+tests/test_io
+tests/test_hpyp_symmetry
+tests/test_hpyp_roundtrip
+tests/test_npylm_smoke
+tests/test_serialize_compat
+py/*.so
+
+# local claude workspace
+.claude/

@@ -1,5 +1,5 @@
-#ifndef NLPBP_IO_H
-#define NLPBP_IO_H
+#ifndef NPBNLP_IO_H
+#define NPBNLP_IO_H
 
 #include<cstdlib>
 #include<cstring>

@@ -1,0 +1,88 @@
+name: ci
+
+on:
+  push:
+    branches: [main, dev]
+    paths-ignore:
+      - '**.md'
+      - 'exp_cjk_sbd/**'
+      - 'exp_ne_semi/**'
+  pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'exp_cjk_sbd/**'
+      - 'exp_ne_semi/**'
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ cmake libicu-dev libboost-serialization-dev python3-dev ccache
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-build
+      - name: configure
+        # in-source build: module CMakeLists link sibling libs via
+        # link_directories(${CMAKE_SOURCE_DIR}/<mod>/src), which assumes
+        # build artifacts land next to the sources.
+        run: |
+          cmake . -DCMAKE_BUILD_TYPE=Release -DBUILD_PYTHON=ON \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+      - name: build
+        run: make -j$(nproc)
+      - name: test
+        run: ctest --output-on-failure
+      - name: python import smoke
+        run: |
+          so_dir=$(dirname "$(find . -name 'npbnlp*.so' -not -path './CMakeFiles/*' | head -1)")
+          PYTHONPATH="$so_dir" python3 -c "import npbnlp; print(sorted(n for n in dir(npbnlp) if not n.startswith('_')))"
+
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ cmake libicu-dev libboost-serialization-dev python3-dev clang-tidy
+      - name: configure (compile_commands.json)
+        run: cmake . -DCMAKE_BUILD_TYPE=Release
+      - name: clang-tidy on changed files
+        # diff-only blocking: lint only the .cc files this push/PR touches,
+        # so pre-existing debt elsewhere does not fail the build. Headers are
+        # covered indirectly via HeaderFilterRegex in .clang-tidy.
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+          else
+            base="${{ github.event.before }}"
+            if [ -z "$base" ] || ! git cat-file -e "$base" 2>/dev/null || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+              base=$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)
+            fi
+          fi
+          changed=$(git diff --name-only --diff-filter=ACMR "$base" HEAD -- '*.cc' | grep -v '^dt/' || true)
+          if [ -z "$changed" ]; then
+            echo "no changed .cc files; skipping clang-tidy"
+            exit 0
+          fi
+          echo "linting:"; echo "$changed"
+          # only lint files that are part of the compile database (skip e.g.
+          # untracked-on-CI sources like usbd_lstm.cc)
+          fail=0
+          for f in $changed; do
+            if grep -q "\"$(pwd)/$f\"" compile_commands.json || grep -q "$f" compile_commands.json; then
+              clang-tidy -p . --warnings-as-errors='*' "$f" || fail=1
+            else
+              echo "skip (not in compile db): $f"
+            fi
+          done
+          exit $fail
