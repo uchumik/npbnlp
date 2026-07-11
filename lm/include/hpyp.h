@@ -10,6 +10,7 @@
 #include"context.h"
 #include<memory>
 #include<mutex>
+#include<functional>
 namespace npbnlp {
 	class hpyp : public lm {
 		public:
@@ -26,6 +27,15 @@ namespace npbnlp {
 			double lp(chunk& c, const context *h);
 			double lp(word& w, const context *h);
 			double lp(int k, const context *h);
+			// exact helpers for cached slice-time emission computation.
+			// lp_root_base: PY interpolation at the root context using a
+			//   precomputed base (= _lpb value) instead of recursing.
+			// wlp: word log-prob given explicit preceding-word ids (most
+			//   recent first, 0 = BOS), replicating _lpb's context walk.
+			double lp_root_base(chunk& c, double base);
+			double lp_root_base(word& w, double base);
+			double wlp(word& w, const int *prev, int np);
+			double wlp(int k, const int *prev, int np);
 			double discount(int n) const;
 			double strength(int n) const;
 			double alpha(int n) const;
@@ -59,7 +69,17 @@ namespace npbnlp {
 			void remove(chunk& c, context *h);
 			void remove(word& w, context *h);
 			bool remove(int k, context *h);
-			void set_base(hpyp *b);
+			void set_base(lm *b);
+			// optional chunk base-measure delegation: when set, _lpb(chunk&)
+			// returns _cbase(c) instead of walking the word-LM base, and the
+			// new-table seating into the base uses _cbase_add/_cbase_remove
+			// instead of wrap::add_a/remove_a on the word LM.
+			void set_cbase(std::function<double(chunk&)> f);
+			void set_cbase_add(std::function<void(chunk&)> f);
+			void set_cbase_remove(std::function<void(chunk&)> f);
+			// true when a chunk base-measure delegate (e.g. the pos-seq base) is
+			// installed; false means the chunk base falls back to the word LM.
+			bool has_cbase() const { return (bool)_cbase; }
 			void set_v(int v);
 			void estimate(int iter);
 			void poisson_correction(int n = 1000);
@@ -74,7 +94,10 @@ namespace npbnlp {
 			int _n;
 			double _a;
 			double _b;
-			hpyp *_base;
+			lm *_base;
+			std::function<double(chunk&)> _cbase;
+			std::function<void(chunk&)> _cbase_add;
+			std::function<void(chunk&)> _cbase_remove;
 			int _v;
 			std::shared_ptr<context> _h;
 			std::shared_ptr<std::vector<double> > _discount;

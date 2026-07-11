@@ -2,6 +2,8 @@
 #include"chartype.h"
 #include"wordtype.h"
 #include"chunktype.h"
+#include<cstdlib>
+#include<cstdio>
 #ifdef _OPENMP
 #include<omp.h>
 #endif
@@ -353,6 +355,24 @@ clattice2::clattice2(nio& f, int i, std::vector<int>& chsize) {
 				break;
 		}
 		k[j].resize(c[j].size());
+	}
+	// diagnostics (env gated): dump tokenizer word boundaries and every chunk
+	// candidate span in absolute char offsets, for measuring gold-NE lattice
+	// coverage (does the transition table / _clength drop NE spans?).
+	if (getenv("NPBNLP_LATTICE_COVER")) {
+		int nw = (int)wt.size();
+		std::vector<int> cum(nw+1, 0);
+		for (int p = 0; p < nw; ++p)
+			cum[p+1] = cum[p] + (*f.raw)[head+p].len; // word char length
+		fprintf(stderr, "tok %d", i);
+		for (int p = 0; p <= nw; ++p)
+			fprintf(stderr, " %d", cum[p]);
+		fprintf(stderr, "\n");
+		for (int j = 0; j < nw; ++j)
+			for (auto& ch : c[j]) {
+				int s = j - (ch.len - 1); // start word index
+				fprintf(stderr, "cov %d %d-%d\n", i, cum[s], cum[j+1]);
+			}
 	}
 }
 

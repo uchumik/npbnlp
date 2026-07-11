@@ -43,6 +43,7 @@ namespace npbnlp {
 			std::vector<double> mu;
 			std::vector<std::vector<std::vector<int> > > k;
 			std::vector<std::vector<double> > prior;
+			std::vector<std::vector<std::vector<double> > > emit; // emit[t][len-1][pos]: root context emission cache
 			//std::vector<std::vector<int> > check;
 		protected:
 			int _segsize(type& t, type& u, int& chn);

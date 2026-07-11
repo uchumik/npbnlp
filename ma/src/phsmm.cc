@@ -7,6 +7,11 @@
 #include"generator.h"
 #include"negative_binomial.h"
 #include<random>
+#include<cstdlib>
+#include<cstdio>
+#include<cmath>
+#include<atomic>
+#include<chrono>
 #ifdef _OPENMP
 #include<omp.h>
 #endif
@@ -25,7 +30,30 @@ static unordered_map<int, int> wfreq;
 static unordered_map<int, int> pfreq;
 static negative_binomial nb;
 
-phsmm::phsmm():_n(1),_m(10),_l(2),_k(20),_v(C),_K(K),_a(1),_b(1),_pos(new hpyp(_l)),_word(new vector<shared_ptr<hpyp> >),_letter(new vector<shared_ptr<vpyp> >),_lprior(new vector<double>(chartype::n, 0)),_cprior(new vector<double>(chartype::n, 0)),_num(new vector<int>(chartype::n, 0)),_change(new vector<int>(chartype::n, 0)),_len(new vector<int>(chartype::n, 0)) {
+// diagnostics (env gated): accumulated _slice wall time, reported at exit
+static std::atomic<long long> ph_slice_us(0), ph_slice_sent(0);
+struct phsmm_diag {
+	~phsmm_diag() {
+		if (getenv("NPBNLP_PHASE_TIME") && ph_slice_sent > 0)
+			fprintf(stderr, "[phsmm slice ms] %lld sentences=%lld\n",
+					ph_slice_us.load()/1000, ph_slice_sent.load());
+	}
+};
+static phsmm_diag _phsmm_diag;
+
+// debug: print the forward marginal likelihood of a sentence for
+// numerical comparison between the original and marginalized paths
+static void dbg_lk(vector<double>& t) {
+	static const bool dbg = (getenv("NPBNLP_DEBUG_LK") != NULL);
+	if (!dbg || t.empty())
+		return;
+	double z = 0;
+	for (auto i = 0; i < (int)t.size(); ++i)
+		z = math::lse(z, t[i], (i == 0));
+	fprintf(stderr, "lk %.10f\n", z);
+}
+
+phsmm::phsmm():_n(1),_m(10),_l(2),_k(20),_v(C),_K(K),_a(1),_b(1),_original(false),_pos(new hpyp(_l)),_word(new vector<shared_ptr<hpyp> >),_letter(new vector<shared_ptr<vpyp> >),_lprior(new vector<double>(chartype::n, 0)),_cprior(new vector<double>(chartype::n, 0)),_num(new vector<int>(chartype::n, 0)),_change(new vector<int>(chartype::n, 0)),_len(new vector<int>(chartype::n, 0)) {
 	//_pos->set_v(_K);
 	for (auto i = 0; i < _k+1; ++i) {
 		_word->push_back(shared_ptr<hpyp>(new hpyp(_n)));
@@ -44,7 +72,7 @@ phsmm::phsmm():_n(1),_m(10),_l(2),_k(20),_v(C),_K(K),_a(1),_b(1),_pos(new hpyp(_
 	//_prior = 1.-be(_change, _len);
 }
 
-phsmm::phsmm(int n, int m, int l, int k):_n(n),_m(m),_l(l),_k(k),_v(C),_K(K),_a(1),_b(1),_pos(new hpyp(_l)),_word(new vector<shared_ptr<hpyp> >),_letter(new vector<shared_ptr<vpyp> >),_lprior(new vector<double>(chartype::n,0)),_cprior(new vector<double>(chartype::n, 0)),_num(new vector<int>(chartype::n,0)),_change(new vector<int>(chartype::n, 0)),_len(new vector<int>(chartype::n, 0)) {
+phsmm::phsmm(int n, int m, int l, int k):_n(n),_m(m),_l(l),_k(k),_v(C),_K(K),_a(1),_b(1),_original(false),_pos(new hpyp(_l)),_word(new vector<shared_ptr<hpyp> >),_letter(new vector<shared_ptr<vpyp> >),_lprior(new vector<double>(chartype::n,0)),_cprior(new vector<double>(chartype::n, 0)),_num(new vector<int>(chartype::n,0)),_change(new vector<int>(chartype::n, 0)),_len(new vector<int>(chartype::n, 0)) {
 	//_pos->set_v(_K);
 	for (auto i = 0; i < _k+1; ++i) {
 		_word->push_back(shared_ptr<hpyp>(new hpyp(_n)));
@@ -93,12 +121,32 @@ int phsmm::l() {
 	return _l;
 }
 
+int phsmm::k() {
+	return _k;
+}
+
+double phsmm::lexlp(word& w, int p) {
+	if (p < 1 || p > _k)
+		return -log((double)_v);
+	return (*_word)[p]->lp(w, (*_word)[p]->h());
+}
+
+double phsmm::poslp(int p) {
+	if (p < 1 || p > _k)
+		return -log((double)_k);
+	return _pos->lp(p, _pos->h());
+}
+
 void phsmm::slice(double a, double b) {
 	if (a <= 0 || b <= 0) {
 		return;
 	}
 	_a = a;
 	_b = b;
+}
+
+void phsmm::set_original(bool f) {
+	_original = f;
 }
 
 void phsmm::save(const char *file) {
@@ -392,6 +440,8 @@ void phsmm::poisson_correction(int n) {
 }
 
 sentence phsmm::parse(io& f, int i) {
+	if (!_original)
+		return _minfer(f, i, true);
 	lattice l(f, i);
 	vt dp;
 	// slice
@@ -442,6 +492,7 @@ sentence phsmm::parse(io& f, int i) {
 	sentence s;
 	word *w = l.wp(l.w.size(), 1);
 	int t = (int)l.w.size()-w->len;
+	bool dbg_first = true;
 	while (t >= 0) {
 		const context *c = (*_word)[w->pos]->h();
 		const context *z = _pos->h();
@@ -481,6 +532,10 @@ sentence phsmm::parse(io& f, int i) {
 					_backward(l, t-prev.len, c, z, *w, w->pos, prev, q, table[i], dp[t][k][q], _n-1, _l-1, true, true);
 			}
 		}
+		if (dbg_first) {
+			dbg_lk(table);
+			dbg_first = false;
+		}
 		int id = rd::best(table);
 		w = l.wp(t, len[id]);
 		w->pos = pos[id];
@@ -493,6 +548,8 @@ sentence phsmm::parse(io& f, int i) {
 }
 
 sentence phsmm::sample(io& f, int i) {
+	if (!_original)
+		return _minfer(f, i, false);
 	lattice l(f, i);
 	vt dp;
 	// slice
@@ -653,18 +710,92 @@ void phsmm::_backward(lattice& l, int i, const context *c, const context *t, wor
 }
 
 void phsmm::_slice(lattice& l) {
+	static const bool noslice = (getenv("NPBNLP_NOSLICE") != NULL);
+	static const bool slcheck = (getenv("NPBNLP_SLICE_CHECK") != NULL);
+	static const bool naive = (getenv("NPBNLP_NAIVE_SLICE") != NULL); // A/B: pre-memoization path
+	static const bool pht = (getenv("NPBNLP_PHASE_TIME") != NULL);
+	auto _t0 = std::chrono::steady_clock::now();
 	beta_distribution be;
 	shared_ptr<generator> g = generator::create();
+	int T = (int)l.w.size();
+	int M = _m; // letter (char) n-gram order; base-measure context depths 0..M-1
+	// Memoize the word-base (=_lpb(word), the char-level base measure) per
+	// (class, absolute char position, context depth). Overlapping word
+	// candidates share these char log-probs, replacing O(segments*K*len) letter
+	// -LM calls with O(T*K*M); each word base is then a sum of memoized values.
+	static thread_local vector<int> cid;
+	static thread_local vector<double> WL, WLE;
+	static thread_local vector<int> prev;
+	cid.resize(T);
+	for (int p = 0; p < T; ++p)
+		cid[p] = l.wd(p, 1)[0]; // char id at absolute position p
+	// only depths actually reachable by some word candidate are needed; words
+	// are short (<= maxlen) while the letter context M can be deep, so cap the
+	// dense precompute at the longest word length to avoid wasted letter-LM calls.
+	int maxlen = 1;
+	for (int t = 0; t < T; ++t)
+		if ((int)l.w[t].size() > maxlen)
+			maxlen = (int)l.w[t].size();
+	int Dcap = min(M-1, maxlen); // fill depths 0..Dcap; accesses stay within this
+	size_t stride = (size_t)T*M;
+	WL.assign((size_t)(_k+1)*stride, 0);
+	WLE.assign((size_t)(_k+1)*stride, 0);
+	prev.assign(M > 1 ? M-1 : 1, 0);
+	if (!naive) {
+		for (int k = 1; k < _k+1; ++k) {
+			for (int p = 0; p < T; ++p) {
+				for (int d = 0; d <= Dcap; ++d) {
+					// real char at p with d preceding within-word chars (then BOS)
+					for (int j = 0; j < M-1; ++j)
+						prev[j] = (j < d && p-1-j >= 0) ? cid[p-1-j] : 0;
+					WL[(size_t)k*stride + (size_t)p*M + d] = (*_letter)[k]->wlp(cid[p], prev.data(), M-1);
+					// eos char (id 0) for a word ending at p with depth d last chars
+					for (int j = 0; j < M-1; ++j)
+						prev[j] = (j < d && p-j >= 0) ? cid[p-j] : 0;
+					WLE[(size_t)k*stride + (size_t)p*M + d] = (*_letter)[k]->wlp(0, prev.data(), M-1);
+				}
+			}
+		}
+	}
+	double maxdiff = 0;
+	l.emit.resize(l.w.size());
 	for (auto t = 0; t < (int)l.w.size(); ++t) {
 		// marginarize \sum_k p(c_{t-j+1}^t, k)
 		//vector<double> lpw;
+		l.emit[t].resize(l.w[t].size());
 		for (auto w = l.w[t].begin(); w != l.w[t].end(); ++w) {
+			int len = w->len;
+			int s = t - len + 1;
+			int de = min(len, M-1);
 			double z = 0; // p(c_{t-j+1}^t)
 			vector<double> table;
+			l.emit[t][w->len-1].resize(_k+1, 0);
 			for (auto k = 1; k < _k+1; ++k) {
-				double lp = (*_word)[k]->lp(*w, (*_word)[k]->h())+_pos->lp(k, _pos->h());
+				double wlp;
+				if (naive) {
+					wlp = (*_word)[k]->lp(*w, (*_word)[k]->h());
+				} else {
+					double base = 0;
+					for (int i = 0; i < len; ++i)
+						base += WL[(size_t)k*stride + (size_t)(s+i)*M + min(i, M-1)];
+					base += WLE[(size_t)k*stride + (size_t)t*M + de];
+					wlp = (*_word)[k]->lp_root_base(*w, base);
+				}
+				if (slcheck) {
+					double ref = (*_word)[k]->lp(*w, (*_word)[k]->h());
+					double diff = fabs(wlp-ref);
+					if (diff > maxdiff)
+						maxdiff = diff;
+				}
+				l.emit[t][w->len-1][k] = wlp;
+				double lp = wlp+_pos->lp(k, _pos->h());
 				z = math::lse(z, lp, (z==0));
 				table.push_back(lp);
+			}
+			if (noslice) {
+				for (auto k = 1; k < _k+1; ++k)
+					l.k[t][w->len-1].push_back(k);
+				continue;
 			}
 			// p(k|c_{t-j+1}~t)
 			for (auto i = table.begin(); i != table.end(); ++i) {
@@ -699,6 +830,289 @@ void phsmm::_slice(lattice& l) {
 		}
 		}
 		*/
+	}
+	if (slcheck)
+		fprintf(stderr, "[slice_check] max|clp-ref|=%.3e\n", maxdiff);
+	if (pht) {
+		ph_slice_us += std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now()-_t0).count();
+		++ph_slice_sent;
+	}
+}
+
+/*
+ * efficient forward filtering with marginalized forward prob
+ * dp keys: [t][len][pos][λ1..λ_{n-1}][κ1..κ_{l-2}]
+ *   λ_i: lengths of the previous i-th words (0 means BOS padding)
+ *   κ_i: classes of the previous (i+1)-th words
+ * am keys: [t][len][λ1..λ_{n-2}][pos][κ1..κ_{l-2}]
+ *   = lse over the deepest length λ_{n-1} of dp (marginalized connection target)
+ */
+sentence phsmm::_minfer(io& f, int i, bool best) {
+	lattice l(f, i);
+	vt dp;
+	vt am;
+	vt trm;
+	vt bos;
+	_slice(l);
+	_type_prior(l);
+	int nw = _n-1;
+	int nc = max(_l-1, 1);
+	// build BOS pseudo table: length keys 0 x nw, class keys 0 x nc
+	{
+		vt *n = &bos;
+		for (auto d = 0; d < nw; ++d)
+			n = &(*n)[0];
+		for (auto d = 0; d < nc; ++d)
+			n = &(*n)[0];
+		n->v = 0;
+		n->set(true);
+	}
+	// forward filtering
+	_mfill(l, dp, am, bos, trm);
+	// backward sampling
+	sentence s;
+	word *w = l.wp(l.w.size(), 1);
+	int t = (int)l.w.size()-w->len;
+	if (w->pos < 0 || w->pos > _k)
+		w->pos = 0;
+	vector<int> lam; // window of context word lengths (λ1..λ_{nw})
+	vector<int> rcs; // window of context classes (r1..r_{nc})
+	{
+		// joint draw of the last word chain from eos
+		vector<double> tbl;
+		vector<vector<int> > lpath;
+		vector<vector<int> > rpath;
+		vector<int> cl;
+		vector<int> cr;
+		const context *c = (*_word)[w->pos]->h();
+		_mtable(l, t, nw, nc, c, false, *w, am[t], trm, cl, cr, tbl, lpath, rpath);
+		if (tbl.empty())
+			throw "failed to construct backward table in phsmm::_minfer";
+		dbg_lk(tbl);
+		int id = (best) ? rd::best(tbl) : rd::ln_draw(tbl);
+		lam = lpath[id];
+		rcs = rpath[id];
+	}
+	while (t >= 0) {
+		int P = rcs[0];
+		int J = 0;
+		if (nw == 0) {
+			// draw the length of the word ending at t
+			vector<double> tb;
+			vector<int> cand;
+			for (auto it = dp[t].begin(); it != dp[t].end(); ++it) {
+				vt *leaf = &(*(it->second))[P];
+				for (auto d = 1; d < nc; ++d)
+					leaf = &(*leaf)[rcs[d]];
+				if (!leaf->is_init())
+					continue;
+				cand.push_back(it->first);
+				tb.push_back(leaf->v);
+			}
+			if (tb.empty())
+				throw "failed to draw a word length in phsmm::_minfer";
+			int id = (best) ? rd::best(tb) : rd::ln_draw(tb);
+			J = cand[id];
+		} else {
+			J = lam[0];
+		}
+		word *cur = l.wp(t, J);
+		cur->pos = P;
+		s.w.push_back(*cur);
+		int tn = t-cur->len;
+		if (tn < 0)
+			break;
+		int lnew = 0;
+		if (nw >= 1) {
+			// draw the deepest context word length of the dp entry at t
+			vt *node = &dp[t];
+			node = &(*node)[J];
+			node = &(*node)[P];
+			for (auto d = 1; d < nw; ++d)
+				node = &(*node)[lam[d]];
+			vector<double> tb;
+			vector<int> cand;
+			for (auto it = node->begin(); it != node->end(); ++it) {
+				vt *leaf = it->second.get();
+				for (auto d = 1; d < nc; ++d)
+					leaf = &(*leaf)[rcs[d]];
+				if (!leaf->is_init())
+					continue;
+				cand.push_back(it->first);
+				tb.push_back(leaf->v);
+			}
+			if (tb.empty())
+				throw "failed to draw a context length in phsmm::_minfer";
+			int id = (best) ? rd::best(tb) : rd::ln_draw(tb);
+			lnew = cand[id];
+		}
+		// draw the deepest context class from trans and marginalized forward prob
+		vt *anode = &am[tn];
+		for (auto d = 1; d < nw; ++d)
+			anode = &(*anode)[lam[d]];
+		if (nw >= 1)
+			anode = &(*anode)[lnew];
+		for (auto d = 1; d < nc; ++d)
+			anode = &(*anode)[rcs[d]];
+		vector<double> tb;
+		vector<int> cand;
+		vector<int> rc(rcs.begin()+1, rcs.end());
+		for (auto it = anode->begin(); it != anode->end(); ++it) {
+			vt& child = *(it->second);
+			if (!child.is_init())
+				continue;
+			rc.push_back(it->first);
+			double tr = _mtr(P, rc, trm);
+			rc.pop_back();
+			cand.push_back(it->first);
+			tb.push_back(tr+child.v);
+		}
+		if (tb.empty())
+			throw "failed to draw a class in phsmm::_minfer";
+		int id = (best) ? rd::best(tb) : rd::ln_draw(tb);
+		int rnew = cand[id];
+		// shift context windows
+		for (auto d = 0; d+1 < nw; ++d)
+			lam[d] = lam[d+1];
+		if (nw >= 1)
+			lam[nw-1] = lnew;
+		for (auto d = 0; d+1 < nc; ++d)
+			rcs[d] = rcs[d+1];
+		rcs[nc-1] = rnew;
+		t = tn;
+	}
+	reverse(s.w.begin(), s.w.end());
+	s.n.resize(s.w.size(), 0);
+	return s;
+}
+
+void phsmm::_mfill(lattice& l, vt& dp, vt& am, vt& bos, vt& trm) {
+	int nw = _n-1;
+	for (auto t = 0; t < (int)l.w.size(); ++t) {
+		for (auto j = 0; j < l.size(t); ++j) {
+			word& w = l.wd(t, j+1);
+			double pi = l.prior[t][j];
+			int s = t-w.len;
+			vt& as = (s < 0) ? bos : am[s];
+			if (!as.is_init())
+				continue;
+			for (auto pt = l.sbegin(t, j); pt != l.send(t, j); ++pt) {
+				int p = *pt;
+				const context *c = (*_word)[p]->h();
+				double lnp = pi+((_n == 1) ? l.emit[t][j][p] : 0);
+				// own length is a kept key of am only when the emission context is non-empty;
+				// for nw == 0 it is the deepest length and is marginalized out
+				_mchain(l, s, nw, c, false, w, p, lnp, as, dp[t][w.len][p], (nw >= 1) ? am[t][w.len] : am[t], trm);
+			}
+		}
+	}
+}
+
+void phsmm::_mchain(lattice& l, int pos, int d, const context *c, bool unk, word& w, int p, double lnp, vt& as, vt& dpn, vt& an, vt& trm) {
+	if (d <= 0) {
+		double base = lnp+((_n > 1) ? (*_word)[p]->lp(w, c) : 0);
+		vector<int> rc;
+		_mcls(max(_l-1, 1), rc, as, dpn, an[p], trm, p, base);
+	} else {
+		for (auto it = as.begin(); it != as.end(); ++it) {
+			int lam = it->first;
+			vt& child = *(it->second);
+			if (!child.is_init())
+				continue;
+			word& y = (lam > 0 && pos >= 0) ? l.wd(pos, lam) : l.wd(-1, 1);
+			const context *h = (!unk) ? c->find(y.id) : NULL;
+			_mchain(l, pos-y.len, d-1, (h) ? h : c, (unk || !h), w, p, lnp, child, dpn[lam], (d > 1) ? an[lam] : an, trm);
+		}
+	}
+}
+
+void phsmm::_mcls(int e, vector<int>& rc, vt& as, vt& dpn, vt& an, vt& trm, int p, double base) {
+	if (e <= 1) {
+		double x = 0;
+		bool init = false;
+		for (auto it = as.begin(); it != as.end(); ++it) {
+			vt& child = *(it->second);
+			if (!child.is_init())
+				continue;
+			rc.push_back(it->first);
+			double tr = _mtr(p, rc, trm);
+			rc.pop_back();
+			x = math::lse(x, tr+child.v, !init);
+			init = true;
+		}
+		if (!init)
+			return;
+		dpn.v = base+x;
+		dpn.set(true);
+		an.v = math::lse(an.v, dpn.v, !an.is_init());
+		an.set(true);
+	} else {
+		for (auto it = as.begin(); it != as.end(); ++it) {
+			vt& child = *(it->second);
+			if (!child.is_init())
+				continue;
+			rc.push_back(it->first);
+			_mcls(e-1, rc, child, dpn[it->first], an[it->first], trm, p, base);
+			rc.pop_back();
+		}
+	}
+}
+
+double phsmm::_mtr(int p, vector<int>& rc, vt& trm) {
+	vt *n = &trm;
+	for (auto r = rc.begin(); r != rc.end(); ++r)
+		n = &(*n)[*r];
+	vt& leaf = (*n)[p];
+	if (!leaf.is_init()) {
+		const context *u = _pos->h();
+		int d = 0;
+		for (auto r = rc.begin(); r != rc.end() && d < _l-1; ++r, ++d) {
+			const context *f = u->find(*r);
+			if (!f)
+				break;
+			u = f;
+		}
+		leaf.v = _pos->lp(p, u);
+		leaf.set(true);
+	}
+	return leaf.v;
+}
+
+void phsmm::_mtable(lattice& l, int pos, int d, int e, const context *c, bool unk, word& w, vt& as, vt& trm, vector<int>& cl, vector<int>& cr, vector<double>& tbl, vector<vector<int> >& lpath, vector<vector<int> >& rpath) {
+	if (d > 0) {
+		for (auto it = as.begin(); it != as.end(); ++it) {
+			int lam = it->first;
+			vt& child = *(it->second);
+			if (!child.is_init())
+				continue;
+			word& y = (lam > 0 && pos >= 0) ? l.wd(pos, lam) : l.wd(-1, 1);
+			const context *h = (!unk && _n > 1) ? c->find(y.id) : NULL;
+			cl.push_back(lam);
+			_mtable(l, pos-y.len, d-1, e, (h) ? h : c, (unk || !h), w, child, trm, cl, cr, tbl, lpath, rpath);
+			cl.pop_back();
+		}
+	} else if (e > 1) {
+		for (auto it = as.begin(); it != as.end(); ++it) {
+			vt& child = *(it->second);
+			if (!child.is_init())
+				continue;
+			cr.push_back(it->first);
+			_mtable(l, pos, 0, e-1, c, unk, w, child, trm, cl, cr, tbl, lpath, rpath);
+			cr.pop_back();
+		}
+	} else {
+		double em = (*_word)[w.pos]->lp(w, (_n > 1) ? c : (*_word)[w.pos]->h());
+		for (auto it = as.begin(); it != as.end(); ++it) {
+			vt& child = *(it->second);
+			if (!child.is_init())
+				continue;
+			cr.push_back(it->first);
+			double tr = _mtr(w.pos, cr, trm);
+			tbl.push_back(em+tr+child.v);
+			lpath.push_back(cl);
+			rpath.push_back(cr);
+			cr.pop_back();
+		}
 	}
 }
 

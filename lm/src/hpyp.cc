@@ -47,6 +47,9 @@ hpyp& hpyp::operator=(const hpyp& lm) {
 	_length = lm._length;
 	_f = lm._f;
 	_base = lm._base;
+	_cbase = lm._cbase;
+	_cbase_add = lm._cbase_add;
+	_cbase_remove = lm._cbase_remove;
 	return *this;
 }
 
@@ -64,6 +67,9 @@ hpyp& hpyp::operator=(const hpyp&& lm) noexcept {
 	_length = lm._length;
 	_f = lm._f;
 	_base = lm._base;
+	_cbase = lm._cbase;
+	_cbase_add = lm._cbase_add;
+	_cbase_remove = lm._cbase_remove;
 	return *this;
 }
 
@@ -254,8 +260,20 @@ context* hpyp::make(word& w, int i) {
 	return h;
 }
 
-void hpyp::set_base(hpyp *b) {
+void hpyp::set_base(lm *b) {
 	_base = b;
+}
+
+void hpyp::set_cbase(std::function<double(chunk&)> f) {
+	_cbase = f;
+}
+
+void hpyp::set_cbase_add(std::function<void(chunk&)> f) {
+	_cbase_add = f;
+}
+
+void hpyp::set_cbase_remove(std::function<void(chunk&)> f) {
+	_cbase_remove = f;
 }
 
 void hpyp::set_v(int v) {
@@ -306,6 +324,70 @@ double hpyp::lp(chunk& ch, const context *h) {
 	return lpr;
 	//return _cache.set(ch, h, lpr);
 
+}
+
+double hpyp::lp_root_base(chunk& ch, double base) {
+	// equivalent to lp(ch, _h.get()) but uses the supplied base as the
+	// parent fallback (the root's parent is null -> _lpb(ch) == base).
+	const context *h = _h.get();
+	double c = h->c();
+	double t = h->t();
+	double cu = h->cu(ch.id);
+	double tu = h->tu(ch.id);
+	int n = h->n();
+	double a = cu-(*_discount)[n]*tu;
+	double b = (*_strength)[n]+(*_discount)[n]*t;
+	double d = (*_strength)[n]+c;
+	if (a == 0.)
+		return log(b)+base-log(d);
+	return math::lse(log(a)-log(d), log(b)+base-log(d));
+}
+
+double hpyp::lp_root_base(word& w, double base) {
+	// word variant: base is the base-measure sum WITHOUT the poisson
+	// correction; add _correct here so this matches _lpb(w) exactly, then
+	// interpolate at the root (parent is null -> _lpb(w) == corrected base).
+	double bs = base;
+	if (_lambda != nullptr)
+		bs += _correct(w);
+	const context *h = _h.get();
+	double c = h->c();
+	double t = h->t();
+	double cu = h->cu(w.id);
+	double tu = h->tu(w.id);
+	int n = h->n();
+	double a = cu-(*_discount)[n]*tu;
+	double b = (*_strength)[n]+(*_discount)[n]*t;
+	double d = (*_strength)[n]+c;
+	if (a == 0.)
+		return log(b)+bs-log(d);
+	return math::lse(log(a)-log(d), log(b)+bs-log(d));
+}
+
+double hpyp::wlp(word& w, const int *prev, int np) {
+	// context walk identical to _lpb: follow prev[0], prev[1], ... down the
+	// trie from the root, stopping at the first miss or after n-1 steps.
+	const context *h = _h.get();
+	for (int j = 0; j < np && j < _n-1; ++j) {
+		const context *c = h->find(prev[j]);
+		if (!c)
+			break;
+		h = c;
+	}
+	return lp(w, h);
+}
+
+double hpyp::wlp(int k, const int *prev, int np) {
+	// int/letter variant of wlp: same context walk, virtual lp(int, ctx)
+	// (dispatches to vpyp::lp for a variable-order letter model).
+	const context *h = _h.get();
+	for (int j = 0; j < np && j < _n-1; ++j) {
+		const context *c = h->find(prev[j]);
+		if (!c)
+			break;
+		h = c;
+	}
+	return lp(k, h);
 }
 
 double hpyp::lp(word& w, const context *h) {
@@ -392,6 +474,8 @@ double hpyp::_prb(word& w) const {
 }
 
 double hpyp::_lpb(chunk& b) const {
+	if (_cbase)
+		return _cbase(b);
 	if (!_base)
 		return -log(_v);
 	double lp = 0;
@@ -561,7 +645,10 @@ void hpyp::add(chunk& c, context *h) {
 		if (_cbc == nullptr) {
 			_cbc = shared_ptr<cbase_corpus>(new cbase_corpus);
 		}
-		wrap::add_a(c, _base);
+		if (_cbase_add)
+			_cbase_add(c);
+		else
+			wrap::add_a(c, _base);
 		(*_cbc)[c.id].push_back(c);
 	}
 	//_cache.clear();
@@ -601,7 +688,10 @@ void hpyp::remove(chunk& c, context *h) {
 		int size = (*_cbc)[c.id].size();
 		int id = (*generator::create())()()%size;
 		chunk& b = (*_cbc)[c.id][id];
-		wrap::remove_a(b, _base);
+		if (_cbase_remove)
+			_cbase_remove(b);
+		else
+			wrap::remove_a(b, _base);
 		(*_cbc)[c.id].erase((*_cbc)[c.id].begin()+id);
 		if ((*_cbc)[c.id].empty())
 			_cbc->erase(c.id);

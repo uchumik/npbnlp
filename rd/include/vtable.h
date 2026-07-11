@@ -13,6 +13,9 @@ namespace npbnlp {
 			vt(int n, int id, vt *p);
 			virtual ~vt();
 			vt& operator[](int i);
+			vtable::iterator begin() { return _t->begin(); }
+			vtable::iterator end() { return _t->end(); }
+			size_t size() { return _t->size(); }
 			double v;
 			int n;
 			int id;

@@ -6,6 +6,7 @@
 #include"rd.h"
 #include"util.h"
 #include"cio.h"
+#include<chrono>
 #include"chunktype.h"
 #include<getopt.h>
 #ifdef _OPENMP
@@ -32,6 +33,13 @@ static int snap = 5;
 static int dmp = 0;
 //static int tokenized = 0;
 static int vocab = 0;
+static int original = 0;
+static int posbase = 0;
+static int sweight = 1;
+static int ctx = 0;
+static int ctxgate = 0;
+static int wclass = 0;
+static std::shared_ptr<phsmm> toklm; // tokenizer kept alive for the lexical fill-in of the pos base
 static double a = 1;
 static double b = 5;
 static string prefix("nphsmm");
@@ -74,6 +82,12 @@ void usage(int argc, char **argv) {
 	cout << "-b double(default 5), parameter of beta distribution for slice\n";
 	cout << "--pretrain=file(use as pretraining dataset in training\n";
 	cout << "--prefix=str(use as prefix for saving snapshot of model\n";
+	cout << "--original(use original forward computation)\n";
+	cout << "--posbase(use pos-pattern base measure for chunk emission)\n";
+	cout << "--sweight=int(weight of supervised data. default 1)\n";
+	cout << "--ctx=int(context-distribution factor window radius. default 0=off)\n";
+	cout << "--ctxgate(class-normalize the context factor as a softmax gate; needs --ctx)\n";
+	cout << "--wclass(per-word tokenizer-class channel: chunk class emits word.pos via theta)\n";
 	exit(1);
 }
 
@@ -111,6 +125,18 @@ int read_long_param(const char *opt, const char *arg) {
 		dmp = atoi(arg);
 	} else if (check(opt, "vocab")) {
 		vocab = atoi(arg);
+	} else if (check(opt, "original")) {
+		original = 1;
+	} else if (check(opt, "posbase")) {
+		posbase = 1;
+	} else if (check(opt, "sweight")) {
+		sweight = atoi(arg);
+	} else if (check(opt, "ctx")) {
+		ctx = atoi(arg);
+	} else if (check(opt, "ctxgate")) {
+		ctxgate = 1;
+	} else if (check(opt, "wclass")) {
+		wclass = 1;
 	} else {
 		return 1;
 	}
@@ -142,6 +168,12 @@ int read_param(int argc, char **argv) {
 			{"threads", required_argument, 0, 0},
 			{"dump", required_argument, 0, 0},
 			{"vocab", required_argument, 0, 0},
+			{"original", no_argument, 0, 0},
+			{"posbase", no_argument, 0, 0},
+			{"sweight", required_argument, 0, 0},
+			{"ctx", required_argument, 0, 0},
+			{"ctxgate", no_argument, 0, 0},
+			{"wclass", no_argument, 0, 0},
 			//{"tokenized", no_argument, &tokenized, 1},
 			{0, 0, 0, 0}
 		};
@@ -210,8 +242,11 @@ int tokenize(io& f, vector<sentence>& c) {
 	shared_ptr<wid> d = wid::create();
 	d->load(wdic.c_str());
 	//npylm lm;
-	phsmm lm;
-	lm.load(tokenizer.c_str());
+	if (!toklm) {
+		toklm = shared_ptr<phsmm>(new phsmm);
+		toklm->load(tokenizer.c_str());
+	}
+	phsmm& lm = *toklm;
 	c.resize(f.head.size()-1);
 #ifdef _OPENMP
 	threads = min(omp_get_max_threads(), threads);
@@ -369,6 +404,12 @@ int snapshot(nphsmm& model, int iter) {
 
 int mcmc(nio& f, vector<nsentence>& corpus, vector<nsentence>& supervised) {
 	nphsmm lm(n, m, l, k);
+	if (original) lm.set_original(true);
+	if (posbase) lm.set_posbase(true);
+	if (ctx > 0) lm.set_ctx(ctx);
+	if (ctxgate) lm.set_ctxgate(true);
+	if (wclass) lm.set_wclass(true);
+	if (toklm) lm.set_lex([](word& w, int p) { return toklm->lexlp(w, p); }, toklm->k());
 	//lm.set(vocab, K);
 	if (!pretrain.empty()) {
 		if (K < label_id) {
@@ -377,8 +418,14 @@ int mcmc(nio& f, vector<nsentence>& corpus, vector<nsentence>& supervised) {
 	}
 	lm.set_k(K);
 	lm.slice(a, b);
-	if (!supervised.empty())
+	if (!supervised.empty()) {
 		nphsmm_pretrain(lm, supervised);
+		// supervised anchoring: keep N-1 extra permanent copies of the labeled counts
+		for (auto r = 1; r < sweight; ++r) {
+			for (auto s = supervised.begin(); s != supervised.end(); ++s)
+				lm.add(*s);
+		}
+	}
 #ifdef _OPENMP
 	omp_set_num_threads(threads);
 #endif
@@ -393,7 +440,9 @@ int mcmc(nio& f, vector<nsentence>& corpus, vector<nsentence>& supervised) {
 	lm.estimate(20);
 	*/
 	//lm.poisson_correction(100);
+	static const bool pht = (getenv("NPBNLP_PHASE_TIME") != NULL);
 	for (auto i = 0; i < epoch; ++i) {
+		auto e0 = std::chrono::steady_clock::now();
 		vector<int> rd(corpus.size(), 0);
 		//int rd[corpus.size()] = {0};
 		rd::shuffle(rd.data(), corpus.size());
@@ -440,7 +489,13 @@ int mcmc(nio& f, vector<nsentence>& corpus, vector<nsentence>& supervised) {
 #endif
 			progress("epoch",i, (double)(j+1)/corpus.size());
 		}
+		auto e1 = std::chrono::steady_clock::now();
 		lm.estimate(20);
+		auto e2 = std::chrono::steady_clock::now();
+		if (pht)
+			fprintf(stderr, "[epoch %d time] mcmc=%llds estimate=%llds\n", i,
+					(long long)std::chrono::duration_cast<std::chrono::seconds>(e1-e0).count(),
+					(long long)std::chrono::duration_cast<std::chrono::seconds>(e2-e1).count());
 		//lm.poisson_correction(5000);
 		if (dmp && (i+1)%dmp == 0) {
 			cout << endl;
@@ -462,6 +517,9 @@ int parse(nio& f) {
 	shared_ptr<cid> d = cid::create();
 	d->load(cdic.c_str());
 	nphsmm lm;
+	if (original) lm.set_original(true);
+	if (posbase) lm.set_posbase(true); // note: load() overrides from the model file
+	if (toklm) lm.set_lex([](word& w, int p) { return toklm->lexlp(w, p); }, toklm->k());
 	try {
 		lm.load(model.c_str());
 		//lm.set(vocab, K);
@@ -597,6 +655,42 @@ int init_corpus(nio& f, vector<nsentence>& corpus) {
 	return 0;
 }
 
+// unify the pos id space: supervised words carry gold-POS indexes while the
+// unlabeled corpus carries tokenizer latent classes. For --posbase the pos-seq
+// base measure needs ONE id space, so re-assign supervised pos by the tokenizer:
+//   pos(w) = argmax_p lexlp(w|p) + poslp(p),  cached per word id.
+static void reassign_pos(vector<nsentence>& supervised) {
+	if (!toklm)
+		return;
+	unordered_map<int, int> cache;
+	int kk = toklm->k();
+	for (auto s = supervised.begin(); s != supervised.end(); ++s) {
+		for (auto i = 0; i < s->size(); ++i) {
+			chunk& c = s->ch(i);
+			for (auto j = 0; j < c.len; ++j) {
+				word& w = c.wd(j);
+				auto it = (w.id > 1) ? cache.find(w.id) : cache.end();
+				if (it != cache.end()) {
+					w.pos = it->second;
+					continue;
+				}
+				double best = -1e300;
+				int arg = 1;
+				for (auto p = 1; p <= kk; ++p) {
+					double lp = toklm->lexlp(w, p)+toklm->poslp(p);
+					if (lp > best) {
+						best = lp;
+						arg = p;
+					}
+				}
+				w.pos = arg;
+				if (w.id > 1)
+					cache[w.id] = arg;
+			}
+		}
+	}
+}
+
 int main(int argc, char **argv) {
 	try {
 		read_param(argc, argv);
@@ -618,6 +712,11 @@ int main(int argc, char **argv) {
 			init_corpus(f, corpus);
 			//vector<nsentence> corpus(f.head.size()-1);
 			//init(f, corpus, supervised);
+			// unify the pos-id space: pretrain words carry gold POS indices while
+			// the unlabeled corpus carries tokenizer latent classes. posbase and the
+			// per-word class channel both index by word.pos, so remap supervised
+			// words to the tokenizer MAP class to share one space.
+			if (posbase || wclass) reassign_pos(supervised);
 			mcmc(f, corpus, supervised);
 			delete p;
 		}

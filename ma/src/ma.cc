@@ -27,6 +27,7 @@ static int pre_epoch = 20;
 static int epoch = 500;
 static int dmp = 0;
 static int vocab = 5000;
+static int original = 0;
 static double a = 1;
 static double b = 5;
 static string pretrain;
@@ -62,6 +63,7 @@ void usage(int argc, char **argv) {
 	cout << "-a double(default 1), parameter of beta distribution for slice" << endl;
 	cout << "-b double(default 5), parameter of beta distribution for slice" << endl;
 	cout << "--pretrain =file(use as pretraining dataset in training\n";
+	cout << "--original(use original forward computation)\n";
 	exit(1);
 }
 
@@ -93,6 +95,8 @@ int read_long_param(const char *opt, const char *arg) {
 		dmp = atoi(arg);
 	} else if (check(opt, "vocab")) {
 		vocab = atoi(arg);
+	} else if (check(opt, "original")) {
+		original = 1;
 	} else {
 		return 1;
 	}
@@ -121,6 +125,7 @@ int read_param(int argc, char **argv) {
 			{"threads", required_argument, 0, 0},
 			{"dump", required_argument, 0, 0},
 			{"vocab", required_argument, 0, 0},
+			{"original", no_argument, 0, 0},
 			{0, 0, 0, 0}
 		};
 		int option_index = 0;
@@ -206,6 +211,7 @@ int phsmm_pretrain(phsmm& lm, vector<sentence>& corpus) {
 
 int mcmc(io& f, vector<sentence>& corpus, vector<sentence>& labels) {
 	phsmm lm(n, m, l, k);
+	if (original) lm.set_original(true);
 	if (!pretrain.empty()) {
 		if (K < pos_id) {
 			K = pos_id;
@@ -298,6 +304,7 @@ int parse() {
 	shared_ptr<wid> d = wid::create();
 	d->load(dic.c_str());
 	phsmm lm(n, m, l, k);
+	if (original) lm.set_original(true);
 	try {
 		lm.load(model.c_str());
 		//lm.set(vocab, K);

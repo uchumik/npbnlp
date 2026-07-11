@@ -23,7 +23,13 @@ namespace npbnlp {
 			virtual int n();
 			virtual int m();
 			virtual int l();
+			virtual int k();
+			// lexical fill-in P(w|pos) at the root context of the pos-conditional
+			// word model; used as the lexical factor of nphsmm's pos-pattern base.
+			virtual double lexlp(word& w, int p);
+			double poslp(int p);
 			virtual void slice(double a, double b);
+			virtual void set_original(bool f);
 			virtual void estimate(int iter);
 			virtual void poisson_correction(int n = 3000);
 			virtual void save(const char *file);
@@ -37,6 +43,7 @@ namespace npbnlp {
 			int _K;
 			double _a;
 			double _b;
+			bool _original;
 			std::shared_ptr<hpyp> _pos;
 			std::shared_ptr<std::vector<std::shared_ptr<hpyp> > > _word;
 			std::shared_ptr<std::vector<std::shared_ptr<vpyp> > > _letter;
@@ -49,6 +56,12 @@ namespace npbnlp {
 
 			void _forward(lattice& l, int i, const context *c, const context *t, double& ln_prior, word& w, int p, word& prev, int q, vt& a, vt& b, int n, int m, bool unk, bool not_exist);
 			void _backward(lattice& l, int i, const context *c, const context *t, word& w, int p, word& prev, int q, double& lpr, vt& b, int n, int m, bool unk, bool not_exist);
+			sentence _minfer(io& f, int i, bool best);
+			void _mfill(lattice& l, vt& dp, vt& am, vt& bos, vt& trm);
+			void _mchain(lattice& l, int pos, int d, const context *c, bool unk, word& w, int p, double lnp, vt& as, vt& dpn, vt& an, vt& trm);
+			void _mcls(int e, std::vector<int>& rc, vt& as, vt& dpn, vt& an, vt& trm, int p, double base);
+			double _mtr(int p, std::vector<int>& rc, vt& trm);
+			void _mtable(lattice& l, int pos, int d, int e, const context *c, bool unk, word& w, vt& as, vt& trm, std::vector<int>& cl, std::vector<int>& cr, std::vector<double>& tbl, std::vector<std::vector<int> >& lpath, std::vector<std::vector<int> >& rpath);
 			void _slice(lattice& l);
 			void _resize();
 			void _shrink();
