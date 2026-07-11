@@ -74,13 +74,22 @@ jobs:
             echo "no changed .cc files; skipping clang-tidy"
             exit 0
           fi
-          echo "linting:"; echo "$changed"
+          # findings in headers count only when the header itself changed in
+          # this diff; otherwise shared headers (wordtype.h etc.) would fail
+          # every unrelated push.
+          changed_h=$(git diff --name-only --diff-filter=ACMR "$base" HEAD -- '*.h' | grep -v '^dt/' || true)
+          if [ -n "$changed_h" ]; then
+            hfilter=$(echo "$changed_h" | sed 's/[.[\*^$()+?{|]/\\&/g' | paste -sd'|')
+          else
+            hfilter='^$'
+          fi
+          echo "linting:"; echo "$changed"; echo "header-filter: $hfilter"
           # only lint files that are part of the compile database (skip e.g.
           # untracked-on-CI sources like usbd_lstm.cc)
           fail=0
           for f in $changed; do
             if grep -q "\"$(pwd)/$f\"" compile_commands.json || grep -q "$f" compile_commands.json; then
-              clang-tidy -p . --warnings-as-errors='*' "$f" || fail=1
+              clang-tidy -p . --warnings-as-errors='*' --header-filter="$hfilter" "$f" || fail=1
             else
               echo "skip (not in compile db): $f"
             fi

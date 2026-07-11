@@ -1,16 +1,26 @@
 # clang-tidy config for npbnlp (C++17). Tuned for a research codebase:
-# focus on real bugs and modernization, not pedantic naming/style churn.
+# focus on real bugs, not style churn. Checks that conflict with the
+# codebase's established idiom (endl everywhere, index loops,
+# push_back(shared_ptr(new ...)), int-count -> double statistics) are
+# disabled; see memory npbnlp-coding-conventions.
 Checks: >
   -*,
   bugprone-*,
   performance-*,
   modernize-*,
   clang-analyzer-*,
-  cppcoreguidelines-narrowing-conversions,
   -modernize-use-trailing-return-type,
   -modernize-avoid-c-arrays,
+  -modernize-loop-convert,
+  -modernize-use-emplace,
+  -modernize-use-nodiscard,
   -bugprone-easily-swappable-parameters,
-  -bugprone-narrowing-conversions
+  -bugprone-narrowing-conversions,
+  -bugprone-assignment-in-if-condition,
+  -performance-avoid-endl,
+  -performance-enum-size
 WarningsAsErrors: ''
-HeaderFilterRegex: '(io|lm|ma|tg|pa|sb|re|rd|dt)/include/.*'
+# Headers are linted only via the CI's dynamic --header-filter (changed
+# headers only); this default keeps local runs quiet on shared headers.
+HeaderFilterRegex: ''
 FormatStyle: none
