@@ -1,6 +1,21 @@
 # WO-002: hpyp::gibbs() のチャンク基底コーパス (_cbc) 対応
 
-- 担当: impl-routine (sonnet)
+> **改訂 (2026-07-12, 司令塔)**: 本 WO は「base corpus の静的統合」設計に置き換える。
+> 理由: (1) 下記 after 案はループを複製し、かつ _cbc 側で wrap::add_a/remove_a を直呼び
+> するため `_cbase_add/_cbase_remove` フック(posbase の基底委譲)を素通りする。
+> (2) _bc/_cbc の add/remove/gibbs 機構は完全相似で、`template<class T> using bcorpus
+> = unordered_map<int, vector<T>>` + 着席 shim(`_seat_base(word&)`/`_seat_base(chunk&)`
+> のオーバーロードに cbase 分岐を封じ込め)+ テンプレート共通実装 `_bc_add/_bc_remove/
+> _gibbs_impl` に統合できる。gibbs は存在するコーパス(両方あれば両方)に _gibbs_impl を
+> 回す形にし、P4 はその系として解消する。shuffle 結果 rd[j] の未使用バグも同時に修正。
+> poisson_correction/estimate_l は word 固有のため _bc ガードのまま。
+> 担当は **impl-core (opus)** に変更(CRP 着席/退席/再配置の不変量に触れるため)。
+> 対象: lm/include/hpyp.h, lm/src/hpyp.cc(+ tests/test_nphsmm_roundtrip.cc の拡張)。
+> 受け入れ基準は本文の 1-3 に加え: ctest 全件 green(roundtrip は add 後に estimate(3) を
+> 挟む拡張版)、orig/eff parity 維持、--posbase tiny 学習完走、変更ファイルは上記のみ。
+> 以下の原文 before/after は背景資料として残す(そのままは適用しない)。
+
+- 担当: ~~impl-routine (sonnet)~~ → **impl-core (opus)**(改訂)
 - 対象: lm/src/hpyp.cc
 - 背景: diagnosis スキル P4。gibbs() が _bc（word 基底コーパス）しか見ておらず、
   チャンク HPYP（基底コーパスは _cbc）では即 return する。このため
