@@ -1427,7 +1427,7 @@ void nphsmm::_mchain(clattice2& l, int pos, int d, const context *c, bool unk, c
 			if (!child.is_init())
 				continue;
 			chunk& y = (lam > 0 && pos >= 0) ? l.ch(pos, lam) : l.ch(-1, 1);
-			const context *h = (!unk) ? c->find(y.id) : NULL;
+			const context *h = (!unk && y.id != 1) ? c->find(y.id) : NULL;
 			_mchain(l, pos-y.len, d-1, (h) ? h : c, (unk || !h), ch, p, lnp, child, dpn[lam], (d > 1) ? an[lam] : an, trm);
 		}
 	}
@@ -1493,7 +1493,7 @@ void nphsmm::_mtable(clattice2& l, int pos, int d, int e, const context *c, bool
 			if (!child.is_init())
 				continue;
 			chunk& y = (lam > 0 && pos >= 0) ? l.ch(pos, lam) : l.ch(-1, 1);
-			const context *h = (!unk && _n > 1) ? c->find(y.id) : NULL;
+			const context *h = (!unk && _n > 1 && y.id != 1) ? c->find(y.id) : NULL;
 			cl.push_back(lam);
 			_mtable(l, pos-y.len, d-1, e, (h) ? h : c, (unk || !h), ch, child, trm, cl, cr, tbl, lpath, rpath);
 			cl.pop_back();
