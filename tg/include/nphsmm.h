@@ -16,6 +16,7 @@ namespace npbnlp {
 			nphsmm(int n, int m, int l, int k);
 			virtual ~nphsmm();
 			virtual nsentence sample(nio& f, int i);
+			virtual nsentence sample(nio& f, int i, nsentence *cur);
 			virtual nsentence parse(nio& f, int i);
 			virtual void add(nsentence& s);
 			virtual void remove(nsentence& s);
@@ -109,13 +110,13 @@ namespace npbnlp {
 			void _wclass_count(chunk& ch, int d);      // add (d=+1) / remove (d=-1) theta counts
 			void _forward(clattice2& l, int i, const context *c, const context *z, double& prior, chunk& ch, int k, chunk& prev, int q, vt& a, vt& b, int n, bool unk, bool not_exsit);
 			void _backward(clattice2& l, int i, const context *c, const context *z, chunk& ch, int k, chunk& prev, int q, double& lpr, vt& b, int n, bool unk, bool not_exist);
-			nsentence _minfer(nio& f, int i, bool best);
+			nsentence _minfer(nio& f, int i, bool best, nsentence *cur);
 			void _mfill(clattice2& l, vt& dp, vt& am, vt& bos, vt& trm);
 			void _mchain(clattice2& l, int pos, int d, const context *c, bool unk, chunk& ch, int p, double lnp, vt& as, vt& dpn, vt& an, vt& trm);
 			void _mcls(int e, std::vector<int>& rc, vt& as, vt& dpn, vt& an, vt& trm, int p, double base);
 			double _mtr(int p, std::vector<int>& rc, vt& trm);
 			void _mtable(clattice2& l, int pos, int d, int e, const context *c, bool unk, chunk& ch, vt& as, vt& trm, std::vector<int>& cl, std::vector<int>& cr, std::vector<double>& tbl, std::vector<std::vector<int> >& lpath, std::vector<std::vector<int> >& rpath);
-			void _slice(clattice2& l);
+			void _slice(clattice2& l, nsentence *cur);
 			void _length_prior(clattice2& l);
 			void _resize();
 			void _shrink();

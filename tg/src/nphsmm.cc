@@ -8,6 +8,8 @@
 #include<cstdlib>
 #include<atomic>
 #include<chrono>
+#include<cassert>
+#include<utility>
 #ifdef _OPENMP
 #include<omp.h>
 #endif
@@ -864,10 +866,10 @@ void nphsmm::poisson_correction(int n) {
 
 nsentence nphsmm::parse(nio& f, int i) {
 	if (!_original)
-		return _minfer(f, i, true);
+		return _minfer(f, i, true, nullptr);
 	clattice2 l(f, i, *_clength);
 	vt dp;
-	_slice(l);
+	_slice(l, nullptr);
 	_length_prior(l);
 	_context_factor(l);
 	for (auto t = 0; t < (int)l.c.size(); ++t) {
@@ -951,11 +953,15 @@ nsentence nphsmm::parse(nio& f, int i) {
 }
 
 nsentence nphsmm::sample(nio& f, int i) {
+	return sample(f, i, nullptr);
+}
+
+nsentence nphsmm::sample(nio& f, int i, nsentence *cur) {
 	if (!_original)
-		return _minfer(f, i, false);
+		return _minfer(f, i, false, cur);
 	clattice2 l(f, i, *_clength);
 	vt dp;
-	_slice(l);
+	_slice(l, cur);
 	_length_prior(l);
 	_context_factor(l);
 	for (auto t = 0; t < (int)l.c.size(); ++t) {
@@ -1087,9 +1093,30 @@ void nphsmm::_backward(clattice2& l, int i, const context *c, const context *z, 
 	}
 }
 
-void nphsmm::_slice(clattice2& l) {
+void nphsmm::_slice(clattice2& l, nsentence *cur) {
+	// WO-003: condition the slice variable on the current assignment. This is a
+	// per-cell auxiliary-variable ("beam") scheme: each on-path cell keeps its
+	// current class k_cur alive (irreducibility). Full per-time-step mu_t
+	// compliance (one mu per position) is a future task -- it makes off-path
+	// cells empty and complicates lattice connectivity (see WO-003 hand-off).
 	static const bool noslice = (getenv("NPBNLP_NOSLICE") != NULL);
 	static const bool slcheck = (getenv("NPBNLP_SLICE_CHECK") != NULL);
+	// Build a path map keyed by the chunk end-word index t: pathmap[t] = (len,
+	// k_cur) for the current assignment. Coordinates match the _slice cell
+	// index (t = ending word position, len = chunk length -> l.k[t][len-1]).
+	// Cells whose k_cur left [1,_k] (class vanished after remove/_shrink) are
+	// not registered => treated as off-path.
+	vector<pair<int,int> > pathmap; // pathmap[t] = {len, k_cur}; len==0 => none
+	if (cur) {
+		pathmap.assign(l.c.size(), make_pair(0, 0));
+		int e = -1; // running end-word index (0-indexed)
+		for (int j = 0; j < cur->size(); ++j) {
+			chunk& ch = cur->ch(j);
+			e += ch.len;
+			if (e >= 0 && e < (int)l.c.size() && ch.k >= 1 && ch.k <= _k)
+				pathmap[e] = make_pair(ch.len, ch.k);
+		}
+	}
 	beta_distribution be;
 	shared_ptr<generator> g = generator::create();
 	int T = (int)l.c.size();
@@ -1175,12 +1202,33 @@ void nphsmm::_slice(clattice2& l) {
 			for (auto i = table.begin(); i != table.end(); ++i) {
 				*i -= z;
 			}
-			int id = rd::ln_draw(table);
-			double mu = log(be(_a, _b))+table[id];
+			// on-path (cur given & this cell matches the current assignment):
+			// condition mu on k_cur (no ln_draw). off-path (incl. cur==nullptr):
+			// draw id from the unigram posterior exactly as before, so the
+			// cur==nullptr path is bit-identical (same rng consumption).
+			double mu;
+			bool on_path = (cur && pathmap[t].first == len);
+			if (on_path) {
+				int k_cur = pathmap[t].second;
+				mu = log(be(_a, _b))+table[k_cur-1];
+			} else {
+				int id = rd::ln_draw(table);
+				mu = log(be(_a, _b))+table[id];
+			}
 			for (auto i = 0; i < (int)table.size(); ++i) {
 				if (table[i] >= mu)
 					l.k[t][c->len-1].push_back(i+1);
 			}
+#ifndef NDEBUG
+			// invariant: on-path cells keep k_cur alive (log(be)<=0 => mu<=table[k_cur-1]).
+			if (on_path) {
+				int k_cur = pathmap[t].second;
+				bool alive = false;
+				for (auto v : l.k[t][c->len-1])
+					if (v == k_cur) { alive = true; break; }
+				assert(alive);
+			}
+#endif
 		}
 	}
 	if (slcheck)
@@ -1238,7 +1286,7 @@ void nphsmm::_length_prior(clattice2& l) {
  * am keys: [t][len][λ1..λ_{n-2}][class][κ1..κ_{n-2}]
  *   = lse over the deepest length λ_{n-1} of dp (marginalized connection target)
  */
-nsentence nphsmm::_minfer(nio& f, int i, bool best) {
+nsentence nphsmm::_minfer(nio& f, int i, bool best, nsentence *cur) {
 	static const bool pht = (getenv("NPBNLP_PHASE_TIME") != NULL);
 	auto c0 = std::chrono::steady_clock::now();
 	clattice2 l(f, i, *_clength);
@@ -1247,7 +1295,7 @@ nsentence nphsmm::_minfer(nio& f, int i, bool best) {
 	vt am;
 	vt trm;
 	vt bos;
-	_slice(l);
+	_slice(l, cur);
 	auto c2 = std::chrono::steady_clock::now();
 	_length_prior(l);
 	_context_factor(l);
