@@ -26,6 +26,8 @@
 #include"nio.h"
 #include"hpyp.h"
 #include"vpyp.h"
+#include"clattice.h"
+#include"vtable.h"
 #include<memory>
 #include<mutex>
 #include<unordered_map>
@@ -46,9 +48,16 @@ namespace npbnlp {
 			virtual void set_alpha(double a); // GEM concentration
 			virtual int n() const;
 			virtual int k() const;
+			virtual void slice(double a, double b); // Beta(a,b) slice params
 			virtual void init(nsentence& s);
 			virtual void add(nsentence& s);
 			virtual void remove(nsentence& s);
+			// blocked Gibbs draw of a segmentation+tagging for sentence i.
+			// sample(): draw from the posterior (conditioning the slice on cur);
+			// parse(): the MAP path. cur = the current assignment (for the slice).
+			virtual nsentence sample(nio& f, int i);
+			virtual nsentence sample(nio& f, int i, nsentence *cur);
+			virtual nsentence parse(nio& f, int i);
 			virtual void estimate(int iter);
 			virtual void poisson_correction(int n = 1000);
 			virtual void save(const char *file);
@@ -58,19 +67,31 @@ namespace npbnlp {
 			int _n;      // background n-gram order
 			int _hn;     // NE surface chunk PYP order
 			int _hl;     // letter VPYP order
+			int _l;      // maximum NE span length (lattice candidate cap)
 			int _k;      // number of NE classes
 			int _v;      // character vocabulary size
 			double _gamma;
 			double _alpha;
 			double _pi;  // current P(new token is an NE symbol)
+			double _a;   // slice Beta parameter a
+			double _b;   // slice Beta parameter b
+			std::vector<int> _clength; // per-chunktype span cap for clattice2
 			// background template LM over template tokens (chunk-keyed for the
 			// set_cbase hook). base = G0 mixture via the cbase delegates below.
 			std::shared_ptr<hpyp> _bg;
-			// normal-word spelling model G0^spell (letter infinity-gram).
-			std::shared_ptr<vpyp> _spell;
-			// per-class NE surface models H_k (index 0 unused) and their bases.
+			// normal-word spelling model G0^spell: a fixed-order character model,
+			// seated char-by-char (no word.m scratch, so it cannot desync with the
+			// per-class NE character models that share the same word objects).
+			std::shared_ptr<hpyp> _spell;
+			// per-class NE surface models H_k: a chunk PYP over whole NE spans whose
+			// base H_k^0 is a per-class fixed-order character model (_hkletter). The
+			// char base is wired through set_cbase (like G^bg's G0) rather than hpyp's
+			// word-oriented _base: hpyp::_lpb(chunk) feeds whole *words* to its base,
+			// which would score each span word atomically (flat, char-independent) and
+			// also collide on the shared word.m letter-order scratch used by _spell.
+			// The cbase model iterates the span's characters directly (no word.m).
 			std::shared_ptr<std::vector<std::shared_ptr<hpyp> > > _hk;
-			std::shared_ptr<std::vector<std::shared_ptr<vpyp> > > _hkletter;
+			std::shared_ptr<std::vector<std::shared_ptr<hpyp> > > _hkletter;
 			// class k <-> NE symbol word id, registered in the global wid dict.
 			std::vector<int> _nek;          // k -> NE symbol id (index 0 unused)
 			std::unordered_map<int, int> _id2k; // NE symbol id -> class k
@@ -90,13 +111,28 @@ namespace npbnlp {
 			double _g0_lp(chunk& tv);        // log G0(v)
 			void _g0_add(chunk& tv);         // base escape: seat spelling / count
 			void _g0_remove(chunk& tv);      // symmetric un-seating
-			double _spell_lp(word& w);       // log G0^spell(w) via the letter VPYP
+			double _spell_lp(word& w);       // log G0^spell(w) via the char model
+			void _spell_seat(word& w, bool add); // seat/un-seat a word's characters
+			// H_k^0: per-class character surface base measure over an NE span.
+			double _hk_surf_lp(int k, chunk& ch);   // log H_k^0(x) + Po(|x|;lambda_k)
+			void _hk_surf_add(int k, chunk& ch);     // seat the span characters
+			void _hk_surf_remove(int k, chunk& ch);  // symmetric un-seating
 			int _kind(int id) const;         // >0 NE class, 0 normal, -1 reserved
 			int _tvid(chunk& ch);            // template token id of a chunk
 			void _install_cbase();
 			void _resize(int k);             // grow class LMs / counters to k
 			void _seat(nsentence& s, bool add);
 			void _register_symbols();
+			// inference helpers (semi-Markov FFBS over the template n-gram).
+			int _sigma(chunk& ch, int k);            // template token id of (ch,k)
+			double _emit_lp(int k, chunk& ch);       // E_k: 0 (O) / P(x|H_k)+Po(len)
+			double _bg_lp(chunk& ch, int k, const context *c); // transition P(sigma|c)
+			void _slice(clattice2& l, nsentence *cur);
+			void _forward(clattice2& l, int i, const context *c, chunk& ch, int k,
+					double emit, chunk& prev, int q, bool bos, vt& a, vt& b, int n);
+			void _backward(clattice2& l, int i, const context *c, chunk& ch, int k,
+					chunk& prev, int q, bool bos, double& lpr, vt& b, int n);
+			nsentence _infer(nio& f, int i, nsentence *cur, bool best);
 		private:
 	};
 }
