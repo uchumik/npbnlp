@@ -627,7 +627,12 @@ void ipcfg::_slice_root(cyk& c) {
 		}
 	}
 	int id = rd::ln_draw(table);
-	double mu = log(be(_a, _b)+table[id]);
+	// table[id] is a log-domain score (== _nonterm->lp(...)+lp_l+lp_r); the
+	// old form log(be(_a,_b)+table[id]) took log of (0,1)+negative => NaN,
+	// which silenced root pruning entirely. Match the other slice helpers:
+	// mu = log(be) + score, so the current root decomposition (score >= mu)
+	// always survives while lower-scoring ones are pruned.
+	double mu = log(be(_a, _b))+table[id];
 	c.mu[0][size-1] = mu;
 	c.k[0][size-1].insert(0);
 	/*
