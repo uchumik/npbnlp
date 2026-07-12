@@ -26,6 +26,42 @@ using namespace npbnlp;
 
 using gamma_dist = gamma_distribution<double>;
 
+// psi char-type Dirichlet prior (beta_type), indexed by the chartype enum
+// (chartype.h). Asymmetric: entity-like scripts (kanji / katakana / latin /
+// digit) get a high pseudo-count, hiragana a low one, everything else the base.
+// This injects the language prior without any NE labels. Tuning is done in the
+// commander's experiments; only the shape lives here.
+#define PSI_HI 8.0
+#define PSI_LO 1.0
+#define PSI_MID 2.0
+static const double PSI_BETA[chartype::n] = {
+	PSI_LO,  // U_HIRAGANA
+	PSI_HI,  // U_KATAKANA
+	PSI_MID, // U_KATA_OR_HIRA
+	PSI_HI,  // U_HANJI
+	PSI_MID, // U_HIRA_KATA
+	PSI_MID, // U_HIRA_HANJI
+	PSI_MID, // U_KATA_HANJI
+	PSI_MID, // U_HIRA_KATA_HANJI
+	PSI_MID, // U_MISC
+	PSI_MID, // U_ARABIC
+	PSI_MID, // U_GREEK
+	PSI_MID, // U_HANGUL
+	PSI_MID, // U_HEBREW
+	PSI_HI,  // U_LATIN
+	PSI_MID, // U_MYANMAR
+	PSI_MID, // U_THAI
+	PSI_HI,  // U_DIGIT
+	PSI_MID, // U_PUNC
+	PSI_MID  // U_SYNBOL
+};
+static double psi_beta_sum() {
+	double s = 0;
+	for (int t = 0; t < chartype::n; ++t)
+		s += PSI_BETA[t];
+	return s;
+}
+
 // Persistent backing store for the synthetic NE-symbol spellings. The wid
 // dictionary keeps word keys whose _doc points into these buffers, so the
 // storage must outlive the dictionary; a deque never relocates its elements,
@@ -48,6 +84,7 @@ snpylm::snpylm(int n, int hn, int hl, int k):
 	_lambda.assign(1, 0);
 	_necnt.assign(1, 0);
 	_nelen.assign(1, 0);
+	_psi.assign((size_t)(_k+1)*chartype::n, 0);
 	for (int i = 0; i <= _k; ++i) {
 		_hkletter->push_back(shared_ptr<hpyp>(new hpyp(_hl)));
 		(*_hkletter)[i]->set_v(_v);
@@ -120,6 +157,9 @@ void snpylm::_resize(int k) {
 	while ((int)_lambda.size() < target) _lambda.push_back(LAMBDA_A);
 	while ((int)_necnt.size() < target) _necnt.push_back(0);
 	while ((int)_nelen.size() < target) _nelen.push_back(0);
+	// flat (target x chartype::n); appending rows keeps existing k*n+t indices.
+	if ((int)_psi.size() < target*chartype::n)
+		_psi.resize((size_t)target*chartype::n, 0);
 	if (_k < k)
 		_k = k;
 	_install_cbase(); // wire cbase for the newly added H_k
@@ -226,6 +266,29 @@ void snpylm::_spell_seat(word& w, bool add) {
 	}
 }
 
+int snpylm::_psii(int k, int t) const {
+	return k*chartype::n + t;
+}
+
+// log psi(x|k) = sum_c log( (n_k(type(c)) + beta_type) / (sum n_k + sum beta) ),
+// the collapsed Dirichlet-multinomial predictive over the span's real characters
+// (EOS excluded). Counts n_k are the current counts (before seating x).
+double snpylm::_psi_lp(int k, chunk& ch) {
+	double row = 0;
+	for (int t = 0; t < chartype::n; ++t)
+		row += _psi[_psii(k, t)];
+	double denom = row + psi_beta_sum();
+	double lp = 0;
+	for (int w = 0; w < ch.len; ++w) {
+		word& wd = ch.wd(w);
+		for (int c = 0; c < wd.len; ++c) {
+			int t = (int)chartype::get(wd[c]);
+			lp += log(_psi[_psii(k, t)] + PSI_BETA[t]) - log(denom);
+		}
+	}
+	return lp;
+}
+
 // collect the characters of a chunk's whole span as one sequence (words
 // concatenated) with a trailing EOS (0). Shared by the H_k^0 lp/add/remove so
 // they walk an identical key sequence (CRP add/remove symmetry).
@@ -260,6 +323,7 @@ double snpylm::_hk_surf_lp(int k, chunk& ch) {
 	}
 	poisson_distribution po;
 	lp += po.lp(_lambda[k], (int)ch_s.size()-1);
+	lp += _psi_lp(k, ch); // char-type prior factor (same site as the Poisson)
 	return lp;
 }
 
@@ -273,6 +337,12 @@ void snpylm::_hk_surf_add(int k, chunk& ch) {
 		for (int d = 1; d < nn && i-d >= 0; ++d)
 			h = h->make(ch_s[i-d]);
 		lm->add(ch_s[i], h);
+	}
+	// psi char-type counts (real characters only, EOS excluded)
+	for (int w = 0; w < ch.len; ++w) {
+		word& wd = ch.wd(w);
+		for (int c = 0; c < wd.len; ++c)
+			++_psi[_psii(k, (int)chartype::get(wd[c]))];
 	}
 }
 
@@ -290,6 +360,11 @@ void snpylm::_hk_surf_remove(int k, chunk& ch) {
 			h = c;
 		}
 		lm->remove(ch_s[i], h);
+	}
+	for (int w = 0; w < ch.len; ++w) {
+		word& wd = ch.wd(w);
+		for (int c = 0; c < wd.len; ++c)
+			--_psi[_psii(k, (int)chartype::get(wd[c]))];
 	}
 }
 
@@ -706,11 +781,32 @@ void snpylm::stats() const {
 			++active;
 	fprintf(stderr, "[snpylm] k=%d active=%d pi=%.6f pine=%d piw=%d pieos=%d\n",
 			_k, active, _pi, _pine, _piw, _pieos);
+	static const char *tname[chartype::n] = {
+		"hira", "kata", "k/h", "kanji", "h+k", "h+kj", "k+kj", "hkk", "misc",
+		"arab", "grk", "hang", "hebr", "latn", "myan", "thai", "digit", "punc", "sym"
+	};
 	for (int i = 1; i <= _k; ++i) {
 		if (_necnt[i] == 0 && _rho[i] == 0)
 			continue;
-		fprintf(stderr, "  [class %d] ne_id=%d spans=%d chars=%.0f rho=%d lambda=%.3f\n",
+		fprintf(stderr, "  [class %d] ne_id=%d spans=%d chars=%.0f rho=%d lambda=%.3f",
 				i, _nek[i], _necnt[i], _nelen[i], _rho[i], _lambda[i]);
+		// top char-type shares of this class' surfaces
+		double tot = 0;
+		for (int t = 0; t < chartype::n; ++t)
+			tot += _psi[_psii(i, t)];
+		if (tot > 0) {
+			int best = -1, second = -1;
+			for (int t = 0; t < chartype::n; ++t) {
+				if (best < 0 || _psi[_psii(i, t)] > _psi[_psii(i, best)]) {
+					second = best; best = t;
+				} else if (second < 0 || _psi[_psii(i, t)] > _psi[_psii(i, second)]) {
+					second = t;
+				}
+			}
+			fprintf(stderr, " top:%s=%.2f,%s=%.2f", tname[best],
+					_psi[_psii(i, best)]/tot, tname[second], _psi[_psii(i, second)]/tot);
+		}
+		fprintf(stderr, "\n");
 	}
 }
 
@@ -746,6 +842,13 @@ void snpylm::save(const char *file) {
 			(*_hk)[i]->save(fp);
 			(*_hkletter)[i]->save(fp);
 		}
+		// psi char-type counts, appended last so legacy models (which lack them)
+		// load as all-zero (EOF).
+		int pn = (int)_psi.size();
+		if (fwrite(&pn, sizeof(int), 1, fp) != 1)
+			throw "failed to write psi size in snpylm::save";
+		if (pn > 0 && fwrite(_psi.data(), sizeof(int), pn, fp) != (size_t)pn)
+			throw "failed to write psi counts in snpylm::save";
 	} catch (const char *ex) {
 		fclose(fp);
 		throw ex;
@@ -803,6 +906,15 @@ void snpylm::load(const char *file) {
 		for (int i = 0; i <= _k; ++i) {
 			(*_hk)[i]->load(fp);
 			(*_hkletter)[i]->load(fp);
+		}
+		// psi char-type counts; absent in legacy models -> keep the zero-init
+		// table (fread failure is not an error here).
+		_psi.assign((size_t)(_k+1)*chartype::n, 0);
+		int pn = 0;
+		if (fread(&pn, sizeof(int), 1, fp) == 1 && pn > 0) {
+			_psi.resize(pn, 0);
+			if (fread(_psi.data(), sizeof(int), pn, fp) != (size_t)pn)
+				throw "failed to read psi counts in snpylm::load";
 		}
 		_install_cbase();
 	} catch (const char *ex) {

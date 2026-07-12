@@ -111,6 +111,11 @@ namespace npbnlp {
 			int _piw;   // normal words seated at the base
 			int _pieos; // reserved tokens (BOS/EOS/unk) seated at the base
 			std::vector<int> _rho;         // per-class base-escape counts (GEM)
+			// psi: per-class character-type multinomial over NE surfaces. _psi is a
+			// flat (_k+1) x chartype::n count table (index _psii); an asymmetric
+			// Dirichlet prior injects the language prior (kanji/katakana/alnum high,
+			// hiragana/punct low) so classes prefer entity-like scripts unsupervised.
+			std::vector<int> _psi;
 			std::vector<double> _lambda;   // per-class NE length parameter
 			std::vector<int> _necnt;       // per-class NE span count (for lambda)
 			std::vector<double> _nelen;    // per-class total NE char length
@@ -122,9 +127,11 @@ namespace npbnlp {
 			double _spell_lp(word& w);       // log G0^spell(w) via the char model
 			void _spell_seat(word& w, bool add); // seat/un-seat a word's characters
 			// H_k^0: per-class character surface base measure over an NE span.
-			double _hk_surf_lp(int k, chunk& ch);   // log H_k^0(x) + Po(|x|;lambda_k)
-			void _hk_surf_add(int k, chunk& ch);     // seat the span characters
+			double _hk_surf_lp(int k, chunk& ch);   // log H_k^0(x) + Po(|x|) + log psi
+			void _hk_surf_add(int k, chunk& ch);     // seat the span chars + psi counts
 			void _hk_surf_remove(int k, chunk& ch);  // symmetric un-seating
+			int _psii(int k, int t) const;           // flat index into _psi
+			double _psi_lp(int k, chunk& ch);        // log psi(x|k) (char-type factor)
 			int _kind(int id) const;         // >0 NE class, 0 normal, -1 reserved
 			int _tvid(chunk& ch);            // template token id of a chunk
 			void _install_cbase();
