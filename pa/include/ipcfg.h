@@ -17,6 +17,7 @@ namespace npbnlp {
 			ipcfg(int m);
 			virtual ~ipcfg();
 			virtual tree sample(io& f, int i);
+			virtual tree sample(io& f, int i, tree *cur);
 			virtual tree parse(io& f, int i);
 			virtual void add(tree& t);
 			virtual void remove(tree& t);
@@ -42,13 +43,17 @@ namespace npbnlp {
 			void _remove(tree& t, int i);
 			void _calc_preterm(cyk& c, int j, vt& a);
 			void _calc_nonterm(cyk& c, int i, int j, vt& a);
-			void _slice(cyk& l);
+			void _slice(cyk& l, tree *cur);
 			void _slice_preterm(cyk& l, int i);
+			void _slice_preterm_cond(cyk& l, int i, int label);
 			//void _slice_nonterm(cyk& c, int i, int j);
 			double _draw(cyk& c, int i, int j);
 			double _marginalize(cyk& c, int i, int j);
 			void _slice_nonterm(cyk& c, int i, int j, double mu);
+			void _slice_nonterm_cond(cyk& c, int i, int j, int lc, int rc, int kc, int mc);
 			void _slice_root(cyk& c);
+			void _slice_root_cond(cyk& c, int lc, int rc);
+			void _collect_spans(tree& t, int idx, std::vector<std::vector<const node*> >& on);
 			void _resize();
 			void _shrink();
 	};
