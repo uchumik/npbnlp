@@ -37,7 +37,7 @@ snpylm::snpylm(): snpylm(2, 1, 8, 10) {
 
 snpylm::snpylm(int n, int hn, int hl, int k):
 	_n(n < 2 ? 2 : n), _hn(hn < 1 ? 1 : hn), _hl(hl), _l(SLEN), _k(k), _v(SVOCAB),
-	_gamma(SGAMMA), _alpha(SALPHA), _pi(1.0/(1.0+SGAMMA)), _a(SA), _b(SB),
+	_gamma(SGAMMA), _alpha(SALPHA), _pi(1.0/(1.0+SGAMMA)), _tau(1.0), _a(SA), _b(SB),
 	_clength(chunktype2::n, SLEN),
 	_bg(new hpyp(_n)), _spell(new hpyp(_hl)),
 	_hk(new vector<shared_ptr<hpyp> >), _hkletter(new vector<shared_ptr<hpyp> >),
@@ -145,6 +145,10 @@ void snpylm::set_gamma(double g) {
 void snpylm::set_alpha(double a) {
 	if (a > 0)
 		_alpha = a;
+}
+
+void snpylm::set_temp(double tau) {
+	_tau = (tau > 0) ? tau : 1.0;
 }
 
 void snpylm::slice(double a, double b) {
@@ -452,7 +456,8 @@ int snpylm::_sigma(chunk& ch, int k) {
 double snpylm::_emit_lp(int k, chunk& ch) {
 	if (k <= 0)
 		return 0.0;
-	return (*_hk)[k]->lp(ch, (*_hk)[k]->h());
+	double lp = (*_hk)[k]->lp(ch, (*_hk)[k]->h());
+	return (_tau == 1.0) ? lp : _tau * lp; // E_k^tau: tau>1 damps NE emission
 }
 
 // transition P(sigma(ch,k) | c): use the chunk overload so the base escape hits

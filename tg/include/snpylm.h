@@ -46,6 +46,13 @@ namespace npbnlp {
 			virtual void set(int v, int k);   // v = character vocabulary size
 			virtual void set_gamma(double g); // Beta(1,gamma) gate prior
 			virtual void set_alpha(double a); // GEM concentration
+			// annealing: NE emission exponent E_k -> E_k^tau. tau>1 damps the NE
+			// surface likelihood (suppresses the H_k rich-get-richer pull) during
+			// warm-up; tau=1 (default) is the stationary model. O (E_0=1) is
+			// unaffected. NOTE the exponent is tau (>1 suppresses), not 1/tau: the
+			// observed degeneracy is all-NE, so early sampling must weaken NE, the
+			// opposite sign to the all-O remedy sketched in math 4.7(iii).
+			virtual void set_temp(double tau);
 			virtual int n() const;
 			virtual int k() const;
 			virtual void slice(double a, double b); // Beta(a,b) slice params
@@ -73,6 +80,7 @@ namespace npbnlp {
 			double _gamma;
 			double _alpha;
 			double _pi;  // current P(new token is an NE symbol)
+			double _tau; // NE emission annealing exponent (1 = stationary)
 			double _a;   // slice Beta parameter a
 			double _b;   // slice Beta parameter b
 			std::vector<int> _clength; // per-chunktype span cap for clattice2
