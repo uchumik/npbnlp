@@ -203,8 +203,8 @@ void usbd_w::_estimate_punc_prior(cio& corpus, vector<vector<int> >& boundaries)
 void usbd_w::add(io& d, vector<int>& head) {
 	sentence s = _load_sentence(d);
 	int size = head.size()-1;
-	int rd[size] = {0};
-	rd::shuffle(rd, size);	
+	vector<int> rd(size, 0);
+	rd::shuffle(rd.data(), size);
 	for (auto i = 0; i < size; ++i) {
 		int h = head[rd[i]];
 		int t = head[rd[i]+1];
@@ -227,8 +227,8 @@ void usbd_w::remove(io& d, vector<int>& head) {
 void usbd_w::pretrain(io& d, int iter) {
 	int size = d.head.size()-1;
 	for (auto i = 0; i < iter; ++i) {
-		int rd[size] = {0};
-		rd::shuffle(rd, size);
+		vector<int> rd(size, 0);
+		rd::shuffle(rd.data(), size);
 		for (auto j = 0; j < size; ++j) {
 			int h = d.head[rd[j]];
 			int t = d.head[rd[j]+1];

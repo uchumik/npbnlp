@@ -330,8 +330,8 @@ void mcmc() {
 #ifdef _OPENMP
 	for (auto i = 0; i < epoch; ++i) {
 		int size = file.chunk->size();
-		int rd[size] = {0};
-		rd::shuffle(rd, size);
+		vector<int> rd(size, 0);
+		rd::shuffle(rd.data(), size);
 		int j = 0;
 		while (j < size) {
 			if (i > 0) {
@@ -385,8 +385,8 @@ void mcmc() {
 #else
 	for (auto i = 0; i < epoch; ++i) {
 		int size = file.chunk->size();
-		int rd[size] = {0};
-		rd::shuffle(rd, size);
+		vector<int> rd(size, 0);
+		rd::shuffle(rd.data(), size);
 		for (auto j = 0; j < size; ++j) {
 			if (i > 0) {
 				bd.remove((*file.chunk)[rd[j]], boundaries[rd[j]]);

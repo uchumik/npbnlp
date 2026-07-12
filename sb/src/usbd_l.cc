@@ -138,8 +138,8 @@ void usbd_l::estimate_prior(cio& corpus, vector<vector<int> >& boundaries) {
 
 void usbd_l::add(io& d, vector<int>& head) {
 	int size = head.size()-1;
-	int rd[size] = {0};
-	rd::shuffle(rd, size);
+	vector<int> rd(size, 0);
+	rd::shuffle(rd.data(), size);
 	for (auto i = 0; i < size; ++i) {
 		int h = head[rd[i]];
 		int t = head[rd[i]+1];
@@ -221,8 +221,8 @@ void usbd_l::_estimate_punc_prior(cio& corpus, vector<vector<int> >& boundaries)
 void usbd_l::pretrain(io& f, int iter) {
 	int size = f.head.size() - 1;
 	for (auto i = 0; i < iter; ++i) {
-		int rd[size] = {0};
-		rd::shuffle(rd, size);
+		vector<int> rd(size, 0);
+		rd::shuffle(rd.data(), size);
 		for (auto j = 0; j < size; ++j) {
 			int head = f.head[rd[j]];
 			int tail = f.head[rd[j]+1];

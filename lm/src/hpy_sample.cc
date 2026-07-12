@@ -25,8 +25,8 @@ int main(int argc, char **argv) {
 	vector<sentence>data;
 	util::store_sentences(f, data);
 	for (auto i = 0; i < 100; ++i) {
-		int rd[data.size()] = {0};
-		rd::shuffle(rd, data.size());
+		vector<int> rd(data.size(), 0);
+		rd::shuffle(rd.data(), data.size());
 		for (auto j = 0; j < (int)data.size(); ++j) {
 			if (i > 0)
 				lm.remove(data[rd[j]]);

@@ -188,8 +188,8 @@ void ihmm::add(sentence& s) {
 		wfreq[w.id]++;
 		pfreq[w.pos]++;
 	}
-	int rd[s.size()+1] = {0};
-	rd::shuffle(rd, s.size()+1);
+	vector<int> rd(s.size()+1, 0);
+	rd::shuffle(rd.data(), s.size()+1);
 	for (int i = 0; i < s.size()+1; ++i) {
 		word& w = s.wd(rd[i]);
 		context *h = (*_word)[w.pos]->make(s, rd[i]);

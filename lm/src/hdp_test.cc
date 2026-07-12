@@ -55,8 +55,8 @@ int main(int argc, char **argv) {
 			return 0;
 		}
 		for (auto i = 0; i < 100; ++i) {
-			int rd[c.size()] = {0};
-			rd::shuffle(rd, c.size());
+			vector<int> rd(c.size(), 0);
+			rd::shuffle(rd.data(), c.size());
 			for (auto j = 0; j < (int)c.size(); ++j) {
 				if (i > 0) {
 					wrap::remove_a(c[rd[j]], &l);

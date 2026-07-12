@@ -179,8 +179,8 @@ void hmm::sample(vector<pair<word, vector<unsigned int> > >& s) {
 
 void hmm::add(vector<pair<word, vector<unsigned int> > >& s) {
 	shared_ptr<wid> dic = wid::create();
-	int rd[s.size()] = {0};
-	rd::shuffle(rd, s.size());
+	vector<int> rd(s.size(), 0);
+	rd::shuffle(rd.data(), s.size());
 	for (auto i = 0; i <= (int)s.size(); ++i) {
 		if (i < (int)s.size()) {
 			word& w = s[rd[i]].first;
@@ -318,8 +318,8 @@ void hsmm::poisson_correction(int n) {
 
 void hsmm::add(vector<pair<word, vector<unsigned int> > >& s) {
 	shared_ptr<wid> dic = wid::create();
-	int rd[s.size()] = {0};
-	rd::shuffle(rd, s.size());
+	vector<int> rd(s.size(), 0);
+	rd::shuffle(rd.data(), s.size());
 	for (auto i = 0; i <= (int)s.size(); ++i) {
 		if (i < (int)s.size()) {
 			word& w = s[rd[i]].first;

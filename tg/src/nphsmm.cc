@@ -728,8 +728,8 @@ void nphsmm::add(nsentence& s) {
 		cfreq[ch.id]++;
 		kfreq[ch.k]++;
 	}
-	int rd[s.size()+1] = {0};
-	rd::shuffle(rd, s.size()+1);
+	vector<int> rd(s.size()+1, 0);
+	rd::shuffle(rd.data(), s.size()+1);
 	for (int i = 0; i < s.size()+1; ++i) {
 		chunk& ch = s.ch(rd[i]);
 		while (_k <= ch.k && _k < _K)

@@ -419,8 +419,8 @@ void hpy::gibbs(int iter) {
 	for (auto i = 0; i < iter; ++i) {
 		for (auto& j : *_bc) {
 			int size = j.second.size();
-			int rd[size] = {0};
-			rd::shuffle(rd, size);
+			vector<int> rd(size, 0);
+			rd::shuffle(rd.data(), size);
 			for (auto k = 0; k < size; ++k) {
 				_base->remove(j.second[k]);
 				_base->add(j.second[k]);

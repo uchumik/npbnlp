@@ -675,8 +675,8 @@ void hpyp::_gibbs_impl(bcorpus<T>& bc, int iter) {
 	for (int i = 0; i < iter; ++i) {
 		for (auto it = bc.begin(); it != bc.end(); ++it) {
 			int size = it->second.size();
-			int rd[size] = {0};
-			rd::shuffle(rd, size);
+			vector<int> rd(size, 0);
+			rd::shuffle(rd.data(), size);
 			for (int j = 0; j < size; ++j) {
 				lock_guard<mutex> m(_mutex);
 				_unseat_base(it->second[rd[j]]);

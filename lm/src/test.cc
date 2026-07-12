@@ -63,8 +63,8 @@ int main(int argc, char **argv) {
 		}
 		*/
 		for (auto i = 0; i < 100; ++i) {
-			int rd[c.size()] = {0};
-			rd::shuffle(rd, c.size());
+			vector<int> rd(c.size(), 0);
+			rd::shuffle(rd.data(), c.size());
 			for (auto j = 0; j < (int)c.size(); ++j) {
 			//for (auto it = c.begin(); it != c.end(); ++it) {
 				if (i > 0) {

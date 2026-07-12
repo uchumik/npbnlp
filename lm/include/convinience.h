@@ -8,20 +8,21 @@
 #include"vpyp.h"
 #include"hdp.h"
 #include<typeindex>
+#include<vector>
 namespace npbnlp {
 	class wrap {
 		public:
 			static void add_h(word& w, hdp *lm) {
-				int rd[w.len+1] = {0};
-				rd::shuffle(rd, w.len+1);
+				std::vector<int> rd(w.len+1, 0);
+				rd::shuffle(rd.data(), w.len+1);
 				for (int i = 0; i < w.len+1; ++i) {
 					context *h = lm->make(w, rd[i]);
 					lm->add(w[rd[i]], h);
 				}
 			}
 			static void add_h(chunk& c, hdp *lm) {
-				int rd[c.len+1] = {0};
-				rd::shuffle(rd, c.len+1);
+				std::vector<int> rd(c.len+1, 0);
+				rd::shuffle(rd.data(), c.len+1);
 				for (int i = 0; i < c.len+1; ++i) {
 					context *h = lm->make(c, rd[i]);
 					//lm->add(c[rd[i]], h);
@@ -29,16 +30,16 @@ namespace npbnlp {
 				}
 			}
 			static void add(word& w, hpyp *lm) {
-				int rd[w.len+1] = {0};
-				rd::shuffle(rd, w.len+1);
+				std::vector<int> rd(w.len+1, 0);
+				rd::shuffle(rd.data(), w.len+1);
 				for (int i = 0; i < w.len+1; ++i) {
 					context *h = lm->make(w, rd[i]);
 					lm->add(w[rd[i]], h);
 				}
 			}
 			static void add(chunk& c, hpyp *lm) {
-				int rd[c.len+1] = {0};
-				rd::shuffle(rd, c.len+1);
+				std::vector<int> rd(c.len+1, 0);
+				rd::shuffle(rd.data(), c.len+1);
 				for (int i = 0; i < c.len+1; ++i) {
 					context *h = lm->make(c, rd[i]);
 					//lm->add(c[rd[i]], h);
@@ -72,32 +73,32 @@ namespace npbnlp {
 				}
 			}
 			static void add_h(sentence& s, hdp *lm) {
-				int rd[s.size()+1] = {0};
-				rd::shuffle(rd, s.size()+1);
+				std::vector<int> rd(s.size()+1, 0);
+				rd::shuffle(rd.data(), s.size()+1);
 				for (int i = 0; i < s.size()+1; ++i) {
 					context *h = lm->make(s, rd[i]);
 					lm->add(s.wd(rd[i]), h);
 				}
 			}
 			static void add_h(nsentence& s, hdp *lm) {
-				int rd[s.size()+1] = {0};
-				rd::shuffle(rd, s.size()+1);
+				std::vector<int> rd(s.size()+1, 0);
+				rd::shuffle(rd.data(), s.size()+1);
 				for (int i = 0; i < s.size()+1; ++i) {
 					context *h = lm->make(s, rd[i]);
 					lm->add(s.ch(rd[i]), h);
 				}
 			}
 			static void add(sentence& s, hpyp *lm) {
-				int rd[s.size()+1] = {0};
-				rd::shuffle(rd, s.size()+1);
+				std::vector<int> rd(s.size()+1, 0);
+				rd::shuffle(rd.data(), s.size()+1);
 				for (int i = 0; i < s.size()+1; ++i) {
 					context *h = lm->make(s, rd[i]);
 					lm->add(s.wd(rd[i]), h);
 				}
 			}
 			static void add(nsentence& s, hpyp *lm) {
-				int rd[s.size()+1] = {0};
-				rd::shuffle(rd, s.size()+1);
+				std::vector<int> rd(s.size()+1, 0);
+				rd::shuffle(rd.data(), s.size()+1);
 				for (int i = 0; i < s.size()+1; ++i) {
 					context *h = lm->make(s, rd[i]);
 					lm->add(s.ch(rd[i]), h);
@@ -128,8 +129,8 @@ namespace npbnlp {
 				}
 			}
 			static void add_v(word& w, hpyp *lm) {
-				int rd[w.len+1] = {0};
-				rd::shuffle(rd, w.len+1);
+				std::vector<int> rd(w.len+1, 0);
+				rd::shuffle(rd.data(), w.len+1);
 				for (int i = 0; i < w.len+1; ++i) {
 					int n = lm->draw_n(w, rd[i]);
 					context *h = lm->make(w, rd[i], n);
@@ -138,8 +139,8 @@ namespace npbnlp {
 				}
 			}
 			static void add_v(chunk& c, hpyp *lm) {
-				int rd[c.len+1] = {0};
-				rd::shuffle(rd, c.len+1);
+				std::vector<int> rd(c.len+1, 0);
+				rd::shuffle(rd.data(), c.len+1);
 				for (int i = 0; i < c.len+1; ++i) {
 					int n = lm->draw_n(c, rd[i]);
 					context *h = lm->make(c, rd[i], n);
@@ -164,8 +165,8 @@ namespace npbnlp {
 				}
 			}
 			static void add_v(sentence& s, hpyp *lm) {
-				int rd[s.size()+1] = {0};
-				rd::shuffle(rd, s.size()+1);
+				std::vector<int> rd(s.size()+1, 0);
+				rd::shuffle(rd.data(), s.size()+1);
 				for (int i = 0; i < s.size()+1; ++i) {
 					int n = lm->draw_n(s, rd[i]);
 					context *h = lm->make(s, rd[i], n);
@@ -174,8 +175,8 @@ namespace npbnlp {
 				}
 			}
 			static void add_v(nsentence& s, hpyp *lm) {
-				int rd[s.size()+1] = {0};
-				rd::shuffle(rd, s.size()+1);
+				std::vector<int> rd(s.size()+1, 0);
+				rd::shuffle(rd.data(), s.size()+1);
 				for (int i = 0; i < s.size()+1; ++i) {
 					int n = lm->draw_n(s, rd[i]);
 					context *h = lm->make(s, rd[i], n);
