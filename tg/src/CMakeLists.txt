@@ -12,6 +12,7 @@ link_directories(${LIBRARY_PATH})
 
 add_executable(ch chunking.cc clattice.cc nnpylm.cc hlattice.cc ihmm.cc)
 add_executable(ne ne.cc clattice.cc nphsmm.cc nnpylm.cc ihmm.cc hlattice.cc)
+add_executable(sne sne.cc clattice.cc snpylm.cc)
 add_executable(tg tg.cc hlattice.cc ihmm.cc)
 add_executable(stats stats.cc)
 find_package(Boost COMPONENTS serialization REQUIRED)
@@ -26,16 +27,22 @@ target_compile_options(ne PUBLIC
 	$<$<CONFIG:Release>:-O3 -std=c++17>
 	$<$<CONFIG:Debug>:-g -std=c++17>
 	)
+target_compile_options(sne PUBLIC
+	$<$<CONFIG:Release>:-O3 -std=c++17>
+	$<$<CONFIG:Debug>:-g -std=c++17>
+	)
 
 find_package(OpenMP)
 if (OpenMP_CXX_FOUND)
 	target_link_libraries(ch PUBLIC OpenMP::OpenMP_CXX io rd lm tn icuuc ${Boost_LIBRARIES})
 	target_link_libraries(ne PUBLIC OpenMP::OpenMP_CXX io rd lm tn icuuc ${Boost_LIBRARIES})
+	target_link_libraries(sne PUBLIC OpenMP::OpenMP_CXX io rd lm tn icuuc ${Boost_LIBRARIES})
 	target_link_libraries(tg PUBLIC OpenMP::OpenMP_CXX io rd lm tn icuuc ${Boost_LIBRARIES})
 	target_link_libraries(stats PUBLIC OpenMP::OpenMP_CXX io rd lm tn icuuc ${Boost_LIBRARIES})
 else()
 	target_link_libraries(ch PUBLIC io rd lm tn icuuc ${Boost_LIBRARIES})
 	target_link_libraries(ne PUBLIC io rd lm tn icuuc ${Boost_LIBRARIES})
+	target_link_libraries(sne PUBLIC io rd lm tn icuuc ${Boost_LIBRARIES})
 	target_link_libraries(tg PUBLIC io rd lm tn icuuc ${Boost_LIBRARIES})
 	target_link_libraries(stats PUBLIC io rd lm tn icuuc ${Boost_LIBRARIES})
 endif()
@@ -43,6 +50,7 @@ endif()
 # for ICU
 target_link_directories(ch PUBLIC /usr/local/lib)
 target_link_directories(ne PUBLIC /usr/local/lib)
+target_link_directories(sne PUBLIC /usr/local/lib)
 target_link_directories(tg PUBLIC /usr/local/lib)
 target_link_directories(stats PUBLIC /usr/local/lib)
 #find_package(FindICU)
