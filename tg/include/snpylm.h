@@ -69,8 +69,8 @@ namespace npbnlp {
 			// normal-word spelling model G0^spell (letter infinity-gram).
 			std::shared_ptr<vpyp> _spell;
 			// per-class NE surface models H_k (index 0 unused) and their bases.
-			std::shared_ptr<std::vector<std::shared_ptr<hpyp> > > _H;
-			std::shared_ptr<std::vector<std::shared_ptr<vpyp> > > _Hletter;
+			std::shared_ptr<std::vector<std::shared_ptr<hpyp> > > _hk;
+			std::shared_ptr<std::vector<std::shared_ptr<vpyp> > > _hkletter;
 			// class k <-> NE symbol word id, registered in the global wid dict.
 			std::vector<int> _nek;          // k -> NE symbol id (index 0 unused)
 			std::unordered_map<int, int> _id2k; // NE symbol id -> class k

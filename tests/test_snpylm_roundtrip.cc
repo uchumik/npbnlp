@@ -17,8 +17,8 @@ using namespace npbnlp;
 struct snpylm_probe : public snpylm {
 	using snpylm::_bg;
 	using snpylm::_spell;
-	using snpylm::_H;
-	using snpylm::_Hletter;
+	using snpylm::_hk;
+	using snpylm::_hkletter;
 	using snpylm::_k;
 	using snpylm::_pine;
 	using snpylm::_piw;
@@ -122,8 +122,8 @@ int main() {
 	ok &= root_zero(lm._bg.get(), "bg", 0);
 	ok &= root_zero(lm._spell.get(), "spell", 0);
 	for (int i = 0; i <= lm._k; ++i) {
-		ok &= root_zero((*lm._H)[i].get(), "H", i);
-		ok &= root_zero((*lm._Hletter)[i].get(), "Hletter", i);
+		ok &= root_zero((*lm._hk)[i].get(), "H", i);
+		ok &= root_zero((*lm._hkletter)[i].get(), "Hletter", i);
 	}
 	// switching counters must also net to zero after a full remove.
 	if (lm._pine != 0 || lm._piw != 0 || lm._pieos != 0) {

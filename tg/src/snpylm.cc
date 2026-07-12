@@ -33,7 +33,7 @@ snpylm::snpylm(int n, int hn, int hl, int k):
 	_n(n < 2 ? 2 : n), _hn(hn < 1 ? 1 : hn), _hl(hl), _k(k), _v(SVOCAB),
 	_gamma(SGAMMA), _alpha(SALPHA), _pi(1.0/(1.0+SGAMMA)),
 	_bg(new hpyp(_n)), _spell(new vpyp(_hl)),
-	_H(new vector<shared_ptr<hpyp> >), _Hletter(new vector<shared_ptr<vpyp> >),
+	_hk(new vector<shared_ptr<hpyp> >), _hkletter(new vector<shared_ptr<vpyp> >),
 	_pine(0), _piw(0), _pieos(0) {
 	_spell->set_v(_v);
 	_nek.assign(1, 0);
@@ -42,10 +42,10 @@ snpylm::snpylm(int n, int hn, int hl, int k):
 	_necnt.assign(1, 0);
 	_nelen.assign(1, 0);
 	for (int i = 0; i <= _k; ++i) {
-		_Hletter->push_back(shared_ptr<vpyp>(new vpyp(_hl)));
-		(*_Hletter)[i]->set_v(_v);
-		_H->push_back(shared_ptr<hpyp>(new hpyp(_hn)));
-		(*_H)[i]->set_base((*_Hletter)[i].get());
+		_hkletter->push_back(shared_ptr<vpyp>(new vpyp(_hl)));
+		(*_hkletter)[i]->set_v(_v);
+		_hk->push_back(shared_ptr<hpyp>(new hpyp(_hn)));
+		(*_hk)[i]->set_base((*_hkletter)[i].get());
 		if (i > 0) {
 			_rho.push_back(0);
 			_lambda.push_back(LAMBDA_A);
@@ -92,12 +92,12 @@ void snpylm::_register_symbols() {
 
 void snpylm::_resize(int k) {
 	int target = k+1;
-	while ((int)_H->size() < target) {
-		int idx = (int)_H->size();
-		_Hletter->push_back(shared_ptr<vpyp>(new vpyp(_hl)));
-		(*_Hletter)[idx]->set_v(_v);
-		_H->push_back(shared_ptr<hpyp>(new hpyp(_hn)));
-		(*_H)[idx]->set_base((*_Hletter)[idx].get());
+	while ((int)_hk->size() < target) {
+		int idx = (int)_hk->size();
+		_hkletter->push_back(shared_ptr<vpyp>(new vpyp(_hl)));
+		(*_hkletter)[idx]->set_v(_v);
+		_hk->push_back(shared_ptr<hpyp>(new hpyp(_hn)));
+		(*_hk)[idx]->set_base((*_hkletter)[idx].get());
 	}
 	while ((int)_rho.size() < target) _rho.push_back(0);
 	while ((int)_lambda.size() < target) _lambda.push_back(LAMBDA_A);
@@ -111,7 +111,7 @@ void snpylm::_resize(int k) {
 void snpylm::set(int v, int k) {
 	_v = v;
 	_spell->set_v(_v);
-	for (auto it = _Hletter->begin(); it != _Hletter->end(); ++it)
+	for (auto it = _hkletter->begin(); it != _hkletter->end(); ++it)
 		(*it)->set_v(_v);
 	if (k > _k)
 		_resize(k);
@@ -261,7 +261,7 @@ void snpylm::_seat(nsentence& s, bool add) {
 			chunk& ch = s.ch(j);
 			if (ch.k >= 1) {
 				ch.id = cdic->index(ch);
-				(*_H)[ch.k]->add(ch, (*_H)[ch.k]->h());
+				(*_hk)[ch.k]->add(ch, (*_hk)[ch.k]->h());
 				int clen = 0;
 				for (int w = 0; w < ch.len; ++w)
 					clen += ch.wd(w).len;
@@ -302,8 +302,8 @@ void snpylm::_seat(nsentence& s, bool add) {
 			_bg->remove(tv, c);
 			chunk& ch = s.ch(j);
 			if (ch.k >= 1) {
-				context *r = (*_H)[ch.k]->h();
-				(*_H)[ch.k]->remove(ch, r);
+				context *r = (*_hk)[ch.k]->h();
+				(*_hk)[ch.k]->remove(ch, r);
 				int clen = 0;
 				for (int w = 0; w < ch.len; ++w)
 					clen += ch.wd(w).len;
@@ -316,9 +316,9 @@ void snpylm::_seat(nsentence& s, bool add) {
 
 void snpylm::estimate(int iter) {
 	for (int i = 1; i <= _k; ++i) {
-		(*_H)[i]->gibbs(iter);
-		(*_H)[i]->estimate(iter);
-		(*_Hletter)[i]->estimate(iter);
+		(*_hk)[i]->gibbs(iter);
+		(*_hk)[i]->estimate(iter);
+		(*_hkletter)[i]->estimate(iter);
 	}
 	_bg->gibbs(iter);
 	_bg->estimate(iter);
@@ -345,7 +345,7 @@ void snpylm::estimate(int iter) {
 void snpylm::poisson_correction(int n) {
 	_spell->poisson_correction(n);
 	for (int i = 1; i <= _k; ++i)
-		(*_Hletter)[i]->poisson_correction(n);
+		(*_hkletter)[i]->poisson_correction(n);
 }
 
 void snpylm::stats() const {
@@ -379,21 +379,21 @@ void snpylm::save(const char *file) {
 		int cnt[3] = {_pine, _piw, _pieos};
 		if (fwrite(cnt, sizeof(int), 3, fp) != 3)
 			throw "failed to write switching counters in snpylm::save";
-		if (fwrite(_nek.data(), sizeof(int), _k+1, fp) != (size_t)(_k+1))
+		if (fwrite(_nek.data(), sizeof(int), _k+1, fp) != (size_t)_k + 1)
 			throw "failed to write nek in snpylm::save";
-		if (fwrite(_rho.data(), sizeof(int), _k+1, fp) != (size_t)(_k+1))
+		if (fwrite(_rho.data(), sizeof(int), _k+1, fp) != (size_t)_k + 1)
 			throw "failed to write rho in snpylm::save";
-		if (fwrite(_lambda.data(), sizeof(double), _k+1, fp) != (size_t)(_k+1))
+		if (fwrite(_lambda.data(), sizeof(double), _k+1, fp) != (size_t)_k + 1)
 			throw "failed to write lambda in snpylm::save";
-		if (fwrite(_necnt.data(), sizeof(int), _k+1, fp) != (size_t)(_k+1))
+		if (fwrite(_necnt.data(), sizeof(int), _k+1, fp) != (size_t)_k + 1)
 			throw "failed to write necnt in snpylm::save";
-		if (fwrite(_nelen.data(), sizeof(double), _k+1, fp) != (size_t)(_k+1))
+		if (fwrite(_nelen.data(), sizeof(double), _k+1, fp) != (size_t)_k + 1)
 			throw "failed to write nelen in snpylm::save";
 		_bg->save(fp);
 		_spell->save(fp);
 		for (int i = 0; i <= _k; ++i) {
-			(*_H)[i]->save(fp);
-			(*_Hletter)[i]->save(fp);
+			(*_hk)[i]->save(fp);
+			(*_hkletter)[i]->save(fp);
 		}
 	} catch (const char *ex) {
 		fclose(fp);
@@ -426,15 +426,15 @@ void snpylm::load(const char *file) {
 		_lambda.assign(_k+1, LAMBDA_A);
 		_necnt.assign(_k+1, 0);
 		_nelen.assign(_k+1, 0);
-		if (fread(_nek.data(), sizeof(int), _k+1, fp) != (size_t)(_k+1))
+		if (fread(_nek.data(), sizeof(int), _k+1, fp) != (size_t)_k + 1)
 			throw "failed to read nek in snpylm::load";
-		if (fread(_rho.data(), sizeof(int), _k+1, fp) != (size_t)(_k+1))
+		if (fread(_rho.data(), sizeof(int), _k+1, fp) != (size_t)_k + 1)
 			throw "failed to read rho in snpylm::load";
-		if (fread(_lambda.data(), sizeof(double), _k+1, fp) != (size_t)(_k+1))
+		if (fread(_lambda.data(), sizeof(double), _k+1, fp) != (size_t)_k + 1)
 			throw "failed to read lambda in snpylm::load";
-		if (fread(_necnt.data(), sizeof(int), _k+1, fp) != (size_t)(_k+1))
+		if (fread(_necnt.data(), sizeof(int), _k+1, fp) != (size_t)_k + 1)
 			throw "failed to read necnt in snpylm::load";
-		if (fread(_nelen.data(), sizeof(double), _k+1, fp) != (size_t)(_k+1))
+		if (fread(_nelen.data(), sizeof(double), _k+1, fp) != (size_t)_k + 1)
 			throw "failed to read nelen in snpylm::load";
 		_id2k.clear();
 		for (int k = 1; k <= _k; ++k)
@@ -442,16 +442,16 @@ void snpylm::load(const char *file) {
 				_id2k[_nek[k]] = k;
 		_bg->load(fp);
 		_spell->load(fp);
-		while ((int)_H->size() < _k+1) {
-			int idx = (int)_H->size();
-			_Hletter->push_back(shared_ptr<vpyp>(new vpyp(_hl)));
-			(*_Hletter)[idx]->set_v(_v);
-			_H->push_back(shared_ptr<hpyp>(new hpyp(_hn)));
-			(*_H)[idx]->set_base((*_Hletter)[idx].get());
+		while ((int)_hk->size() < _k+1) {
+			int idx = (int)_hk->size();
+			_hkletter->push_back(shared_ptr<vpyp>(new vpyp(_hl)));
+			(*_hkletter)[idx]->set_v(_v);
+			_hk->push_back(shared_ptr<hpyp>(new hpyp(_hn)));
+			(*_hk)[idx]->set_base((*_hkletter)[idx].get());
 		}
 		for (int i = 0; i <= _k; ++i) {
-			(*_H)[i]->load(fp);
-			(*_Hletter)[i]->load(fp);
+			(*_hk)[i]->load(fp);
+			(*_hkletter)[i]->load(fp);
 		}
 		_install_cbase();
 	} catch (const char *ex) {
