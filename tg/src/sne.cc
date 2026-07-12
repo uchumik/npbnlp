@@ -36,6 +36,8 @@ static double b = 5;
 static double gamma_ = 10.0;
 static double alpha_ = 1.0;
 static int init_random = 0; // 0 = all-O seed (default); 1 = prior-sample init
+static int anneal = 0;      // >0: warm up emission temperature over N epochs
+static double tau0 = 2.0;   // initial emission temperature for the warm-up
 static string prefix("snpylm");
 static string train;
 static string test;
@@ -70,6 +72,8 @@ void usage(int argc, char **argv) {
 	cout << "--sgamma=double(Beta(1,gamma) gate prior, default 10)\n";
 	cout << "--salpha=double(GEM concentration, default 1)\n";
 	cout << "--init_random(initialize by sampling the prior instead of all-O seed)\n";
+	cout << "--anneal=int(warm-up epochs that damp the NE emission, default 0=off)\n";
+	cout << "--tau0=double(initial emission temperature for --anneal, default 2)\n";
 	cout << "--prefix=str(snapshot prefix)\n";
 	exit(1);
 }
@@ -91,6 +95,8 @@ int read_long_param(const char *opt, const char *arg) {
 	else if (check(opt, "sgamma")) gamma_ = atof(arg);
 	else if (check(opt, "salpha")) alpha_ = atof(arg);
 	else if (check(opt, "init_random")) init_random = 1;
+	else if (check(opt, "anneal")) anneal = atoi(arg);
+	else if (check(opt, "tau0")) tau0 = atof(arg);
 	return 1;
 }
 
@@ -118,6 +124,8 @@ int read_param(int argc, char **argv) {
 			{"sgamma", required_argument, 0, 0},
 			{"salpha", required_argument, 0, 0},
 			{"init_random", no_argument, 0, 0},
+			{"anneal", required_argument, 0, 0},
+			{"tau0", required_argument, 0, 0},
 			{0, 0, 0, 0}
 		};
 		int option_index = 0;
@@ -272,6 +280,9 @@ int mcmc(nio& f, vector<nsentence>& corpus) {
 		seeded = true;
 	}
 	for (auto i = 0; i < epoch; ++i) {
+		// annealing warm-up: emission temperature tau0 -> 1 over `anneal` epochs.
+		if (anneal > 0)
+			lm.set_temp((i < anneal) ? (tau0 - (tau0-1.0)*i/anneal) : 1.0);
 		bool do_remove = seeded || i > 0;
 		vector<int> rd(corpus.size(), 0);
 		rd::shuffle(rd.data(), corpus.size());
