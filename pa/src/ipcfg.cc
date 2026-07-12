@@ -4,6 +4,7 @@
 #include"convinience.h"
 #include"generator.h"
 #include<queue>
+#include<cassert>
 
 #ifdef _OPENMP
 #include<omp.h>
@@ -95,6 +96,10 @@ void ipcfg::load(const char *f) {
 }
 
 tree ipcfg::sample(io& f, int i) {
+	return sample(f, i, nullptr);
+}
+
+tree ipcfg::sample(io& f, int i, tree *cur) {
 	cyk c(f, i);
 	if (c.s.size() == 1) {
 		tree t(c.s);
@@ -104,7 +109,7 @@ tree ipcfg::sample(io& f, int i) {
 		return t;
 	}
 	vt dp;
-	_slice(c);
+	_slice(c, cur);
 	// inside
 	int size = c.s.size();
 	for (auto j = 0; j < size; ++j) {
@@ -138,7 +143,7 @@ tree ipcfg::parse(io& f, int i) {
 		return t;
 	}
 	vt dp;
-	_slice(c);
+	_slice(c, nullptr);
 	// inside
 	int size = c.s.size();
 	for (auto j = 0; j < size; ++j) {
@@ -363,7 +368,85 @@ void ipcfg::_calc_nonterm(cyk& c, int i, int j, vt& a) {
 	}
 }
 
-void ipcfg::_slice(cyk& l) {
+// Recursively walk the current tree T from the root and record, for every
+// span (i,j) that appears in T, a pointer to its node. Node index layout is
+// idx(i,j) = N*i + j - i*(i+1)/2 (see _add/_remove). on-path nodes carry
+// their assigned label in node.k (>=0); off-path cells keep the ctor default
+// node.k == -1 and are never touched here.
+void ipcfg::_collect_spans(tree& t, int idx, vector<vector<const node*> >& on) {
+	node& z = t[idx];
+	if (z.k < 0)
+		return;
+	on[z.i][z.j] = &z;
+	if (z.i == z.j) // pre-terminal
+		return;
+	int N = t.s.size();
+	int b = z.b;
+	_collect_spans(t, N*z.i+b-z.i*(1.+z.i)/2, on);
+	_collect_spans(t, N*(b+1)+z.j-(1.+b)*(b+2)/2, on);
+}
+
+void ipcfg::_slice(cyk& l, tree *cur) {
+	int size = l.s.size();
+	bool cond = (cur != nullptr && cur->s.size() == size && size > 1);
+	if (cond) {
+		// --- WO-005: span-independent mu conditioned on the current tree T ---
+		// Deviation from the note's unscaled beta(a,b): off-path spans keep the
+		// current per-span fresh draw (log(be)+table[id]) instead of beta(a,b),
+		// because the unscaled threshold with the present a,b would over-prune
+		// and wreck the search space. mu depends only on the fixed post-remove
+		// scores, so slice-sampling validity (marginalizing mu recovers P) holds.
+		vector<vector<const node*> > on(size, vector<const node*>(size, nullptr));
+		_collect_spans(*cur, size-1, on); // root idx = N-1
+		// pre-terminals
+		for (int i = 0; i < size; ++i) {
+			const node *z = on[i][i];
+			if (z != nullptr && z->k >= 1 && z->k <= _k)
+				_slice_preterm_cond(l, i, z->k); // on-path: mu = log(be)+score_cur
+			else
+				_slice_preterm(l, i);            // off-path: fresh draw
+		}
+		// non-terminals, span-independent (no pivot walk / shared nu)
+		for (int m = 1; m < size-1; ++m) {
+			for (int i = 0; i < size-m; ++i) {
+				int j = i+m;
+				const node *z = on[i][j];
+				bool onpath = false;
+				int lc = 0, rc = 0, kc = 0, mc = 0;
+				if (z != nullptr && z->i == i && z->j == j && z->i != z->j) {
+					int b = z->b;
+					const node *ln = on[i][b];
+					const node *rn = on[b+1][j];
+					if (ln != nullptr && rn != nullptr) {
+						lc = ln->k; rc = rn->k; kc = b; mc = z->k;
+						if (mc >= 1 && mc <= _k && lc >= 1 && lc <= _k &&
+						    rc >= 1 && rc <= _k && mc <= max(lc, rc))
+							onpath = true;
+					}
+				}
+				if (onpath)
+					_slice_nonterm_cond(l, i, j, lc, rc, kc, mc);
+				else
+					_draw(l, i, j); // off-path: per-span fresh draw
+			}
+		}
+		// root
+		const node *r = on[0][size-1];
+		if (r != nullptr && r->i == 0 && r->j == size-1 && r->i != r->j) {
+			int b = r->b;
+			const node *ln = on[0][b];
+			const node *rn = on[b+1][size-1];
+			if (ln != nullptr && rn != nullptr &&
+			    ln->k >= 1 && ln->k <= _k && rn->k >= 1 && rn->k <= _k)
+				_slice_root_cond(l, ln->k, rn->k);
+			else
+				_slice_root(l);
+		} else {
+			_slice_root(l);
+		}
+		return;
+	}
+	// --- cur == nullptr: original path (parse), unchanged incl. RNG usage ---
 	// terminal
 	for (auto i = 0; i < l.s.size(); ++i) {
 		_slice_preterm(l, i);
@@ -515,6 +598,61 @@ void ipcfg::_slice_nonterm(cyk& c, int i, int j, double mu) {
 		}
 	}
 }
+
+// WO-005 on-path non-terminal: condition mu on the current rule
+// A(mc) -> B(lc) C(rc) split at kc. score_cur = log P(A|B,C) + log P(B) +
+// log P(C|B) reproduces exactly what _draw/_slice_nonterm push to the table
+// (_nonterm->lp(mc,s)+lp_l+lp_r). mu = log(be)+score_cur with log(be)<=0
+// guarantees score_cur >= mu, so the current rule always survives the slice.
+void ipcfg::_slice_nonterm_cond(cyk& c, int i, int j, int lc, int rc, int kc, int mc) {
+	(void)kc; // split point is implied by lc/rc contexts; kept for clarity
+	beta_distribution be;
+	// score of the current on-path rule (same context construction as _draw)
+	double lp_l = _nonterm->lp(lc, _nonterm->h());
+	context *h = _nonterm->h();
+	context *t = h->find(lc);
+	if (t)
+		h = t;
+	double lp_r = _nonterm->lp(rc, h);
+	context *s = _nonterm->h();
+	context *u = s->find(rc);
+	if (u) {
+		s = u;
+		u = s->find(lc);
+		if (u)
+			s = u;
+	}
+	double score_cur = _nonterm->lp(mc, s)+lp_l+lp_r;
+	double mu = log(be(_a, _b))+score_cur;
+	c.mu[i][j] = mu;
+	// permitted set: enumerate every rule of this span exactly as _draw does
+	for (auto k = i; k < j; ++k) {
+		for (auto l = c.begin(i,k); l != c.end(i,k); ++l) {
+			double lpl = _nonterm->lp(*l, _nonterm->h());
+			context *hh = _nonterm->h();
+			context *tt = hh->find(*l);
+			if (tt)
+				hh = tt;
+			for (auto r = c.begin(k+1,j); r != c.end(k+1,j); ++r) {
+				double lpr = _nonterm->lp(*r, hh);
+				context *ss = _nonterm->h();
+				context *uu = ss->find(*r);
+				if (uu) {
+					ss = uu;
+					uu = ss->find(*l);
+					if (uu)
+						ss = uu;
+				}
+				for (auto mm = max(*l,*r); mm > 0; --mm) {
+					double lp = _nonterm->lp(mm, ss)+lpl+lpr;
+					if (lp >= mu)
+						c.k[i][j].insert(mm);
+				}
+			}
+		}
+	}
+	assert(c.k[i][j].count(mc) > 0); // current parent label must survive
+}
 /*
    void ipcfg::_slice(cyk& l) {
 // terminal
@@ -550,6 +688,28 @@ void ipcfg::_slice_preterm(cyk& l, int i) {
 			l.k[i][i].insert(j+1);
 		}
 	}
+}
+
+// WO-005 on-path pre-terminal: condition mu on the current label.
+// table[label-1] is the score _slice_preterm/_calc_preterm assign to this
+// label; mu = log(be)+score_cur keeps that label (and any richer ones) alive.
+void ipcfg::_slice_preterm_cond(cyk& l, int i, int label) {
+	beta_distribution be;
+	word& w = l.wd(i);
+	vector<double> table;
+	for (auto k = 1; k < _k+1; ++k) {
+		double lp = (*_word)[k]->lp(w, (*_word)[k]->h())+_nonterm->lp(k, _nonterm->h());
+		table.push_back(lp);
+	}
+	double score_cur = table[label-1];
+	double mu = log(be(_a, _b))+score_cur;
+	l.mu[i][i] = mu;
+	for (auto j = 0; j < (int)table.size(); ++j) {
+		if (table[j] >= mu) {
+			l.k[i][i].insert(j+1);
+		}
+	}
+	assert(l.k[i][i].count(label) > 0); // current pre-terminal must survive
 }
 
 /*
@@ -639,8 +799,34 @@ void ipcfg::_slice_root(cyk& c) {
 	   for (auto m = 0; m < table.size(); ++m) {
 	   if (table[m] >= mu)
 	   c.k[0][size-1][0]+=1;
-	   }
 	   */
+}
+
+// WO-005 on-path root: root label is always 0; condition mu on the current
+// root split into children lc/rc. score_cur = log P(0|lc,rc)+log P(lc)+
+// log P(rc|lc) matches _slice_root's table entry; mu = log(be)+score_cur
+// ensures the current root decomposition survives traceback pruning.
+void ipcfg::_slice_root_cond(cyk& c, int lc, int rc) {
+	beta_distribution be;
+	int size = c.s.size();
+	double lp_l = _nonterm->lp(lc, _nonterm->h());
+	context *h = _nonterm->h();
+	context *t = h->find(lc);
+	if (t)
+		h = t;
+	double lp_r = _nonterm->lp(rc, h);
+	context *s = _nonterm->h();
+	context *u = s->find(rc);
+	if (u) {
+		s = u;
+		u = s->find(lc);
+		if (u)
+			s = u;
+	}
+	double score_cur = _nonterm->lp(0, s)+lp_l+lp_r;
+	double mu = log(be(_a, _b))+score_cur;
+	c.mu[0][size-1] = mu;
+	c.k[0][size-1].insert(0);
 }
 
 void ipcfg::_resize() {

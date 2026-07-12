@@ -311,7 +311,11 @@ int mcmc() {
 				auto t = omp_get_thread_num();
 				if (j+t < (int)corpus.size()) {
 					try {
-						tree tr = g.sample(f, rd[j+t]);
+						// pass the current tree so the slice variable is
+						// conditioned on it (WO-005). corpus[rd] is only
+						// overwritten after sample() returns, so the current
+						// assignment stays alive throughout sampling.
+						tree tr = g.sample(f, rd[j+t], &corpus[rd[j+t]]);
 						//dump(tr, rd[j+t]);
 						corpus[rd[j+t]] = tr;
 					} catch (const char *ex) {
@@ -323,7 +327,7 @@ int mcmc() {
 			for (auto t = 0; t < threads; ++t) {
 				if (j+t < (int)corpus.size()) {
 					try {
-						tree tr = g.sample(f, rd[j+t]);
+						tree tr = g.sample(f, rd[j+t], &corpus[rd[j+t]]);
 						corpus[rd[j+t]] = tr;
 					} catch (const char *ex) {
 						cerr << ex << endl;
