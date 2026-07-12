@@ -23,7 +23,8 @@ Checks: >
   -modernize-macro-to-enum,
   -modernize-use-override,
   -modernize-make-shared,
-  -bugprone-implicit-widening-of-multiplication-result
+  -bugprone-implicit-widening-of-multiplication-result,
+  -modernize-use-equals-default
 WarningsAsErrors: ''
 # Headers are linted only via the CI's dynamic --header-filter (changed
 # headers only); this default keeps local runs quiet on shared headers.
