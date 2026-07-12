@@ -23,6 +23,7 @@ struct snpylm_probe : public snpylm {
 	using snpylm::_pine;
 	using snpylm::_piw;
 	using snpylm::_pieos;
+	using snpylm::_psi;
 	snpylm_probe(int n, int hn, int hl, int k): snpylm(n, hn, hl, k) {}
 };
 
@@ -131,6 +132,13 @@ int main() {
 				lm._pine, lm._piw, lm._pieos);
 		ok = false;
 	}
+	// psi char-type counts must net to zero too.
+	for (size_t i = 0; i < lm._psi.size(); ++i)
+		if (lm._psi[i] != 0) {
+			fprintf(stderr, "leak: psi[%zu]=%d (expected 0)\n", i, lm._psi[i]);
+			ok = false;
+			break;
+		}
 
 	if (!ok) {
 		fprintf(stderr, "test_snpylm_roundtrip FAILED: non-zero counters after full remove()\n");
