@@ -12,6 +12,7 @@
 #include<cmath>
 #include<atomic>
 #include<chrono>
+#include<cassert>
 #ifdef _OPENMP
 #include<omp.h>
 #endif
@@ -548,12 +549,16 @@ sentence phsmm::parse(io& f, int i) {
 }
 
 sentence phsmm::sample(io& f, int i) {
+	return sample(f, i, nullptr);
+}
+
+sentence phsmm::sample(io& f, int i, sentence *cur) {
 	if (!_original)
-		return _minfer(f, i, false);
+		return _minfer(f, i, false, cur);
 	lattice l(f, i);
 	vt dp;
 	// slice
-	_slice(l);
+	_slice(l, cur);
 	_type_prior(l);
 	// forward filtering
 	for (auto t = 0; t < (int)l.w.size(); ++t) {
@@ -710,6 +715,10 @@ void phsmm::_backward(lattice& l, int i, const context *c, const context *t, wor
 }
 
 void phsmm::_slice(lattice& l) {
+	_slice(l, nullptr);
+}
+
+void phsmm::_slice(lattice& l, sentence *cur) {
 	static const bool noslice = (getenv("NPBNLP_NOSLICE") != NULL);
 	static const bool slcheck = (getenv("NPBNLP_SLICE_CHECK") != NULL);
 	static const bool naive = (getenv("NPBNLP_NAIVE_SLICE") != NULL); // A/B: pre-memoization path
@@ -718,6 +727,29 @@ void phsmm::_slice(lattice& l) {
 	beta_distribution be;
 	shared_ptr<generator> g = generator::create();
 	int T = (int)l.w.size();
+	// Current-assignment path map for slice conditioning (WO-004, mirrors WO-003).
+	// The slice cell index system is [t][len-1] where t is the *ending* char
+	// position (0-based within the sentence) and len is the word length, matching
+	// lattice::wd(i,len) => w[i][len-1] and the push target l.k[t][w->len-1]
+	// (see lattice.cc:32-38, phsmm.cc:766/818). A partition of the sentence has
+	// exactly one word ending at each covered end position, so we key by end pos.
+	// pos_path[t]=pos_cur, len_path[t]=len for the on-path cell (t,len); pos_cur
+	// outside [1,_k] (e.g. class collapsed by _shrink after remove) => off-path.
+	vector<int> pos_path, len_path;
+	if (cur) {
+		pos_path.assign(T, -1);
+		len_path.assign(T, -1);
+		int cum = 0;
+		for (int wi = 0; wi < cur->size(); ++wi) {
+			word& cw = cur->wd(wi);
+			int e = cum + cw.len - 1; // ending char position of this word
+			if (e >= 0 && e < T) {
+				pos_path[e] = cw.pos;
+				len_path[e] = cw.len;
+			}
+			cum += cw.len;
+		}
+	}
 	int M = _m; // letter (char) n-gram order; base-measure context depths 0..M-1
 	// Memoize the word-base (=_lpb(word), the char-level base measure) per
 	// (class, absolute char position, context depth). Overlapping word
@@ -811,12 +843,39 @@ void phsmm::_slice(lattice& l) {
 			}
 			*/
 			//w->pos = rd::ln_draw(table)+1;
-			int id = rd::ln_draw(table);
-			double mu = log(be(_a, _b))+table[id];
+			// Condition the slice auxiliary variable on the current assignment
+			// (WO-004): if this cell (t,len) is on the current path with a live
+			// class pos_cur in [1,_k], anchor mu on P(pos_cur|.) so the current
+			// state always survives (be(.) in (0,1] => log(be)<=0). cur==nullptr
+			// (parse / non-conditioned) keeps the exact prior behaviour incl.
+			// random-number consumption (ln_draw then be).
+			int pos_cur = (cur && len_path[t] == len) ? pos_path[t] : -1;
+			bool onpath = (pos_cur >= 1 && pos_cur <= _k);
+			double mu;
+			if (onpath) {
+				mu = log(be(_a, _b))+table[pos_cur-1];
+			} else {
+				int id = rd::ln_draw(table);
+				mu = log(be(_a, _b))+table[id];
+			}
 			for (auto i = 0; i < (int)table.size(); ++i) {
 				if (table[i] >= mu)
 					l.k[t][w->len-1].push_back(i+1);
 			}
+#ifndef NDEBUG
+			if (onpath) {
+				// the current state must survive the slice (irreducibility);
+				// log(be)<=0 guarantees table[pos_cur-1] >= mu.
+				bool alive = false;
+				for (auto v : l.k[t][w->len-1])
+					if (v == pos_cur) { alive = true; break; }
+				assert(alive && "WO-004: current class dropped from slice");
+			}
+#endif
+			// NOTE (future work): this is a per-cell auxiliary-variable beam.
+			// Full compliance with the design memo's per-time-step mu_t (a single
+			// variable per position t, not per (t,len) cell) is deferred; that
+			// route empties off-path cells and complicates lattice connectivity.
 
 		}
 		/*
@@ -848,12 +907,16 @@ void phsmm::_slice(lattice& l) {
  *   = lse over the deepest length λ_{n-1} of dp (marginalized connection target)
  */
 sentence phsmm::_minfer(io& f, int i, bool best) {
+	return _minfer(f, i, best, nullptr);
+}
+
+sentence phsmm::_minfer(io& f, int i, bool best, sentence *cur) {
 	lattice l(f, i);
 	vt dp;
 	vt am;
 	vt trm;
 	vt bos;
-	_slice(l);
+	_slice(l, cur);
 	_type_prior(l);
 	int nw = _n-1;
 	int nc = max(_l-1, 1);

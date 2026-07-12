@@ -252,7 +252,7 @@ int mcmc(io& f, vector<sentence>& corpus, vector<sentence>& labels) {
 				auto t = omp_get_thread_num();
 				if (j+t < (int)corpus.size()) {
 					try {
-						sentence s = lm.sample(f, rd[j+t]);
+						sentence s = lm.sample(f, rd[j+t], &corpus[rd[j+t]]);
 						corpus[rd[j+t]] = s;
 					} catch (const char *ex) {
 						cerr << ex << endl;
@@ -263,7 +263,7 @@ int mcmc(io& f, vector<sentence>& corpus, vector<sentence>& labels) {
 			for (auto t = 0; t < threads; ++t) {
 				if (j+t < (int)corpus.size()) {
 					try {
-						sentence s = lm.sample(f, rd[j+t]);
+						sentence s = lm.sample(f, rd[j+t], &corpus[rd[j+t]]);
 						corpus[rd[j+t]] = s;
 					} catch (const char *ex) {
 						cerr << ex << endl;
