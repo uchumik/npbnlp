@@ -4,7 +4,6 @@
 #include"generator.h"
 #include"poisson.h"
 #include"chunktype.h"
-#include"math.h"
 #include<cassert>
 #include<cmath>
 #include<cstdlib>

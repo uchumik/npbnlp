@@ -97,7 +97,7 @@ int read_param(int argc, char **argv) {
 		return 1;
 	}
 	int c;
-	while (1) {
+	while (true) {
 		static struct option long_options[] = {
 			{"train", required_argument, 0, 0},
 			{"parse", required_argument, 0, 0},
