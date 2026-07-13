@@ -62,6 +62,48 @@ static double psi_beta_sum() {
 	return s;
 }
 
+// type-driven NE admission: per chunktype2 (n=32), whether a span of that type
+// may be an NE (z>=1). Initial rule: admissible iff the type's composition
+// contains an entity script (kanji / katakana / latin / digit). Hiragana-only,
+// punctuation/symbol-only, hira+punct, and MISC are inadmissible. clattice2
+// already tags each candidate with ch.type via chunktype2::start/transition, so
+// this is an O(1) table lookup (no character rescan). The commander tunes the
+// final values from lattice-coverage / per-type NE-density measurements.
+static const bool NE_ADMISSIBLE[chunktype2::n] = {
+	false, //  0 CH_HIRAGANA        hira
+	true,  //  1 CH_KATAKANA        kata *
+	true,  //  2 CH_HANJI           kanji *
+	true,  //  3 CH_LATIN           latin *
+	true,  //  4 CH_DIGIT           digit *
+	false, //  5 CH_PUNC            punct
+	false, //  6 CH_SYNBOL          symbol
+	true,  //  7 CH_HIRA_KATA       hira+kata *
+	true,  //  8 CH_HIRA_HANJI      hira+kanji *
+	true,  //  9 CH_HIRA_DIGIT      hira+digit *
+	false, // 10 CH_HIRA_PUNC       hira+punct
+	true,  // 11 CH_KATA_HANJI      kata+kanji *
+	true,  // 12 CH_KATA_LATIN      kata+latin *
+	true,  // 13 CH_KATA_DIGIT      kata+digit *
+	true,  // 14 CH_KATA_PUNC       kata+punct *
+	true,  // 15 CH_HANJI_LATIN     kanji+latin *
+	true,  // 16 CH_HANJI_DIGIT     kanji+digit *
+	true,  // 17 CH_HANJI_PUNC      kanji+punct *
+	true,  // 18 CH_LATIN_DIGIT     latin+digit *
+	true,  // 19 CH_LATIN_PUNC      latin+punct *
+	true,  // 20 CH_LATIN_SYNBOL    latin+symbol *
+	true,  // 21 CH_DIGIT_PUNC      digit+punct *
+	true,  // 22 CH_HIRA_KATA_HANJI hira+kata+kanji *
+	true,  // 23 CH_HIRA_HANJI_DIGIT hira+kanji+digit *
+	true,  // 24 CH_HIRA_HANJI_PUNC hira+kanji+punct *
+	true,  // 25 CH_KATA_HANJI_DIGIT *
+	true,  // 26 CH_KATA_HANJI_PUNC *
+	true,  // 27 CH_KATA_LATIN_PUNC *
+	true,  // 28 CH_KATA_DIGIT_PUNC *
+	true,  // 29 CH_HANJI_DIGIT_PUNC *
+	true,  // 30 CH_LATIN_DIGIT_PUNC *
+	false  // 31 CH_MISC            mixed / unknown composition
+};
+
 // Persistent backing store for the synthetic NE-symbol spellings. The wid
 // dictionary keeps word keys whose _doc points into these buffers, so the
 // storage must outlive the dictionary; a deque never relocates its elements,
@@ -73,7 +115,8 @@ snpylm::snpylm(): snpylm(2, 1, 8, 10) {
 
 snpylm::snpylm(int n, int hn, int hl, int k):
 	_n(n < 2 ? 2 : n), _hn(hn < 1 ? 1 : hn), _hl(hl), _l(SLEN), _k(k), _v(SVOCAB),
-	_gamma(SGAMMA), _alpha(SALPHA), _pi(1.0/(1.0+SGAMMA)), _tau(1.0), _a(SA), _b(SB),
+	_gamma(SGAMMA), _alpha(SALPHA), _pi(1.0/(1.0+SGAMMA)), _tau(1.0),
+	_type_admission(true), _a(SA), _b(SB),
 	_clength(chunktype2::n, SLEN),
 	_bg(new hpyp(_n)), _spell(new hpyp(_hl)),
 	_hk(new vector<shared_ptr<hpyp> >), _hkletter(new vector<shared_ptr<hpyp> >),
@@ -189,6 +232,10 @@ void snpylm::set_alpha(double a) {
 
 void snpylm::set_temp(double tau) {
 	_tau = (tau > 0) ? tau : 1.0;
+}
+
+void snpylm::set_type_admission(bool f) {
+	_type_admission = f;
 }
 
 void snpylm::slice(double a, double b) {
@@ -572,13 +619,22 @@ void snpylm::_slice(clattice2& l, nsentence *cur) {
 			l.emit[t][j].assign(_k+1, 0);
 			vector<double> table;
 			vector<int> cls;
+			// type-driven admission: a span whose chunk type is not entity-bearing
+			// cannot be NE, so only class 0 (O, length 1) is a candidate for it.
+			int ct = c.type;
+			bool ne_ok = !_type_admission ||
+				(ct >= 0 && ct < chunktype2::n && NE_ADMISSIBLE[ct]);
 			// O (class 0) is length-1 only; NE classes 1.._k for any length.
 			for (int k = (len == 1) ? 0 : 1; k <= _k; ++k) {
+				if (k >= 1 && !ne_ok)
+					continue;
 				double em = _emit_lp(k, c);
 				l.emit[t][j][k] = em;
 				table.push_back(em + _bg_lp(c, k, _bg->h()));
 				cls.push_back(k);
 			}
+			if (table.empty()) // no admissible class here (e.g. len>1 non-entity)
+				continue;
 			if (noslice) {
 				for (auto k : cls)
 					l.k[t][j].push_back(k);

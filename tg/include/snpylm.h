@@ -53,6 +53,12 @@ namespace npbnlp {
 			// observed degeneracy is all-NE, so early sampling must weaken NE, the
 			// opposite sign to the all-O remedy sketched in math 4.7(iii).
 			virtual void set_temp(double tau);
+			// hard constraint (default on): an NE span (z>=1) is admissible only if
+			// its chunk type (chunktype2, already computed by clattice2) contains an
+			// entity script (kanji / katakana / latin / digit). Enforced structurally
+			// in the lattice allowed set, so hiragana-only / punctuation-only spans
+			// can never be NE. O(1): a single ch.type lookup, no character rescan.
+			virtual void set_type_admission(bool f);
 			virtual int n() const;
 			virtual int k() const;
 			virtual void slice(double a, double b); // Beta(a,b) slice params
@@ -81,6 +87,7 @@ namespace npbnlp {
 			double _alpha;
 			double _pi;  // current P(new token is an NE symbol)
 			double _tau; // NE emission annealing exponent (1 = stationary)
+			bool _type_admission; // gate NE spans by admissible chunk type
 			double _a;   // slice Beta parameter a
 			double _b;   // slice Beta parameter b
 			std::vector<int> _clength; // per-chunktype span cap for clattice2
