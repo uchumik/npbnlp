@@ -371,7 +371,7 @@ clattice2::clattice2(nio& f, int i, std::vector<int>& chsize) {
 		for (int j = 0; j < nw; ++j)
 			for (auto& ch : c[j]) {
 				int s = j - (ch.len - 1); // start word index
-				fprintf(stderr, "cov %d %d-%d\n", i, cum[s], cum[j+1]);
+				fprintf(stderr, "cov %d %d-%d %d\n", i, cum[s], cum[j+1], (int)ch.type);
 			}
 	}
 }
