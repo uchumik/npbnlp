@@ -116,7 +116,7 @@ snpylm::snpylm(): snpylm(2, 1, 8, 10) {
 snpylm::snpylm(int n, int hn, int hl, int k):
 	_n(n < 2 ? 2 : n), _hn(hn < 1 ? 1 : hn), _hl(hl), _l(SLEN), _k(k), _v(SVOCAB),
 	_gamma(SGAMMA), _alpha(SALPHA), _pi(1.0/(1.0+SGAMMA)), _tau(1.0),
-	_type_admission(true), _a(SA), _b(SB),
+	_type_admission(true), _freq_cap(0), _a(SA), _b(SB),
 	_clength(chunktype2::n, SLEN),
 	_bg(new hpyp(_n)), _spell(new hpyp(_hl)),
 	_hk(new vector<shared_ptr<hpyp> >), _hkletter(new vector<shared_ptr<hpyp> >),
@@ -236,6 +236,78 @@ void snpylm::set_temp(double tau) {
 
 void snpylm::set_type_admission(bool f) {
 	_type_admission = f;
+}
+
+// tally every corpus word type (id -> occurrence count). Called over each
+// sentence once, before set_freq_cap, from the sne.cc collection loop (which
+// runs independently of the all-O seed). This is a static observation of the
+// training text, not a CRP ledger, so it is add/remove-neutral.
+void snpylm::count_freq(nsentence& s) {
+	lock_guard<mutex> m(_mutex);
+	for (int j = 0; j < s.size(); ++j) {
+		chunk& ch = s.ch(j);
+		for (int w = 0; w < ch.len; ++w)
+			++_wfreq[ch.wd(w).id];
+	}
+}
+
+// set / derive the single-word NE frequency cap.
+//   cap > 0  : use it verbatim.
+//   cap == 0 : disable the gate.
+//   cap == -1: auto. We want to bar the handful of very high-frequency word
+//     types that together make up the top 1% of all token occurrences (in
+//     Zipfian text these are exactly the function words の/を/年 ... that fuel
+//     rich-get-richer). Sort real word types (id>1) by descending frequency and
+//     accumulate their token mass; let f_cross be the frequency of the word at
+//     which the running mass first exceeds 1% of the total. Every word in that
+//     top block has freq >= f_cross, so a cap of f_cross-1 blocks the whole
+//     block (allowed set is freq <= cap) and nothing else -- the maximal cap
+//     that still bars the entire top-1% mass ("minimal over-blocking"). Note
+//     this bars the crossing word itself, which is required: with the largest
+//     single type often exceeding 1% on its own, using f_cross verbatim would
+//     leave the most frequent word admissible. id<=1 (BOS/EOS/unk) are excluded
+//     from the mass and the sort so unk never distorts the threshold.
+void snpylm::set_freq_cap(int cap) {
+	if (cap >= 0) {
+		_freq_cap = cap;
+		return;
+	}
+	// cap == -1 (auto)
+	long long total = 0;
+	std::vector<int> freqs;
+	freqs.reserve(_wfreq.size());
+	for (auto& kv : _wfreq) {
+		if (kv.first <= 1)
+			continue; // exclude reserved / unk
+		total += kv.second;
+		freqs.push_back(kv.second);
+	}
+	if (total <= 0 || freqs.empty()) {
+		_freq_cap = 0; // no data -> gate disabled
+		return;
+	}
+	std::sort(freqs.begin(), freqs.end(), std::greater<int>());
+	double mass_th = 0.01 * (double)total;
+	long long cum = 0;
+	int f_cross = freqs.front();
+	for (int f : freqs) {
+		cum += f;
+		if ((double)cum > mass_th) {
+			f_cross = f;
+			break;
+		}
+	}
+	_freq_cap = (f_cross > 1) ? (f_cross - 1) : 0;
+}
+
+bool snpylm::_freq_ok(int wid) const {
+	if (_freq_cap <= 0)
+		return true;      // gate disabled
+	if (wid <= 1)
+		return true;      // reserved / unk -> freq 0 -> always admissible
+	auto it = _wfreq.find(wid);
+	int f = (it != _wfreq.end()) ? it->second : 0; // unseen id -> freq 0
+	return f <= _freq_cap;
 }
 
 void snpylm::slice(double a, double b) {
@@ -624,9 +696,15 @@ void snpylm::_slice(clattice2& l, nsentence *cur) {
 			int ct = c.type;
 			bool ne_ok = !_type_admission ||
 				(ct >= 0 && ct < chunktype2::n && NE_ADMISSIBLE[ct]);
+			// rarity gate: only a low-frequency single word (len==1) may be an
+			// NE. len>=2 spans are exempt (multi-word NE are not frequency
+			// gated). ANDs with the type admission above.
+			bool freq_ok = (len != 1) || _freq_ok(c.wd(0).id);
 			// O (class 0) is length-1 only; NE classes 1.._k for any length.
 			for (int k = (len == 1) ? 0 : 1; k <= _k; ++k) {
 				if (k >= 1 && !ne_ok)
+					continue;
+				if (k >= 1 && len == 1 && !freq_ok)
 					continue;
 				double em = _emit_lp(k, c);
 				l.emit[t][j][k] = em;
@@ -837,6 +915,18 @@ void snpylm::stats() const {
 			++active;
 	fprintf(stderr, "[snpylm] k=%d active=%d pi=%.6f pine=%d piw=%d pieos=%d\n",
 			_k, active, _pi, _pine, _piw, _pieos);
+	// frequency gate: effective cap + how many real word types it bars.
+	if (_freq_cap > 0) {
+		int blocked = 0;
+		for (auto& kv : _wfreq)
+			if (kv.first > 1 && kv.second > _freq_cap)
+				++blocked;
+		fprintf(stderr, "[snpylm] freq_cap=%d blocked_types=%d wfreq_types=%zu\n",
+				_freq_cap, blocked, _wfreq.size());
+	} else {
+		fprintf(stderr, "[snpylm] freq_cap=0(disabled) wfreq_types=%zu\n",
+				_wfreq.size());
+	}
 	static const char *tname[chartype::n] = {
 		"hira", "kata", "k/h", "kanji", "h+k", "h+kj", "k+kj", "hkk", "misc",
 		"arab", "grk", "hang", "hebr", "latn", "myan", "thai", "digit", "punc", "sym"
@@ -905,6 +995,23 @@ void snpylm::save(const char *file) {
 			throw "failed to write psi size in snpylm::save";
 		if (pn > 0 && fwrite(_psi.data(), sizeof(int), pn, fp) != (size_t)pn)
 			throw "failed to write psi counts in snpylm::save";
+		// frequency gate (cap + word-type table), appended last so legacy
+		// models load as EOF -> gate disabled (see load()).
+		if (fwrite(&_freq_cap, sizeof(int), 1, fp) != 1)
+			throw "failed to write freq_cap in snpylm::save";
+		int wn = (int)_wfreq.size();
+		if (fwrite(&wn, sizeof(int), 1, fp) != 1)
+			throw "failed to write wfreq size in snpylm::save";
+		if (wn > 0) {
+			std::vector<int> buf;
+			buf.reserve((size_t)wn*2);
+			for (auto& kv : _wfreq) {
+				buf.push_back(kv.first);
+				buf.push_back(kv.second);
+			}
+			if (fwrite(buf.data(), sizeof(int), buf.size(), fp) != buf.size())
+				throw "failed to write wfreq pairs in snpylm::save";
+		}
 	} catch (const char *ex) {
 		fclose(fp);
 		throw ex;
@@ -971,6 +1078,22 @@ void snpylm::load(const char *file) {
 			_psi.resize(pn, 0);
 			if (fread(_psi.data(), sizeof(int), pn, fp) != (size_t)pn)
 				throw "failed to read psi counts in snpylm::load";
+		}
+		// frequency gate; absent in legacy models -> disabled + empty table.
+		_freq_cap = 0;
+		_wfreq.clear();
+		int fc = 0;
+		if (fread(&fc, sizeof(int), 1, fp) == 1) {
+			_freq_cap = fc;
+			int wn = 0;
+			if (fread(&wn, sizeof(int), 1, fp) == 1 && wn > 0) {
+				std::vector<int> buf((size_t)wn*2, 0);
+				if (fread(buf.data(), sizeof(int), buf.size(), fp) != buf.size())
+					throw "failed to read wfreq pairs in snpylm::load";
+				_wfreq.reserve(wn);
+				for (int i = 0; i < wn; ++i)
+					_wfreq[buf[2*i]] = buf[2*i+1];
+			}
 		}
 		_install_cbase();
 	} catch (const char *ex) {

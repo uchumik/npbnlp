@@ -39,6 +39,7 @@ static int init_random = 0; // 0 = all-O seed (default); 1 = prior-sample init
 static int anneal = 0;      // >0: warm up emission temperature over N epochs
 static double tau0 = 2.0;   // initial emission temperature for the warm-up
 static int no_type = 0;   // 1 = disable the NE chunk-type admission gate
+static int ne_freq_cap = -1; // single-word NE freq cap: -1 auto, 0 off, >0 explicit
 static string prefix("snpylm");
 static string train;
 static string test;
@@ -76,6 +77,7 @@ void usage(int argc, char **argv) {
 	cout << "--anneal=int(warm-up epochs that damp the NE emission, default 0=off)\n";
 	cout << "--tau0=double(initial emission temperature for --anneal, default 2)\n";
 	cout << "--no_type_admission(allow NE spans of any chunk type)\n";
+	cout << "--ne_freq_cap=int(single-word NE freq cap: -1 auto[default], 0 off, >0 explicit)\n";
 	cout << "--prefix=str(snapshot prefix)\n";
 	exit(1);
 }
@@ -100,6 +102,7 @@ int read_long_param(const char *opt, const char *arg) {
 	else if (check(opt, "anneal")) anneal = atoi(arg);
 	else if (check(opt, "tau0")) tau0 = atof(arg);
 	else if (check(opt, "no_type_admission")) no_type = 1;
+	else if (check(opt, "ne_freq_cap")) ne_freq_cap = atoi(arg);
 	return 1;
 }
 
@@ -130,6 +133,7 @@ int read_param(int argc, char **argv) {
 			{"anneal", required_argument, 0, 0},
 			{"tau0", required_argument, 0, 0},
 			{"no_type_admission", no_argument, 0, 0},
+			{"ne_freq_cap", required_argument, 0, 0},
 			{0, 0, 0, 0}
 		};
 		int option_index = 0;
@@ -275,6 +279,13 @@ int mcmc(nio& f, vector<nsentence>& corpus) {
 #ifdef _OPENMP
 	omp_set_num_threads(threads);
 #endif
+	// frequency-gate collection: measure every word type from the tokenized
+	// corpus (unsupervised). Done unconditionally, independent of the seed, so
+	// --init_random (no seed) still gets a populated table; set_freq_cap then
+	// fixes / auto-derives the cap from it before any sampling uses the gate.
+	for (auto i = 0; i < (int)corpus.size(); ++i)
+		lm.count_freq(corpus[i]);
+	lm.set_freq_cap(ne_freq_cap);
 	// all-O seed (default): add the initial all-O segmentation so the background
 	// LM starts rich and NE must be *earned* by a clearly cheaper H_k surface.
 	// --init_random skips the seed and samples the prior at epoch 0 instead.
