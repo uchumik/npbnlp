@@ -46,6 +46,17 @@ namespace npbnlp {
 			virtual void set(int v, int k);   // v = character vocabulary size
 			virtual void set_gamma(double g); // Beta(1,gamma) gate prior
 			virtual void set_alpha(double a); // GEM concentration
+			// single-word NE frequency gate (rarity cue, WO-006 step 2). A
+			// length-1 span may be an NE (z>=1) only if its word type is rare in
+			// the training corpus (freq <= _freq_cap); high-frequency words (the
+			// rich-get-richer fuel: の/を/年 ...) are barred from single-word NE.
+			// count_freq() tallies the corpus word types (call over every
+			// sentence before set_freq_cap); set_freq_cap() fixes the cap.
+			virtual void count_freq(nsentence& s);
+			// cap semantics: >0 = explicit cap; 0 = gate disabled; -1 = auto (the
+			// cap is derived from the collected _wfreq, see snpylm.cc). count_freq
+			// must have been called for -1 to have data to work on.
+			virtual void set_freq_cap(int cap);
 			// annealing: NE emission exponent E_k -> E_k^tau. tau>1 damps the NE
 			// surface likelihood (suppresses the H_k rich-get-richer pull) during
 			// warm-up; tau=1 (default) is the stationary model. O (E_0=1) is
@@ -88,6 +99,13 @@ namespace npbnlp {
 			double _pi;  // current P(new token is an NE symbol)
 			double _tau; // NE emission annealing exponent (1 = stationary)
 			bool _type_admission; // gate NE spans by admissible chunk type
+			int _freq_cap;        // single-word NE frequency cap (0 = disabled)
+			// corpus word-type frequencies (word id -> count), measured from the
+			// training corpus itself (unsupervised). A static table (not a CRP
+			// ledger): add/remove of a sentence never touches it, so it does not
+			// participate in the count roundtrip invariant. Serialized so the
+			// gate is reproduced identically at parse time.
+			std::unordered_map<int, int> _wfreq;
 			double _a;   // slice Beta parameter a
 			double _b;   // slice Beta parameter b
 			std::vector<int> _clength; // per-chunktype span cap for clattice2
@@ -140,6 +158,10 @@ namespace npbnlp {
 			int _psii(int k, int t) const;           // flat index into _psi
 			double _psi_lp(int k, chunk& ch);        // log psi(x|k) (char-type factor)
 			int _kind(int id) const;         // >0 NE class, 0 normal, -1 reserved
+			// single-word NE frequency gate: true iff a length-1 span headed by
+			// word id `wid` may carry an NE class. Reserved / unseen ids (id<=1)
+			// have freq 0 and are always admissible.
+			bool _freq_ok(int wid) const;
 			int _tvid(chunk& ch);            // template token id of a chunk
 			void _install_cbase();
 			void _resize(int k);             // grow class LMs / counters to k
