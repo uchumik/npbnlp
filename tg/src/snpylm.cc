@@ -76,9 +76,9 @@ static const bool NE_ADMISSIBLE[chunktype2::n] = {
 	true,  //  3 CH_LATIN           latin *
 	true,  //  4 CH_DIGIT           digit *
 	false, //  5 CH_PUNC            punct
-	false, //  6 CH_SYNBOL          symbol
+	true,  //  6 CH_SYNBOL          symbol: density .0115 (>.004), 45 NE — real
 	true,  //  7 CH_HIRA_KATA       hira+kata *
-	true,  //  8 CH_HIRA_HANJI      hira+kanji *
+	false, //  8 CH_HIRA_HANJI      density .0014, 255k cand — biggest garbage pool
 	true,  //  9 CH_HIRA_DIGIT      hira+digit *
 	false, // 10 CH_HIRA_PUNC       hira+punct
 	true,  // 11 CH_KATA_HANJI      kata+kanji *
@@ -87,14 +87,14 @@ static const bool NE_ADMISSIBLE[chunktype2::n] = {
 	true,  // 14 CH_KATA_PUNC       kata+punct *
 	true,  // 15 CH_HANJI_LATIN     kanji+latin *
 	true,  // 16 CH_HANJI_DIGIT     kanji+digit *
-	true,  // 17 CH_HANJI_PUNC      kanji+punct *
+	false, // 17 CH_HANJI_PUNC      density .0034 (<.004) — common punctuated nouns
 	true,  // 18 CH_LATIN_DIGIT     latin+digit *
 	true,  // 19 CH_LATIN_PUNC      latin+punct *
 	true,  // 20 CH_LATIN_SYNBOL    latin+symbol *
 	true,  // 21 CH_DIGIT_PUNC      digit+punct *
-	true,  // 22 CH_HIRA_KATA_HANJI hira+kata+kanji *
+	false, // 22 CH_HIRA_KATA_HANJI density .00105 — mostly ordinary verbs/phrases
 	true,  // 23 CH_HIRA_HANJI_DIGIT hira+kanji+digit *
-	true,  // 24 CH_HIRA_HANJI_PUNC hira+kanji+punct *
+	false, // 24 CH_HIRA_HANJI_PUNC density .00014, 121k cand
 	true,  // 25 CH_KATA_HANJI_DIGIT *
 	true,  // 26 CH_KATA_HANJI_PUNC *
 	true,  // 27 CH_KATA_LATIN_PUNC *
