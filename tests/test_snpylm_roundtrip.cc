@@ -16,6 +16,7 @@ using namespace npbnlp;
 // expose the protected restaurants snpylm keeps its counts in.
 struct snpylm_probe : public snpylm {
 	using snpylm::_bg;
+	using snpylm::_bg_gen;
 	using snpylm::_spell;
 	using snpylm::_hk;
 	using snpylm::_hkletter;
@@ -121,6 +122,7 @@ int main() {
 
 	bool ok = true;
 	ok &= root_zero(lm._bg.get(), "bg", 0);
+	ok &= root_zero(lm._bg_gen.get(), "bg_gen", 0);
 	ok &= root_zero(lm._spell.get(), "spell", 0);
 	for (int i = 0; i <= lm._k; ++i) {
 		ok &= root_zero((*lm._hk)[i].get(), "H", i);
