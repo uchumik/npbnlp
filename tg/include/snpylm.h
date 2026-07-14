@@ -76,6 +76,10 @@ namespace npbnlp {
 			// frequent words dominate a class. set true to restore the cached
 			// predictive. See _emit_lp for the (deliberate) generative deficiency.
 			virtual void set_l1_cache(bool f);
+			// diagnostic (Phase A): dump per-span background scores for sentence i to
+			// stderr and return. Emits `spanscore <sent> <char_s>-<char_e> <surp>
+			// <fgain>` per lattice candidate; char offsets match NPBNLP_LATTICE_COVER.
+			virtual void span_score_dump(nio& f, int i);
 			virtual int n() const;
 			virtual int k() const;
 			virtual void slice(double a, double b); // Beta(a,b) slice params

@@ -819,6 +819,73 @@ nsentence snpylm::parse(nio& f, int i) {
 	return _infer(f, i, nullptr, true);
 }
 
+// Phase-A diagnostic. For sentence i, dump a background score for every lattice
+// span candidate (t,len) to stderr:
+//   surp   = -sum_{w in span} log P_bg(w | left O-context)  -- the cost of
+//            generating the span word-by-word on the background (O) path.
+//   fgain  = log P_bg(w_{e+1} | ctx WITHOUT span's last word w_e)
+//          - log P_bg(w_{e+1} | ctx WITH w_e)  -- how much abstracting w_e (as
+//            if the span were one NE token) improves the right-context
+//            prediction of the next word. For n=2 "without w_e" is the root.
+// Char offsets [char_s, char_e) use the same cumulative word-length coordinate
+// as NPBNLP_LATTICE_COVER. Read-only; run right after the all-O seed.
+void snpylm::span_score_dump(nio& f, int i) {
+	clattice2 l(f, i, _clength);
+	int T = (int)l.c.size();
+	if (T == 0)
+		return;
+	vector<int> cum(T+1, 0);
+	for (int p = 0; p < T; ++p)
+		cum[p+1] = cum[p] + l.c[p][0].wd(0).len; // word char length
+	for (int t = 0; t < T; ++t) {
+		for (int ci = 0; ci < (int)l.c[t].size(); ++ci) {
+			chunk& c = l.c[t][ci];
+			int len = c.len;
+			int s = t - len + 1;
+			// surp: sum of O-path word surprisals over [s..t]
+			double surp = 0;
+			for (int wpos = s; wpos <= t; ++wpos) {
+				const context *h = _bg->h();
+				for (int d = 1; d < _n; ++d) {
+					int wi = wpos - d;
+					int pid = (wi >= 0) ? l.c[wi][0].wd(0).id : 0;
+					const context *g = h->find(pid);
+					if (!g)
+						break;
+					h = g;
+				}
+				surp += -_bg_lp(l.c[wpos][0], 0, h);
+			}
+			// fgain: next-word prediction with vs without the span's last word w_t
+			double fgain = 0;
+			if (t+1 < T) {
+				chunk& nxt = l.c[t+1][0];
+				const context *hw = _bg->h();  // with w_t (and preceding, depth n-1)
+				for (int d = 0; d < _n-1; ++d) {
+					int wi = t - d;
+					int pid = (wi >= 0) ? l.c[wi][0].wd(0).id : 0;
+					const context *g = hw->find(pid);
+					if (!g)
+						break;
+					hw = g;
+				}
+				const context *hwo = _bg->h(); // without w_t: start one earlier
+				for (int d = 0; d < _n-1; ++d) {
+					int wi = t - 1 - d;
+					int pid = (wi >= 0) ? l.c[wi][0].wd(0).id : 0;
+					const context *g = hwo->find(pid);
+					if (!g)
+						break;
+					hwo = g;
+				}
+				fgain = _bg_lp(nxt, 0, hwo) - _bg_lp(nxt, 0, hw);
+			}
+			fprintf(stderr, "spanscore %d %d-%d %.4f %.4f\n",
+					i, cum[s], cum[t+1], surp, fgain);
+		}
+	}
+}
+
 nsentence snpylm::_infer(nio& f, int i, nsentence *cur, bool best) {
 	clattice2 l(f, i, _clength);
 	vt dp;
