@@ -116,7 +116,7 @@ snpylm::snpylm(): snpylm(2, 1, 8, 10) {
 snpylm::snpylm(int n, int hn, int hl, int k):
 	_n(n < 2 ? 2 : n), _hn(hn < 1 ? 1 : hn), _hl(hl), _l(SLEN), _k(k), _v(SVOCAB),
 	_gamma(SGAMMA), _alpha(SALPHA), _pi(1.0/(1.0+SGAMMA)), _tau(1.0),
-	_type_admission(true), _freq_cap(0), _a(SA), _b(SB),
+	_type_admission(true), _l1_cache(false), _freq_cap(0), _a(SA), _b(SB),
 	_clength(chunktype2::n, SLEN),
 	_bg(new hpyp(_n)), _spell(new hpyp(_hl)),
 	_hk(new vector<shared_ptr<hpyp> >), _hkletter(new vector<shared_ptr<hpyp> >),
@@ -236,6 +236,10 @@ void snpylm::set_temp(double tau) {
 
 void snpylm::set_type_admission(bool f) {
 	_type_admission = f;
+}
+
+void snpylm::set_l1_cache(bool f) {
+	_l1_cache = f;
 }
 
 // tally every corpus word type (id -> occurrence count). Called over each
@@ -650,7 +654,18 @@ int snpylm::_sigma(chunk& ch, int k) {
 double snpylm::_emit_lp(int k, chunk& ch) {
 	if (k <= 0)
 		return 0.0;
-	double lp = (*_hk)[k]->lp(ch, (*_hk)[k]->h());
+	double lp;
+	// single-word cache bypass: a len==1 NE pays the base measure H_k^0 directly
+	// instead of the chunk-PYP predictive, so a frequent word cannot accumulate a
+	// cheap cached table and monopolise a class (rich-get-richer). len>=2 spans
+	// keep the cache. This makes the SCORE deficient as a generative model (the
+	// len==1 emission no longer normalises as the H_k predictive), but the seat
+	// ledger (rho/lambda/psi via add/remove) is untouched, so it is a consistent
+	// sampler score. set_l1_cache(true) restores the exact cached predictive.
+	if (_l1_cache || ch.len >= 2)
+		lp = (*_hk)[k]->lp(ch, (*_hk)[k]->h());
+	else
+		lp = _hk_surf_lp(k, ch);
 	return (_tau == 1.0) ? lp : _tau * lp; // E_k^tau: tau>1 damps NE emission
 }
 
@@ -802,6 +817,73 @@ nsentence snpylm::sample(nio& f, int i, nsentence *cur) {
 
 nsentence snpylm::parse(nio& f, int i) {
 	return _infer(f, i, nullptr, true);
+}
+
+// Phase-A diagnostic. For sentence i, dump a background score for every lattice
+// span candidate (t,len) to stderr:
+//   surp   = -sum_{w in span} log P_bg(w | left O-context)  -- the cost of
+//            generating the span word-by-word on the background (O) path.
+//   fgain  = log P_bg(w_{e+1} | ctx WITHOUT span's last word w_e)
+//          - log P_bg(w_{e+1} | ctx WITH w_e)  -- how much abstracting w_e (as
+//            if the span were one NE token) improves the right-context
+//            prediction of the next word. For n=2 "without w_e" is the root.
+// Char offsets [char_s, char_e) use the same cumulative word-length coordinate
+// as NPBNLP_LATTICE_COVER. Read-only; run right after the all-O seed.
+void snpylm::span_score_dump(nio& f, int i) {
+	clattice2 l(f, i, _clength);
+	int T = (int)l.c.size();
+	if (T == 0)
+		return;
+	vector<int> cum(T+1, 0);
+	for (int p = 0; p < T; ++p)
+		cum[p+1] = cum[p] + l.c[p][0].wd(0).len; // word char length
+	for (int t = 0; t < T; ++t) {
+		for (int ci = 0; ci < (int)l.c[t].size(); ++ci) {
+			chunk& c = l.c[t][ci];
+			int len = c.len;
+			int s = t - len + 1;
+			// surp: sum of O-path word surprisals over [s..t]
+			double surp = 0;
+			for (int wpos = s; wpos <= t; ++wpos) {
+				const context *h = _bg->h();
+				for (int d = 1; d < _n; ++d) {
+					int wi = wpos - d;
+					int pid = (wi >= 0) ? l.c[wi][0].wd(0).id : 0;
+					const context *g = h->find(pid);
+					if (!g)
+						break;
+					h = g;
+				}
+				surp += -_bg_lp(l.c[wpos][0], 0, h);
+			}
+			// fgain: next-word prediction with vs without the span's last word w_t
+			double fgain = 0;
+			if (t+1 < T) {
+				chunk& nxt = l.c[t+1][0];
+				const context *hw = _bg->h();  // with w_t (and preceding, depth n-1)
+				for (int d = 0; d < _n-1; ++d) {
+					int wi = t - d;
+					int pid = (wi >= 0) ? l.c[wi][0].wd(0).id : 0;
+					const context *g = hw->find(pid);
+					if (!g)
+						break;
+					hw = g;
+				}
+				const context *hwo = _bg->h(); // without w_t: start one earlier
+				for (int d = 0; d < _n-1; ++d) {
+					int wi = t - 1 - d;
+					int pid = (wi >= 0) ? l.c[wi][0].wd(0).id : 0;
+					const context *g = hwo->find(pid);
+					if (!g)
+						break;
+					hwo = g;
+				}
+				fgain = _bg_lp(nxt, 0, hwo) - _bg_lp(nxt, 0, hw);
+			}
+			fprintf(stderr, "spanscore %d %d-%d %.4f %.4f\n",
+					i, cum[s], cum[t+1], surp, fgain);
+		}
+	}
 }
 
 nsentence snpylm::_infer(nio& f, int i, nsentence *cur, bool best) {
