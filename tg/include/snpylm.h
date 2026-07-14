@@ -70,6 +70,12 @@ namespace npbnlp {
 			// in the lattice allowed set, so hiragana-only / punctuation-only spans
 			// can never be NE. O(1): a single ch.type lookup, no character rescan.
 			virtual void set_type_admission(bool f);
+			// single-word (len==1) NE emission: when off (default), E_k for a
+			// length-1 span bypasses the chunk-PYP cache and pays the base measure
+			// H_k^0 directly, removing the rich-get-richer boost that lets a few
+			// frequent words dominate a class. set true to restore the cached
+			// predictive. See _emit_lp for the (deliberate) generative deficiency.
+			virtual void set_l1_cache(bool f);
 			virtual int n() const;
 			virtual int k() const;
 			virtual void slice(double a, double b); // Beta(a,b) slice params
@@ -99,6 +105,7 @@ namespace npbnlp {
 			double _pi;  // current P(new token is an NE symbol)
 			double _tau; // NE emission annealing exponent (1 = stationary)
 			bool _type_admission; // gate NE spans by admissible chunk type
+			bool _l1_cache;       // len==1 NE uses the chunk-PYP cache (default off)
 			int _freq_cap;        // single-word NE frequency cap (0 = disabled)
 			// corpus word-type frequencies (word id -> count), measured from the
 			// training corpus itself (unsupervised). A static table (not a CRP

@@ -116,7 +116,7 @@ snpylm::snpylm(): snpylm(2, 1, 8, 10) {
 snpylm::snpylm(int n, int hn, int hl, int k):
 	_n(n < 2 ? 2 : n), _hn(hn < 1 ? 1 : hn), _hl(hl), _l(SLEN), _k(k), _v(SVOCAB),
 	_gamma(SGAMMA), _alpha(SALPHA), _pi(1.0/(1.0+SGAMMA)), _tau(1.0),
-	_type_admission(true), _freq_cap(0), _a(SA), _b(SB),
+	_type_admission(true), _l1_cache(false), _freq_cap(0), _a(SA), _b(SB),
 	_clength(chunktype2::n, SLEN),
 	_bg(new hpyp(_n)), _spell(new hpyp(_hl)),
 	_hk(new vector<shared_ptr<hpyp> >), _hkletter(new vector<shared_ptr<hpyp> >),
@@ -236,6 +236,10 @@ void snpylm::set_temp(double tau) {
 
 void snpylm::set_type_admission(bool f) {
 	_type_admission = f;
+}
+
+void snpylm::set_l1_cache(bool f) {
+	_l1_cache = f;
 }
 
 // tally every corpus word type (id -> occurrence count). Called over each
@@ -650,7 +654,18 @@ int snpylm::_sigma(chunk& ch, int k) {
 double snpylm::_emit_lp(int k, chunk& ch) {
 	if (k <= 0)
 		return 0.0;
-	double lp = (*_hk)[k]->lp(ch, (*_hk)[k]->h());
+	double lp;
+	// single-word cache bypass: a len==1 NE pays the base measure H_k^0 directly
+	// instead of the chunk-PYP predictive, so a frequent word cannot accumulate a
+	// cheap cached table and monopolise a class (rich-get-richer). len>=2 spans
+	// keep the cache. This makes the SCORE deficient as a generative model (the
+	// len==1 emission no longer normalises as the H_k predictive), but the seat
+	// ledger (rho/lambda/psi via add/remove) is untouched, so it is a consistent
+	// sampler score. set_l1_cache(true) restores the exact cached predictive.
+	if (_l1_cache || ch.len >= 2)
+		lp = (*_hk)[k]->lp(ch, (*_hk)[k]->h());
+	else
+		lp = _hk_surf_lp(k, ch);
 	return (_tau == 1.0) ? lp : _tau * lp; // E_k^tau: tau>1 damps NE emission
 }
 
