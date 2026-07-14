@@ -76,6 +76,11 @@ namespace npbnlp {
 			// frequent words dominate a class. set true to restore the cached
 			// predictive. See _emit_lp for the (deliberate) generative deficiency.
 			virtual void set_l1_cache(bool f);
+			// generic NE-slot backoff (default on): P(NE_k|ctx) is interpolated with
+			// a class-agnostic P(NE_generic|ctx)*rho_k, so template-frame statistics
+			// ("<NE> 氏 が", "<NE> は") pool across classes instead of thinning out
+			// per class. --no_generic_backoff / set false disables it.
+			virtual void set_generic_backoff(bool f);
 			// diagnostic (Phase A): dump per-span background scores for sentence i to
 			// stderr and return. Emits `spanscore <sent> <char_s>-<char_e> <surp>
 			// <fgain>` per lattice candidate; char offsets match NPBNLP_LATTICE_COVER.
@@ -123,6 +128,13 @@ namespace npbnlp {
 			// background template LM over template tokens (chunk-keyed for the
 			// set_cbase hook). base = G0 mixture via the cbase delegates below.
 			std::shared_ptr<hpyp> _bg;
+			// generic NE-slot n-gram: a parallel context count model over the SINGLE
+			// symbol _ne_generic, seated at the same context whenever any NE_k is
+			// seated in _bg (O words / EOS excluded). No base measure (uniform int
+			// base) -- it is a context-conditioned count table, not a generative LM.
+			std::shared_ptr<hpyp> _bg_gen;
+			int _ne_generic;        // the generic NE symbol id (wid, serialized)
+			bool _generic_backoff;  // interpolate P(NE_k|ctx) with the generic slot
 			// normal-word spelling model G0^spell: a fixed-order character model,
 			// seated char-by-char (no word.m scratch, so it cannot desync with the
 			// per-class NE character models that share the same word objects).
@@ -181,12 +193,18 @@ namespace npbnlp {
 			// inference helpers (semi-Markov FFBS over the template n-gram).
 			int _sigma(chunk& ch, int k);            // template token id of (ch,k)
 			double _emit_lp(int k, chunk& ch);       // E_k: 0 (O) / P(x|H_k)+Po(len)
-			double _bg_lp(chunk& ch, int k, const context *c); // transition P(sigma|c)
+			double _bg_lp(chunk& ch, int k, const context *c); // raw P(sigma|c) on _bg
+			double _rho_k(int k) const;              // GEM predictive rho_k
+			// transition score log P(sigma(ch,k)|ctx): _bg for O/EOS, and for NE the
+			// generic-backoff interpolation using the parallel _bg_gen context cg.
+			double _trans_lp(chunk& ch, int k, const context *c, const context *cg);
 			void _slice(clattice2& l, nsentence *cur);
-			void _forward(clattice2& l, int i, const context *c, chunk& ch, int k,
-					double emit, chunk& prev, int q, bool bos, vt& a, vt& b, int n);
-			void _backward(clattice2& l, int i, const context *c, chunk& ch, int k,
-					chunk& prev, int q, bool bos, double& lpr, vt& b, int n);
+			void _forward(clattice2& l, int i, const context *c, const context *cg,
+					chunk& ch, int k, double emit, chunk& prev, int q, bool bos,
+					vt& a, vt& b, int n);
+			void _backward(clattice2& l, int i, const context *c, const context *cg,
+					chunk& ch, int k, chunk& prev, int q, bool bos, double& lpr,
+					vt& b, int n);
 			nsentence _infer(nio& f, int i, nsentence *cur, bool best);
 		private:
 	};

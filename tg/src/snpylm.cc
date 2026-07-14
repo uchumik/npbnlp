@@ -20,6 +20,7 @@
 #define SLEN 8
 #define SA 1.0
 #define SB 5.0
+#define GEN_W 0.5   // mixture weight of the class-specific P(NE_k|ctx) vs generic
 
 using namespace std;
 using namespace npbnlp;
@@ -118,7 +119,8 @@ snpylm::snpylm(int n, int hn, int hl, int k):
 	_gamma(SGAMMA), _alpha(SALPHA), _pi(1.0/(1.0+SGAMMA)), _tau(1.0),
 	_type_admission(true), _l1_cache(false), _freq_cap(0), _a(SA), _b(SB),
 	_clength(chunktype2::n, SLEN),
-	_bg(new hpyp(_n)), _spell(new hpyp(_hl)),
+	_bg(new hpyp(_n)), _bg_gen(new hpyp(_n)), _ne_generic(0), _generic_backoff(true),
+	_spell(new hpyp(_hl)),
 	_hk(new vector<shared_ptr<hpyp> >), _hkletter(new vector<shared_ptr<hpyp> >),
 	_pine(0), _piw(0), _pieos(0) {
 	_spell->set_v(_v);
@@ -169,6 +171,17 @@ void snpylm::_install_cbase() {
 
 void snpylm::_register_symbols() {
 	shared_ptr<wid> d = wid::create();
+	// generic NE slot symbol (class-agnostic), registered once.
+	if (_ne_generic <= 0) {
+		ne_bufs.emplace_back();
+		vector<unsigned int>& gb = ne_bufs.back();
+		gb.push_back(0x01u);
+		gb.push_back((unsigned int)'N');
+		gb.push_back((unsigned int)'E');
+		gb.push_back(0x0E0000u); // class 0 slot reserved for the generic symbol
+		word gw(gb, 0, (int)gb.size());
+		_ne_generic = d->index(gw);
+	}
 	if ((int)_nek.size() < _k+1)
 		_nek.resize(_k+1, 0);
 	for (int k = 1; k <= _k; ++k) {
@@ -240,6 +253,10 @@ void snpylm::set_type_admission(bool f) {
 
 void snpylm::set_l1_cache(bool f) {
 	_l1_cache = f;
+}
+
+void snpylm::set_generic_backoff(bool f) {
+	_generic_backoff = f;
 }
 
 // tally every corpus word type (id -> occurrence count). Called over each
@@ -491,14 +508,20 @@ void snpylm::_hk_surf_remove(int k, chunk& ch) {
 	}
 }
 
-// log G0(v). NE weight uses the DP predictive rho_k = (m_k + alpha/K)/(m. + alpha)
-// which sums to 1 over the K active classes, so G0 stays a proper mixture.
+// GEM predictive rho_k = (m_k + alpha/K)/(m. + alpha), summing to 1 over the K
+// active classes. Shared by the G0 mixture and the generic-backoff interpolation.
+double snpylm::_rho_k(int k) const {
+	double denom = (double)_pine + _alpha;
+	double num = (double)_rho[k] + _alpha/(double)(_k > 0 ? _k : 1);
+	return num/denom;
+}
+
+// log G0(v). NE weight uses the DP predictive rho_k (see _rho_k) so G0 stays a
+// proper mixture.
 double snpylm::_g0_lp(chunk& tv) {
 	int kind = _kind(tv.id);
 	if (kind > 0) {
-		double denom = (double)_pine + _alpha;
-		double num = (double)_rho[kind] + _alpha/(double)(_k > 0 ? _k : 1);
-		return log(_pi) + log(num) - log(denom);
+		return log(_pi) + log(_rho_k(kind));
 	} else if (kind == 0) {
 		return log(1.0 - _pi) + _spell_lp(tv.wd(0));
 	}
@@ -582,6 +605,15 @@ void snpylm::_seat(nsentence& s, bool add) {
 					clen += ch.wd(w).len;
 				++_necnt[ch.k];
 				_nelen[ch.k] += clen;
+				// parallel generic-slot seating: same context, generic token.
+				if (_generic_backoff) {
+					context *hg = _bg_gen->h();
+					for (int d = 1; d < _n; ++d) {
+						int pid = (j-d >= 0) ? tvid[j-d] : 0;
+						hg = hg->make(pid);
+					}
+					_bg_gen->add(_ne_generic, hg);
+				}
 			}
 		}
 		// EOS template token (reserved id 0); default chunk => wd() is safe eos.
@@ -624,6 +656,16 @@ void snpylm::_seat(nsentence& s, bool add) {
 					clen += ch.wd(w).len;
 				--_necnt[ch.k];
 				_nelen[ch.k] -= clen;
+				if (_generic_backoff) {
+					context *hg = _bg_gen->h();
+					for (int d = 1; d < _n && hg; ++d) {
+						int pid = (j-d >= 0) ? tvid[j-d] : 0;
+						hg = hg->find(pid);
+					}
+					if (!hg)
+						throw "bg_gen context not found in snpylm::remove";
+					_bg_gen->remove(_ne_generic, hg);
+				}
 			}
 		}
 	}
@@ -677,6 +719,23 @@ double snpylm::_bg_lp(chunk& ch, int k, const context *c) {
 	return _bg->lp(tv, c ? c : _bg->h());
 }
 
+// transition score with generic NE-slot backoff. For O (k==0) / EOS or when the
+// backoff is disabled, this is just log P_bg(sigma|ctx). For an NE class k it is
+//   log( GEN_W * P_bg(NE_k|ctx) + (1-GEN_W) * P_gen(NE_generic|ctx) * rho_k ),
+// pooling frame statistics across classes via the parallel _bg_gen context cg
+// (same sigma keys as c). computed in log space (manual logsumexp) to avoid
+// underflow when the class-specific term vanishes.
+double snpylm::_trans_lp(chunk& ch, int k, const context *c, const context *cg) {
+	double base = _bg_lp(ch, k, c);
+	if (!_generic_backoff || k < 1)
+		return base;
+	double gen = _bg_gen->lp(_ne_generic, cg ? cg : _bg_gen->h());
+	double la = log(GEN_W) + base;
+	double lb = log(1.0 - GEN_W) + gen + log(_rho_k(k));
+	double m = (la > lb) ? la : lb;
+	return m + log(exp(la-m) + exp(lb-m));
+}
+
 // condition the slice on the current assignment (WO-003 flavour). On-path cells
 // (matching cur's segment ending at t with the same length) keep k_cur alive by
 // drawing mu from k_cur; off-path (and cur==nullptr) draw from the per-cell
@@ -723,7 +782,7 @@ void snpylm::_slice(clattice2& l, nsentence *cur) {
 					continue;
 				double em = _emit_lp(k, c);
 				l.emit[t][j][k] = em;
-				table.push_back(em + _bg_lp(c, k, _bg->h()));
+				table.push_back(em + _trans_lp(c, k, _bg->h(), _bg_gen->h()));
 				cls.push_back(k);
 			}
 			if (table.empty()) // no admissible class here (e.g. len>1 non-entity)
@@ -767,10 +826,10 @@ void snpylm::_slice(clattice2& l, nsentence *cur) {
 	}
 }
 
-void snpylm::_forward(clattice2& l, int i, const context *c, chunk& ch, int k, double emit, chunk& prev, int q, bool bos, vt& a, vt& b, int n) {
+void snpylm::_forward(clattice2& l, int i, const context *c, const context *cg, chunk& ch, int k, double emit, chunk& prev, int q, bool bos, vt& a, vt& b, int n) {
 	if (n <= 1) {
 		if (bos || b.is_init()) {
-			double tr = _bg_lp(ch, k, c);
+			double tr = _trans_lp(ch, k, c, cg);
 			a.v = math::lse(a.v, b.v + emit + tr, !a.is_init());
 			a.set(true);
 		}
@@ -780,17 +839,18 @@ void snpylm::_forward(clattice2& l, int i, const context *c, chunk& ch, int k, d
 			for (auto r = l.begin(i, pp); r != l.end(i, pp); ++r) {
 				int sig = _sigma(y, *r);
 				const context *h = (sig != 1) ? c->find(sig) : NULL;
-				_forward(l, i-y.len, (h ? h : c), ch, k, emit, y, *r, (i < 0),
-						a[prev.len-1][q], b[pp][*r], n-1);
+				const context *hg = (sig != 1) ? cg->find(sig) : NULL;
+				_forward(l, i-y.len, (h ? h : c), (hg ? hg : cg), ch, k, emit,
+						y, *r, (i < 0), a[prev.len-1][q], b[pp][*r], n-1);
 			}
 		}
 	}
 }
 
-void snpylm::_backward(clattice2& l, int i, const context *c, chunk& ch, int k, chunk& prev, int q, bool bos, double& lpr, vt& b, int n) {
+void snpylm::_backward(clattice2& l, int i, const context *c, const context *cg, chunk& ch, int k, chunk& prev, int q, bool bos, double& lpr, vt& b, int n) {
 	if (n <= 1) {
 		if (bos || b.is_init()) {
-			double tr = _bg_lp(ch, k, c);
+			double tr = _trans_lp(ch, k, c, cg);
 			double emit = _emit_lp(k, ch);
 			lpr = math::lse(lpr, b.v + emit + tr, (lpr == 1.));
 		}
@@ -800,8 +860,9 @@ void snpylm::_backward(clattice2& l, int i, const context *c, chunk& ch, int k, 
 			for (auto r = l.begin(i, pp); r != l.end(i, pp); ++r) {
 				int sig = _sigma(y, *r);
 				const context *h = (sig != 1) ? c->find(sig) : NULL;
-				_backward(l, i-y.len, (h ? h : c), ch, k, y, *r, (i < 0),
-						lpr, b[pp][*r], n-1);
+				const context *hg = (sig != 1) ? cg->find(sig) : NULL;
+				_backward(l, i-y.len, (h ? h : c), (hg ? hg : cg), ch, k, y, *r,
+						(i < 0), lpr, b[pp][*r], n-1);
 			}
 		}
 	}
@@ -903,8 +964,9 @@ nsentence snpylm::_infer(nio& f, int i, nsentence *cur, bool best) {
 					for (auto q = l.begin(s, p); q != l.end(s, p); ++q) {
 						int sig = _sigma(prev, *q);
 						const context *h = (_n > 1 && sig != 1) ? _bg->h()->find(sig) : NULL;
-						_forward(l, s-prev.len, (h ? h : _bg->h()), ch, *k, emit,
-								prev, *q, (s < 0), dp[t][j][*k], dp[s][p][*q], _n-1);
+						const context *hg = (_n > 1 && sig != 1) ? _bg_gen->h()->find(sig) : NULL;
+						_forward(l, s-prev.len, (h ? h : _bg->h()), (hg ? hg : _bg_gen->h()),
+								ch, *k, emit, prev, *q, (s < 0), dp[t][j][*k], dp[s][p][*q], _n-1);
 					}
 				}
 			}
@@ -929,8 +991,9 @@ nsentence snpylm::_infer(nio& f, int i, nsentence *cur, bool best) {
 				cls.push_back(*q);
 				int sig = _sigma(prev, *q);
 				const context *h = (_n > 1 && sig != 1) ? _bg->h()->find(sig) : NULL;
-				_backward(l, t-prev.len, (h ? h : _bg->h()), *ch, ch->k,
-						prev, *q, (t < 0), table[jd], dp[t][p][*q], _n-1);
+				const context *hg = (_n > 1 && sig != 1) ? _bg_gen->h()->find(sig) : NULL;
+				_backward(l, t-prev.len, (h ? h : _bg->h()), (hg ? hg : _bg_gen->h()),
+						*ch, ch->k, prev, *q, (t < 0), table[jd], dp[t][p][*q], _n-1);
 			}
 		}
 		if (table.empty())
@@ -964,6 +1027,7 @@ void snpylm::estimate(int iter) {
 	}
 	_bg->gibbs(iter);
 	_bg->estimate(iter);
+	_bg_gen->estimate(iter); // d,theta only; no base corpus so gibbs is a no-op
 	_spell->estimate(iter);
 	// pi ~ Beta(1 + #NE base tables, gamma + #normal base tables)
 	beta_distribution be;
@@ -1094,6 +1158,12 @@ void snpylm::save(const char *file) {
 			if (fwrite(buf.data(), sizeof(int), buf.size(), fp) != buf.size())
 				throw "failed to write wfreq pairs in snpylm::save";
 		}
+		// generic NE-slot backoff (id + flag + parallel n-gram), appended last so
+		// legacy models load with the backoff off and an empty _bg_gen.
+		int gg[2] = {_ne_generic, _generic_backoff ? 1 : 0};
+		if (fwrite(gg, sizeof(int), 2, fp) != 2)
+			throw "failed to write generic header in snpylm::save";
+		_bg_gen->save(fp);
 	} catch (const char *ex) {
 		fclose(fp);
 		throw ex;
@@ -1176,6 +1246,16 @@ void snpylm::load(const char *file) {
 				for (int i = 0; i < wn; ++i)
 					_wfreq[buf[2*i]] = buf[2*i+1];
 			}
+		}
+		// generic NE-slot backoff; absent in legacy models -> disabled, empty _bg_gen.
+		int gg[2] = {0, 0};
+		if (fread(gg, sizeof(int), 2, fp) == 2) {
+			if (gg[0] > 0)
+				_ne_generic = gg[0];
+			_generic_backoff = (gg[1] != 0);
+			_bg_gen->load(fp);
+		} else {
+			_generic_backoff = false;
 		}
 		_install_cbase();
 	} catch (const char *ex) {
