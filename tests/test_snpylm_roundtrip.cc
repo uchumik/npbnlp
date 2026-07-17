@@ -1,8 +1,17 @@
-// WO-006 phase-1 acceptance: a full init/add over a synthetic switching-NPYLM
-// corpus followed by estimate() and a reverse-order remove() must return every
-// restaurant (G^bg root, per-class H_k / H_k-letter roots, the shared spelling
-// VPYP root) to c()==0, t()==0. Regression guard for count leaks in the
-// snpylm add/remove/estimate ledger.
+// WO-006 phase-1 + WO-007 acceptance: a full init/add over a synthetic
+// switching-NPYLM corpus followed by estimate() and a reverse-order remove()
+// must return every restaurant (G^bg, the generic-slot _bg_gen, per-class H_k /
+// H_k-letter, the shared spelling VPYP) to c()==0, t()==0. Regression guard for
+// count leaks in the snpylm add/remove/estimate ledger, including the WO-007
+// targeted generic-slot ledger (NE position + exit-frame word + EOS seatings).
+//
+// Whole-tree emptiness of _bg / _bg_gen is verified two ways: (1) remove() must
+// not throw -- any (a)/(b)/(c) seating whose remove find-path diverges from its
+// add make-path leaves a "context not found" and aborts; (2) the ROOT reaching
+// c()==0, t()==0 implies the whole tree is empty for a plain hpyp: a node's
+// customer total equals the sum of its children's table totals, and in the CRP a
+// node has customers iff it has tables, so zero at the root propagates down by
+// induction. Run at n=2 and n=3 so the deeper gvid contexts are exercised.
 #include"snpylm.h"
 #include<cassert>
 #include<cstdio>
@@ -39,12 +48,12 @@ static bool root_zero(hpyp *h, const char *name, int idx) {
 	return true;
 }
 
-int main() {
+static int run(int N) {
 	const int NSENT = 60;
 	const int NVOCAB = 24;
-	const int N = 2, HN = 1, HL = 8, K = 10;
+	const int HN = 1, HL = 8, K = 10;
 
-	mt19937 rng(20260711); // fixed seed for reproducibility
+	mt19937 rng(20260711 + N); // fixed seed for reproducibility
 	uniform_int_distribution<int> wlen_d(2, 4);
 	uniform_int_distribution<int> letter_d(0, 25);
 	uniform_int_distribution<int> nchunk_d(3, 6);
@@ -143,9 +152,17 @@ int main() {
 		}
 
 	if (!ok) {
-		fprintf(stderr, "test_snpylm_roundtrip FAILED: non-zero counters after full remove()\n");
+		fprintf(stderr, "test_snpylm_roundtrip FAILED (n=%d): non-zero counters after full remove()\n", N);
 		return 1;
 	}
-	printf("test_snpylm_roundtrip OK\n");
+	printf("test_snpylm_roundtrip OK (n=%d)\n", N);
+	return 0;
+}
+
+int main() {
+	if (run(2) != 0)
+		return 1;
+	if (run(3) != 0)
+		return 1;
 	return 0;
 }

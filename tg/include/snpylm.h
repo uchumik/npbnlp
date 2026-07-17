@@ -81,6 +81,10 @@ namespace npbnlp {
 			// ("<NE> 氏 が", "<NE> は") pool across classes instead of thinning out
 			// per class. --no_generic_backoff / set false disables it.
 			virtual void set_generic_backoff(bool f);
+			// generic-backoff mixture weight (0 < w < 1, default 0.5): weight of the
+			// class-specific P(sigma|ctx) against the pooled generic slot. Out of
+			// range throws. Serialized so parse reproduces the trained weight.
+			virtual void set_gen_w(double w);
 			// diagnostic (Phase A): dump per-span background scores for sentence i to
 			// stderr and return. Emits `spanscore <sent> <char_s>-<char_e> <surp>
 			// <fgain>` per lattice candidate; char offsets match NPBNLP_LATTICE_COVER.
@@ -128,13 +132,20 @@ namespace npbnlp {
 			// background template LM over template tokens (chunk-keyed for the
 			// set_cbase hook). base = G0 mixture via the cbase delegates below.
 			std::shared_ptr<hpyp> _bg;
-			// generic NE-slot n-gram: a parallel context count model over the SINGLE
-			// symbol _ne_generic, seated at the same context whenever any NE_k is
-			// seated in _bg (O words / EOS excluded). No base measure (uniform int
-			// base) -- it is a context-conditioned count table, not a generative LM.
+			// generic NE-slot n-gram: a parallel context count model keyed on the
+			// generic-replacement stream gvid (NE positions collapse to _ne_generic,
+			// WO-007). It is a TARGETED ledger, seated only where an NE participates:
+			//   (a) at every NE position j -> add(_ne_generic) (the slot itself);
+			//   (b) at a word position j whose n-1 history window contains an NE ->
+			//       add(tvid[j]) (the exit frame "<NE> 氏 が");
+			//   (c) at EOS when the trailing window contains an NE -> add(0).
+			// Contexts use gvid (先行 NE も generic 化), so frame statistics pool
+			// across classes. No base measure (uniform int base) -- it is a
+			// context-conditioned count table, not a generative LM.
 			std::shared_ptr<hpyp> _bg_gen;
 			int _ne_generic;        // the generic NE symbol id (wid, serialized)
 			bool _generic_backoff;  // interpolate P(NE_k|ctx) with the generic slot
+			double _gen_w;          // generic-backoff mixture weight (serialized)
 			// normal-word spelling model G0^spell: a fixed-order character model,
 			// seated char-by-char (no word.m scratch, so it cannot desync with the
 			// per-class NE character models that share the same word objects).
@@ -181,6 +192,12 @@ namespace npbnlp {
 			int _psii(int k, int t) const;           // flat index into _psi
 			double _psi_lp(int k, chunk& ch);        // log psi(x|k) (char-type factor)
 			int _kind(int id) const;         // >0 NE class, 0 normal, -1 reserved
+			// true iff `id` is a registered class NE symbol (_nek[k], k>=1). O(1)
+			// via the _id2k hash; the generic symbol _ne_generic is NOT a class
+			// symbol and returns false. Used to fold NE symbols to _ne_generic in
+			// the generic-slot context trie (gsig) and to detect NE in a history
+			// window (ctx_has_ne) during the FFBS recursion.
+			bool _is_ne_sym(int id) const;
 			// single-word NE frequency gate: true iff a length-1 span headed by
 			// word id `wid` may carry an NE class. Reserved / unseen ids (id<=1)
 			// have freq 0 and are always admissible.
@@ -197,14 +214,15 @@ namespace npbnlp {
 			double _rho_k(int k) const;              // GEM predictive rho_k
 			// transition score log P(sigma(ch,k)|ctx): _bg for O/EOS, and for NE the
 			// generic-backoff interpolation using the parallel _bg_gen context cg.
-			double _trans_lp(chunk& ch, int k, const context *c, const context *cg);
+			double _trans_lp(chunk& ch, int k, const context *c, const context *cg,
+					bool ctx_has_ne);
 			void _slice(clattice2& l, nsentence *cur);
 			void _forward(clattice2& l, int i, const context *c, const context *cg,
 					chunk& ch, int k, double emit, chunk& prev, int q, bool bos,
-					vt& a, vt& b, int n);
+					vt& a, vt& b, int n, bool ctx_has_ne);
 			void _backward(clattice2& l, int i, const context *c, const context *cg,
 					chunk& ch, int k, chunk& prev, int q, bool bos, double& lpr,
-					vt& b, int n);
+					vt& b, int n, bool ctx_has_ne);
 			nsentence _infer(nio& f, int i, nsentence *cur, bool best);
 		private:
 	};

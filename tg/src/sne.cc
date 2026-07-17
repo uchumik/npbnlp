@@ -43,6 +43,7 @@ static int ne_freq_cap = -1; // single-word NE freq cap: -1 auto, 0 off, >0 expl
 static int l1_cache = 0;  // 1 = keep the chunk-PYP cache for len==1 NE spans
 static int span_score = 0; // 1 = dump span background scores after seed and exit
 static int no_generic = 0; // 1 = disable the generic NE-slot backoff
+static double gen_w = 0.5;  // generic-backoff mixture weight (0<w<1)
 static string prefix("snpylm");
 static string train;
 static string test;
@@ -84,6 +85,7 @@ void usage(int argc, char **argv) {
 	cout << "--l1_cache(keep the chunk-PYP cache for single-word NE spans)\n";
 	cout << "--span_score(dump per-span background scores after the seed, then exit)\n";
 	cout << "--no_generic_backoff(disable the generic NE-slot template-frame backoff)\n";
+	cout << "--gen_w=double(generic-backoff mixture weight, 0<w<1, default 0.5)\n";
 	cout << "--prefix=str(snapshot prefix)\n";
 	exit(1);
 }
@@ -112,6 +114,7 @@ int read_long_param(const char *opt, const char *arg) {
 	else if (check(opt, "l1_cache")) l1_cache = 1;
 	else if (check(opt, "span_score")) span_score = 1;
 	else if (check(opt, "no_generic_backoff")) no_generic = 1;
+	else if (check(opt, "gen_w")) gen_w = atof(arg);
 	return 1;
 }
 
@@ -146,6 +149,7 @@ int read_param(int argc, char **argv) {
 			{"l1_cache", no_argument, 0, 0},
 			{"span_score", no_argument, 0, 0},
 			{"no_generic_backoff", no_argument, 0, 0},
+			{"gen_w", required_argument, 0, 0},
 			{0, 0, 0, 0}
 		};
 		int option_index = 0;
@@ -291,6 +295,7 @@ int mcmc(nio& f, vector<nsentence>& corpus) {
 		lm.set_l1_cache(true);
 	if (no_generic)
 		lm.set_generic_backoff(false);
+	lm.set_gen_w(gen_w);
 	static const bool stat = (getenv("NPBNLP_SNPYLM_STATS") != NULL);
 #ifdef _OPENMP
 	omp_set_num_threads(threads);
