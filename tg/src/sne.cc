@@ -44,6 +44,10 @@ static int l1_cache = 0;  // 1 = keep the chunk-PYP cache for len==1 NE spans
 static int span_score = 0; // 1 = dump span background scores after seed and exit
 static int no_generic = 0; // 1 = disable the generic NE-slot backoff
 static double gen_w = 0.5;  // generic-backoff mixture weight (0<w<1)
+static double theta_hi = 30.0;    // WO-009 admissible-type beta pseudo-count
+static double theta_lo = 0.1;     // WO-009 inadmissible-type beta pseudo-count
+static double theta_kappa = 30.0; // WO-009 class-layer concentration
+static int hard_type = 0;   // 1 = revive the legacy hard NE type-admission gate
 static string prefix("snpylm");
 static string train;
 static string test;
@@ -80,7 +84,11 @@ void usage(int argc, char **argv) {
 	cout << "--init_random(initialize by sampling the prior instead of all-O seed)\n";
 	cout << "--anneal=int(warm-up epochs that damp the NE emission, default 0=off)\n";
 	cout << "--tau0=double(initial emission temperature for --anneal, default 2)\n";
-	cout << "--no_type_admission(allow NE spans of any chunk type)\n";
+	cout << "--no_type_admission(fully neutral: disable both the theta prior and the hard gate)\n";
+	cout << "--hard_type_admission(revive the legacy hard NE type-admission gate; disables theta)\n";
+	cout << "--theta_hi=double(admissible-type beta pseudo-count, default 30)\n";
+	cout << "--theta_lo=double(inadmissible-type beta pseudo-count, default 0.1)\n";
+	cout << "--theta_kappa=double(class-layer concentration kappa, default 30)\n";
 	cout << "--ne_freq_cap=int(single-word NE freq cap: -1 auto[default], 0 off, >0 explicit)\n";
 	cout << "--l1_cache(keep the chunk-PYP cache for single-word NE spans)\n";
 	cout << "--span_score(dump per-span background scores after the seed, then exit)\n";
@@ -115,6 +123,10 @@ int read_long_param(const char *opt, const char *arg) {
 	else if (check(opt, "span_score")) span_score = 1;
 	else if (check(opt, "no_generic_backoff")) no_generic = 1;
 	else if (check(opt, "gen_w")) gen_w = atof(arg);
+	else if (check(opt, "hard_type_admission")) hard_type = 1;
+	else if (check(opt, "theta_hi")) theta_hi = atof(arg);
+	else if (check(opt, "theta_lo")) theta_lo = atof(arg);
+	else if (check(opt, "theta_kappa")) theta_kappa = atof(arg);
 	return 1;
 }
 
@@ -150,6 +162,10 @@ int read_param(int argc, char **argv) {
 			{"span_score", no_argument, 0, 0},
 			{"no_generic_backoff", no_argument, 0, 0},
 			{"gen_w", required_argument, 0, 0},
+			{"hard_type_admission", no_argument, 0, 0},
+			{"theta_hi", required_argument, 0, 0},
+			{"theta_lo", required_argument, 0, 0},
+			{"theta_kappa", required_argument, 0, 0},
 			{0, 0, 0, 0}
 		};
 		int option_index = 0;
@@ -291,6 +307,11 @@ int mcmc(nio& f, vector<nsentence>& corpus) {
 	lm.set_alpha(alpha_);
 	if (no_type)
 		lm.set_type_admission(false);
+	if (hard_type)
+		lm.set_hard_type_admission(true);
+	lm.set_theta_hi(theta_hi);
+	lm.set_theta_lo(theta_lo);
+	lm.set_theta_kappa(theta_kappa);
 	if (l1_cache)
 		lm.set_l1_cache(true);
 	if (no_generic)
@@ -320,6 +341,10 @@ int mcmc(nio& f, vector<nsentence>& corpus) {
 		}
 	}
 	lm.set_wv(wv);
+	// q_cand (WO-009): the fixed background candidate-type distribution, measured
+	// from the corpus lattices before any sampling. Centres the NE emission theta
+	// factor; serialized so parse restores it from the model.
+	lm.measure_qcand(f);
 	// all-O seed (default): add the initial all-O segmentation so the background
 	// LM starts rich and NE must be *earned* by a clearly cheaper H_k surface.
 	// --init_random skips the seed and samples the prior at epoch 0 instead.
@@ -406,6 +431,8 @@ int parse(nio& f) {
 		lm.slice(a, b);
 		if (no_type)
 			lm.set_type_admission(false);
+		if (hard_type)
+			lm.set_hard_type_admission(true);
 		if (no_generic)
 			lm.set_generic_backoff(false);
 	} catch (const char *ex) {

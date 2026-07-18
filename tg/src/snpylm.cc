@@ -25,6 +25,16 @@
 // sentinel distinguishes the new gvid-keyed targeted ledger from the legacy
 // WO-006 tvid-keyed block, whose first int was the positive _ne_generic id.
 #define SNPYLM_GEN_MAGIC (-770007)
+// serialize marker for the WO-009 probabilistic chunktype NE prior block. A
+// distinct negative sentinel, appended after the generic block; legacy models
+// (pre-WO-009) hit EOF here and load with theta disabled + hard-gate fallback.
+#define SNPYLM_THETA_MAGIC (-770009)
+// theta hyperparameters (defaults). THETA_HI/LO are the asymmetric beta
+// pseudo-counts transcribed from the NE_ADMISSIBLE bool table (admissible type
+// -> HI, inadmissible -> LO); THETA_KAPPA is the class-layer concentration.
+#define THETA_HI 30.0
+#define THETA_LO 0.1
+#define THETA_KAPPA 30.0
 
 using namespace std;
 using namespace npbnlp;
@@ -121,7 +131,9 @@ snpylm::snpylm(): snpylm(2, 1, 8, 10) {
 snpylm::snpylm(int n, int hn, int hl, int k):
 	_n(n < 2 ? 2 : n), _hn(hn < 1 ? 1 : hn), _hl(hl), _l(SLEN), _k(k), _v(SVOCAB),
 	_gamma(SGAMMA), _alpha(SALPHA), _pi(1.0/(1.0+SGAMMA)), _tau(1.0),
-	_type_admission(true), _l1_cache(false), _freq_cap(0), _a(SA), _b(SB),
+	_type_admission(true), _hard_type_admission(false), _theta_enabled(true),
+	_theta_hi(THETA_HI), _theta_lo(THETA_LO), _theta_kappa(THETA_KAPPA),
+	_l1_cache(false), _freq_cap(0), _a(SA), _b(SB),
 	_clength(chunktype2::n, SLEN),
 	_bg(new hpyp(_n)), _bg_gen(new hpyp(_n)), _ne_generic(0), _generic_backoff(true),
 	_gen_w(GEN_W), _spell(new hpyp(_hl)),
@@ -134,6 +146,12 @@ snpylm::snpylm(int n, int hn, int hl, int k):
 	_necnt.assign(1, 0);
 	_nelen.assign(1, 0);
 	_psi.assign((size_t)(_k+1)*chartype::n, 0);
+	// theta ledger (WO-009): shared layer over chunktype2, class layer flat.
+	// q_cand defaults to uniform so the centring is well defined even before
+	// measure_qcand runs (e.g. the self-contained inference test).
+	_theta_sh.assign(chunktype2::n, 0);
+	_theta_k.assign((size_t)(_k+1)*chunktype2::n, 0);
+	_qcand.assign(chunktype2::n, 1.0/(double)chunktype2::n);
 	for (int i = 0; i <= _k; ++i) {
 		_hkletter->push_back(shared_ptr<hpyp>(new hpyp(_hl)));
 		(*_hkletter)[i]->set_v(_v);
@@ -220,6 +238,10 @@ void snpylm::_resize(int k) {
 	// flat (target x chartype::n); appending rows keeps existing k*n+t indices.
 	if ((int)_psi.size() < target*chartype::n)
 		_psi.resize((size_t)target*chartype::n, 0);
+	// theta class layer grows the same way (shared layer _theta_sh is class-agnostic
+	// and fixed at chunktype2::n).
+	if ((int)_theta_k.size() < target*chunktype2::n)
+		_theta_k.resize((size_t)target*chunktype2::n, 0);
 	if (_k < k)
 		_k = k;
 	_install_cbase(); // wire cbase for the newly added H_k
@@ -253,6 +275,66 @@ void snpylm::set_temp(double tau) {
 
 void snpylm::set_type_admission(bool f) {
 	_type_admission = f;
+}
+
+void snpylm::set_theta_hi(double f) {
+	if (f > 0)
+		_theta_hi = f;
+}
+
+void snpylm::set_theta_lo(double f) {
+	if (f > 0)
+		_theta_lo = f;
+}
+
+void snpylm::set_theta_kappa(double f) {
+	if (f > 0)
+		_theta_kappa = f;
+}
+
+void snpylm::set_hard_type_admission(bool f) {
+	_hard_type_admission = f;
+}
+
+// store q_cand: raw per-chunktype candidate counts -> add-one-smoothed,
+// normalised probabilities. Robust to a wrong-length / empty input (falls back
+// to uniform), so the centring in _theta_lp is always well defined.
+void snpylm::set_qcand(const std::vector<double>& counts) {
+	lock_guard<mutex> m(_mutex);
+	_qcand.assign(chunktype2::n, 0);
+	double z = 0;
+	for (int t = 0; t < chunktype2::n; ++t) {
+		double c = (t < (int)counts.size()) ? counts[t] : 0.0;
+		double v = c + 1.0; // add-one smoothing
+		_qcand[t] = v;
+		z += v;
+	}
+	if (z <= 0) {
+		_qcand.assign(chunktype2::n, 1.0/(double)chunktype2::n);
+		return;
+	}
+	for (int t = 0; t < chunktype2::n; ++t)
+		_qcand[t] /= z;
+}
+
+// measure q_cand from the corpus: build a clattice2 per sentence (with the
+// model's own _clength cap) and tally every candidate span's chunk type. This is
+// the fixed background candidate-type distribution used to centre the NE emission
+// factor (log theta^_k - log q_cand); measured once before any sampling.
+void snpylm::measure_qcand(nio& f) {
+	std::vector<double> counts(chunktype2::n, 0);
+	int nsent = (int)f.head.size()-1;
+	for (int i = 0; i < nsent; ++i) {
+		clattice2 l(f, i, _clength);
+		for (int t = 0; t < (int)l.c.size(); ++t) {
+			for (int ci = 0; ci < (int)l.c[t].size(); ++ci) {
+				int ct = l.c[t][ci].type;
+				if (ct >= 0 && ct < chunktype2::n)
+					counts[ct] += 1.0;
+			}
+		}
+	}
+	set_qcand(counts);
 }
 
 void snpylm::set_l1_cache(bool f) {
@@ -455,6 +537,66 @@ double snpylm::_psi_lp(int k, chunk& ch) {
 	return lp;
 }
 
+// ---------------------------------------------------------------------------
+// theta: probabilistic chunktype NE prior (WO-009). 2-level Dirichlet over the
+// span's single chunk type ct. See snpylm.h for the model.
+// ---------------------------------------------------------------------------
+int snpylm::_thetaki(int k, int ct) const {
+	return k*chunktype2::n + ct;
+}
+
+// beta_ct: the asymmetric shared-layer prior transcribed from the hard bool
+// table. Admissible type -> theta_hi, inadmissible -> theta_lo. The observed NE
+// density is deliberately NOT folded in (empirical-Bayes cycle avoidance).
+double snpylm::_theta_beta(int ct) const {
+	return (ct >= 0 && ct < chunktype2::n && NE_ADMISSIBLE[ct]) ? _theta_hi : _theta_lo;
+}
+
+double snpylm::_theta_beta_sum() const {
+	double s = 0;
+	for (int t = 0; t < chunktype2::n; ++t)
+		s += NE_ADMISSIBLE[t] ? _theta_hi : _theta_lo;
+	return s;
+}
+
+// shared layer q^(ct) = (n(ct) + beta_ct) / (n(.) + sum beta).
+double snpylm::_qhat(int ct) const {
+	double row = 0;
+	for (int t = 0; t < chunktype2::n; ++t)
+		row += _theta_sh[t];
+	double denom = row + _theta_beta_sum();
+	return (_theta_sh[ct] + _theta_beta(ct)) / denom;
+}
+
+// plug-in class layer theta^_k(ct) = (n_k(ct) + kappa*q^(ct)) / (n_k(.) + kappa).
+double snpylm::_theta_k_hat(int k, int ct) const {
+	double nk = 0;
+	for (int t = 0; t < chunktype2::n; ++t)
+		nk += _theta_k[_thetaki(k, t)];
+	double qh = _qhat(ct);
+	return (_theta_k[_thetaki(k, ct)] + _theta_kappa*qh) / (nk + _theta_kappa);
+}
+
+// centred NE emission factor: log theta^_k(ct) - log q_cand(ct). Centring against
+// the fixed background candidate-type distribution q_cand keeps the score from
+// simply rewarding the most common lattice type; only a class' *relative* type
+// preference survives.
+double snpylm::_theta_lp(int k, chunk& ch) {
+	int ct = ch.type;
+	if (ct < 0 || ct >= chunktype2::n)
+		return 0.0; // out-of-range type: no theta factor (see _emit_lp guard)
+	double qc = (ct < (int)_qcand.size()) ? _qcand[ct] : 1.0/(double)chunktype2::n;
+	if (qc <= 0)
+		qc = 1e-12;
+	return log(_theta_k_hat(k, ct)) - log(qc);
+}
+
+// theta emission factor active iff enabled, the master type switch is on, and
+// the legacy hard gate is not in force (hard mode is a pure bool-gate A/B).
+bool snpylm::_theta_score_on() const {
+	return _theta_enabled && _type_admission && !_hard_type_admission;
+}
+
 // collect the characters of a chunk's whole span as one sequence (words
 // concatenated) with a trailing EOS (0). Shared by the H_k^0 lp/add/remove so
 // they walk an identical key sequence (CRP add/remove symmetry).
@@ -648,6 +790,15 @@ void snpylm::_seat(nsentence& s, bool add) {
 					clen += ch.wd(w).len;
 				++_necnt[ch.k];
 				_nelen[ch.k] += clen;
+				// theta ledger (WO-009): +1 on both layers for this span's chunk
+				// type. Seated unconditionally (like _psi) so add/remove stay
+				// symmetric regardless of the theta/hard/neutral score mode; the
+				// score side reads the counts only when _theta_score_on().
+				int ct = ch.type;
+				if (ct >= 0 && ct < chunktype2::n) {
+					++_theta_sh[ct];
+					++_theta_k[_thetaki(ch.k, ct)];
+				}
 			}
 		}
 		// EOS template token (reserved id 0); default chunk => wd() is safe eos.
@@ -718,6 +869,11 @@ void snpylm::_seat(nsentence& s, bool add) {
 					clen += ch.wd(w).len;
 				--_necnt[ch.k];
 				_nelen[ch.k] -= clen;
+				int ct = ch.type;
+				if (ct >= 0 && ct < chunktype2::n) {
+					--_theta_sh[ct];
+					--_theta_k[_thetaki(ch.k, ct)];
+				}
 			}
 		}
 		// symmetric removal of the targeted generic-slot ledger (same predicate).
@@ -790,7 +946,16 @@ double snpylm::_emit_lp(int k, chunk& ch) {
 		lp = (*_hk)[k]->lp(ch, (*_hk)[k]->h());
 	else
 		lp = _hk_surf_lp(k, ch);
-	return (_tau == 1.0) ? lp : _tau * lp; // E_k^tau: tau>1 damps NE emission
+	lp = (_tau == 1.0) ? lp : _tau * lp; // E_k^tau: tau>1 damps NE emission
+	// probabilistic chunktype NE prior theta (WO-009): add the centred factor
+	// log theta^_k(ct) - log q_cand(ct) OUTSIDE the tau annealing (it is a prior
+	// over the span's type, not part of the surface likelihood that anneals). The
+	// O side (k<=0, returned above) never pays it -- a deliberate generative
+	// deficiency, but the seat ledger (_theta_sh/_theta_k) is add/remove symmetric,
+	// so the sampler score stays consistent (same argument as the l1-cache bypass).
+	if (_theta_score_on() && ch.type >= 0 && ch.type < chunktype2::n)
+		lp += _theta_lp(k, ch);
+	return lp;
 }
 
 // transition P(sigma(ch,k) | c): use the chunk overload so the base escape hits
@@ -872,11 +1037,21 @@ void snpylm::_slice(clattice2& l, nsentence *cur) {
 			l.emit[t][j].assign(_k+1, 0);
 			vector<double> table;
 			vector<int> cls;
-			// type-driven admission: a span whose chunk type is not entity-bearing
-			// cannot be NE, so only class 0 (O, length 1) is a candidate for it.
+			// type-driven admission (WO-009). Three modes:
+			//  - neutral (--no_type_admission, _type_admission==false): every type is
+			//    an NE candidate, no theta and no gate.
+			//  - hard (--hard_type_admission): revive the legacy bool gate; a span
+			//    whose chunk type is not entity-bearing cannot be NE. theta is off.
+			//  - default: every type is an NE candidate; theta (in _emit_lp) softly
+			//    suppresses inadmissible types instead of a hard cut.
 			int ct = c.type;
-			bool ne_ok = !_type_admission ||
-				(ct >= 0 && ct < chunktype2::n && NE_ADMISSIBLE[ct]);
+			bool ne_ok;
+			if (!_type_admission)
+				ne_ok = true;                                 // neutral
+			else if (_hard_type_admission)
+				ne_ok = (ct >= 0 && ct < chunktype2::n && NE_ADMISSIBLE[ct]); // hard gate
+			else
+				ne_ok = true;                                 // theta handles it
 			// rarity gate: only a low-frequency single word (len==1) may be an
 			// NE. len>=2 spans are exempt (multi-word NE are not frequency
 			// gated). ANDs with the type admission above.
@@ -1217,6 +1392,28 @@ void snpylm::stats() const {
 			fprintf(stderr, " top:%s=%.2f,%s=%.2f", tname[best],
 					_psi[_psii(i, best)]/tot, tname[second], _psi[_psii(i, second)]/tot);
 		}
+		// theta (WO-009): per-class top-2 chunk types and their mass share.
+		static const char *ctname[chunktype2::n] = {
+			"hira", "kata", "kanji", "latin", "digit", "punc", "sym", "h+k",
+			"h+kj", "h+d", "h+p", "k+kj", "k+l", "k+d", "k+p", "kj+l", "kj+d",
+			"kj+p", "l+d", "l+p", "l+s", "d+p", "hkkj", "hkjd", "hkjp", "kkjd",
+			"kkjp", "klp", "kdp", "kjdp", "ldp", "misc"
+		};
+		double ttot = 0;
+		for (int t = 0; t < chunktype2::n; ++t)
+			ttot += _theta_k[_thetaki(i, t)];
+		if (ttot > 0) {
+			int tb = -1, ts = -1;
+			for (int t = 0; t < chunktype2::n; ++t) {
+				if (tb < 0 || _theta_k[_thetaki(i, t)] > _theta_k[_thetaki(i, tb)]) {
+					ts = tb; tb = t;
+				} else if (ts < 0 || _theta_k[_thetaki(i, t)] > _theta_k[_thetaki(i, ts)]) {
+					ts = t;
+				}
+			}
+			fprintf(stderr, " ct:%s=%.2f,%s=%.2f", ctname[tb],
+					_theta_k[_thetaki(i, tb)]/ttot, ctname[ts], _theta_k[_thetaki(i, ts)]/ttot);
+		}
 		fprintf(stderr, "\n");
 	}
 }
@@ -1291,6 +1488,31 @@ void snpylm::save(const char *file) {
 		if (fwrite(&_gen_w, sizeof(double), 1, fp) != 1)
 			throw "failed to write gen_w in snpylm::save";
 		_bg_gen->save(fp);
+		// probabilistic chunktype NE prior theta (WO-009), appended last. Layout
+		// after the magic: {ct_n, K} (int), {theta_hi, theta_lo, theta_kappa}
+		// (double), q_cand[ct_n] (double), _theta_sh[ct_n] (int), then _theta_k
+		// size + data (int), then {theta_enabled, hard_type_admission} flags (int).
+		int tmagic = SNPYLM_THETA_MAGIC;
+		if (fwrite(&tmagic, sizeof(int), 1, fp) != 1)
+			throw "failed to write theta magic in snpylm::save";
+		int tdim[2] = {chunktype2::n, _k};
+		if (fwrite(tdim, sizeof(int), 2, fp) != 2)
+			throw "failed to write theta dims in snpylm::save";
+		double th[3] = {_theta_hi, _theta_lo, _theta_kappa};
+		if (fwrite(th, sizeof(double), 3, fp) != 3)
+			throw "failed to write theta hyper in snpylm::save";
+		if (fwrite(_qcand.data(), sizeof(double), chunktype2::n, fp) != (size_t)chunktype2::n)
+			throw "failed to write qcand in snpylm::save";
+		if (fwrite(_theta_sh.data(), sizeof(int), chunktype2::n, fp) != (size_t)chunktype2::n)
+			throw "failed to write theta_sh in snpylm::save";
+		int tkn = (int)_theta_k.size();
+		if (fwrite(&tkn, sizeof(int), 1, fp) != 1)
+			throw "failed to write theta_k size in snpylm::save";
+		if (tkn > 0 && fwrite(_theta_k.data(), sizeof(int), tkn, fp) != (size_t)tkn)
+			throw "failed to write theta_k in snpylm::save";
+		int tf[2] = {_theta_enabled ? 1 : 0, _hard_type_admission ? 1 : 0};
+		if (fwrite(tf, sizeof(int), 2, fp) != 2)
+			throw "failed to write theta flags in snpylm::save";
 	} catch (const char *ex) {
 		fclose(fp);
 		throw ex;
@@ -1352,6 +1574,14 @@ void snpylm::load(const char *file) {
 		// psi char-type counts; absent in legacy models -> keep the zero-init
 		// table (fread failure is not an error here).
 		_psi.assign((size_t)(_k+1)*chartype::n, 0);
+		// theta ledger defaults (WO-009): sized from _k, overwritten below if the
+		// model carries a theta block. Legacy models keep these zero/uniform values.
+		_theta_sh.assign(chunktype2::n, 0);
+		_theta_k.assign((size_t)(_k+1)*chunktype2::n, 0);
+		_qcand.assign(chunktype2::n, 1.0/(double)chunktype2::n);
+		_theta_hi = THETA_HI;
+		_theta_lo = THETA_LO;
+		_theta_kappa = THETA_KAPPA;
 		int pn = 0;
 		if (fread(&pn, sizeof(int), 1, fp) == 1 && pn > 0) {
 			_psi.resize(pn, 0);
@@ -1383,6 +1613,7 @@ void snpylm::load(const char *file) {
 		//   fread fails (pre-generic legacy) : disabled, empty _bg_gen.
 		// _gen_w keeps its constructed default (0.5) unless the new block sets it.
 		_generic_backoff = false;
+		bool generic_consumed = false; // true iff the file position is known past here
 		int first = 0;
 		if (fread(&first, sizeof(int), 1, fp) == 1) {
 			if (first == SNPYLM_GEN_MAGIC) {
@@ -1395,10 +1626,56 @@ void snpylm::load(const char *file) {
 				if (fread(&_gen_w, sizeof(double), 1, fp) != 1)
 					throw "failed to read gen_w in snpylm::load";
 				_bg_gen->load(fp);
+				generic_consumed = true;
 			} else if (first > 0) {
 				fprintf(stderr, "snpylm::load: legacy WO-006 generic block "
 					"detected; generic backoff disabled (incompatible ledger)\n");
+				// the rest of that legacy block is not read; do not attempt theta.
 			}
+		}
+		// probabilistic chunktype NE prior theta (WO-009). Only reachable when the
+		// generic block was the new format (position known). Absent (EOF) or a
+		// legacy model -> theta disabled + hard-gate fallback (one-line warning).
+		_theta_enabled = false;
+		_hard_type_admission = false;
+		bool theta_loaded = false;
+		if (generic_consumed) {
+			int tmagic = 0;
+			if (fread(&tmagic, sizeof(int), 1, fp) == 1 && tmagic == SNPYLM_THETA_MAGIC) {
+				int tdim[2] = {0, 0};
+				if (fread(tdim, sizeof(int), 2, fp) != 2)
+					throw "failed to read theta dims in snpylm::load";
+				if (tdim[0] != chunktype2::n)
+					throw "theta chunktype count mismatch in snpylm::load";
+				double th[3] = {0, 0, 0};
+				if (fread(th, sizeof(double), 3, fp) != 3)
+					throw "failed to read theta hyper in snpylm::load";
+				_theta_hi = th[0]; _theta_lo = th[1]; _theta_kappa = th[2];
+				_qcand.assign(chunktype2::n, 0);
+				if (fread(_qcand.data(), sizeof(double), chunktype2::n, fp) != (size_t)chunktype2::n)
+					throw "failed to read qcand in snpylm::load";
+				_theta_sh.assign(chunktype2::n, 0);
+				if (fread(_theta_sh.data(), sizeof(int), chunktype2::n, fp) != (size_t)chunktype2::n)
+					throw "failed to read theta_sh in snpylm::load";
+				int tkn = 0;
+				if (fread(&tkn, sizeof(int), 1, fp) != 1)
+					throw "failed to read theta_k size in snpylm::load";
+				_theta_k.assign((size_t)(tkn > 0 ? tkn : (_k+1)*chunktype2::n), 0);
+				if (tkn > 0 && fread(_theta_k.data(), sizeof(int), tkn, fp) != (size_t)tkn)
+					throw "failed to read theta_k in snpylm::load";
+				int tf[2] = {0, 0};
+				if (fread(tf, sizeof(int), 2, fp) != 2)
+					throw "failed to read theta flags in snpylm::load";
+				_theta_enabled = (tf[0] != 0);
+				_hard_type_admission = (tf[1] != 0);
+				theta_loaded = true;
+			}
+		}
+		if (!theta_loaded) {
+			fprintf(stderr, "snpylm::load: no theta block (legacy model); NE theta "
+				"prior disabled, hard type-admission gate fallback\n");
+			_theta_enabled = false;
+			_hard_type_admission = true;
 		}
 		_install_cbase();
 	} catch (const char *ex) {
