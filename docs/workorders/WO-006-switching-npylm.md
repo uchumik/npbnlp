@@ -1,5 +1,7 @@
 # WO-006: Switching NPYLM — 教師なし NER の新モデル実装(DRAFT・司令塔起草、ユーザー承認待ち)
 
+Status: closed (merged into dev)
+
 - 担当: impl-core (opus)。理論は `.claude/skills/npbnlp-math/SKILL.md` §4 が正典(完全定式化・変数定義・生成過程・推論)。`/mnt/d/Work/Notes/unsupervised_learnings_for_nlp.md` も参照
 - 位置づけ: **nphsmm とは独立した新手法**(既存 ne 系のコード・モデルには一切触れない)。P6(O クラス不在)と E-7(un レジームの under-merge)への構造的回答
 - 前提: WO-003/004/005 マージ後(slice 条件付けの確立した流儀を最初から採用する)

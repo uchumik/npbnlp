@@ -1,5 +1,7 @@
 # WO-002: hpyp::gibbs() のチャンク基底コーパス (_cbc) 対応
 
+Status: closed (merged into dev)
+
 > **改訂 (2026-07-12, 司令塔)**: 本 WO は「base corpus の静的統合」設計に置き換える。
 > 理由: (1) 下記 after 案はループを複製し、かつ _cbc 側で wrap::add_a/remove_a を直呼び
 > するため `_cbase_add/_cbase_remove` フック(posbase の基底委譲)を素通りする。

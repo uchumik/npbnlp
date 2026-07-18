@@ -1,5 +1,7 @@
 # WO-005: ipcfg スライス変数の現在状態への条件付け + root μ の括弧バグ精査
 
+Status: closed (merged into dev)
+
 > **改訂 (2026-07-12, 司令塔)**: 理論仕様は著者資料
 > `/mnt/d/Work/Notes/unsupervised_learnings_for_nlp.md` の「Grammar Induction / infinite PCFG」
 > 節が正典(実装前に必読)。要点:

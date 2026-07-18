@@ -1,5 +1,7 @@
 # WO-004: phsmm スライス変数の現在状態への条件付け(WO-003 の phsmm 版)
 
+Status: closed (merged into dev)
+
 - 担当: impl-core (opus)。npbnlp-math スキル §2 を必読
 - 対象: ma/include/phsmm.h, ma/src/phsmm.cc, ma/src/ma.cc
 - 背景: WO-003(nphsmm)と同一の P5 系問題を司令塔が phsmm でも確認(2026-07-12)。

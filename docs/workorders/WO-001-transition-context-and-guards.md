@@ -1,5 +1,7 @@
 # WO-001: クラス遷移の有効化とカウントリーク防止
 
+Status: closed (merged into dev)
+
 - 担当: impl-routine (sonnet)
 - 対象: tg/src/ne.cc, tg/src/nphsmm.cc
 - 背景: diagnosis スキル P1/P2/P3。デフォルト n=1 で遷移が存在せず、n≥2 では remove() が

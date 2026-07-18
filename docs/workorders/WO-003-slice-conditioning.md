@@ -1,5 +1,7 @@
 # WO-003: スライス変数の現在状態への条件付け
 
+Status: closed (merged into dev)
+
 - 担当: impl-core (opus)。数学的正当性は npbnlp-math スキル §2 を必読
 - 対象: tg/include/nphsmm.h, tg/src/nphsmm.cc, tg/src/ne.cc
 - 前提: WO-001, WO-002 マージ後に着手
