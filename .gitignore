@@ -92,11 +92,16 @@ py/*.so
 # local claude workspace
 .claude/
 
-# agent instruction files (local only; not shared with the repo)
+# agent instruction / workspace files (local only; not shared with the repo)
 CLAUDE.md
 CLAUDE.local.md
 AGENTS.md
+AGENTS.local.md
 .mcp.json
+.agents/
+.codex/
+codex.md
+CODEX.md
 
 # Locally-derived Penn Treebank iPCFG evaluation data and artifacts
 experiments/ptb_ipcfg/
