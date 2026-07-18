@@ -20,7 +20,11 @@
 #define SLEN 8
 #define SA 1.0
 #define SB 5.0
-#define GEN_W 0.5   // mixture weight of the class-specific P(NE_k|ctx) vs generic
+#define GEN_W 0.5   // default generic-backoff mixture weight (member _gen_w)
+// serialize format marker for the generic-backoff block (WO-007). A negative
+// sentinel distinguishes the new gvid-keyed targeted ledger from the legacy
+// WO-006 tvid-keyed block, whose first int was the positive _ne_generic id.
+#define SNPYLM_GEN_MAGIC (-770007)
 
 using namespace std;
 using namespace npbnlp;
@@ -120,7 +124,7 @@ snpylm::snpylm(int n, int hn, int hl, int k):
 	_type_admission(true), _l1_cache(false), _freq_cap(0), _a(SA), _b(SB),
 	_clength(chunktype2::n, SLEN),
 	_bg(new hpyp(_n)), _bg_gen(new hpyp(_n)), _ne_generic(0), _generic_backoff(true),
-	_spell(new hpyp(_hl)),
+	_gen_w(GEN_W), _spell(new hpyp(_hl)),
 	_hk(new vector<shared_ptr<hpyp> >), _hkletter(new vector<shared_ptr<hpyp> >),
 	_pine(0), _piw(0), _pieos(0) {
 	_spell->set_v(_v);
@@ -259,6 +263,22 @@ void snpylm::set_generic_backoff(bool f) {
 	_generic_backoff = f;
 }
 
+void snpylm::set_gen_w(double w) {
+	if (!(w > 0.0 && w < 1.0))
+		throw "gen_w must be in (0,1) in snpylm::set_gen_w";
+	_gen_w = w;
+}
+
+// vocab-scale uniform base for the generic ledger: hpyp::lp(int,...) bottoms
+// out at -log(_v), and _bg_gen keeps the constructed default _v=1 unless this
+// is called, so P_gen of a never-seen event would be ~1 and the backoff
+// mixture would collapse into a flat bonus (see snpylm.h).
+void snpylm::set_wv(int v) {
+	if (v < 2)
+		throw "wv must be >= 2 in snpylm::set_wv";
+	_bg_gen->set_v(v);
+}
+
 // tally every corpus word type (id -> occurrence count). Called over each
 // sentence once, before set_freq_cap, from the sne.cc collection loop (which
 // runs independently of the all-O seed). This is a static observation of the
@@ -354,6 +374,12 @@ int snpylm::_kind(int id) const {
 	if (it != _id2k.end())
 		return it->second;
 	return 0;
+}
+
+// true iff id is a registered class NE symbol (some _nek[k], k>=1). O(1) hash
+// lookup; the generic symbol _ne_generic is never in _id2k, so it returns false.
+bool snpylm::_is_ne_sym(int id) const {
+	return _id2k.find(id) != _id2k.end();
 }
 
 int snpylm::_tvid(chunk& ch) {
@@ -583,9 +609,26 @@ void snpylm::_seat(nsentence& s, bool add) {
 		if (ch.k >= (int)_nek.size() || (ch.k >= 1 && _nek[ch.k] == 0))
 			_resize(ch.k);
 	}
+	// tvid[j] = template token id; gvid[j] = generic-replacement id (NE positions
+	// collapse to _ne_generic so the generic-slot context pools frames across
+	// classes, WO-007). _bg (the body ledger) keeps its tvid keys unchanged.
 	vector<int> tvid(M, 0);
-	for (int j = 0; j < M; ++j)
+	vector<int> gvid(M, 0);
+	for (int j = 0; j < M; ++j) {
 		tvid[j] = _tvid(s.ch(j));
+		gvid[j] = (s.ch(j).k >= 1) ? _ne_generic : tvid[j];
+	}
+	// does the n-1 history window ending just before position `pos` contain an
+	// NE? (pos in [0,M]; pos==M is the EOS slot.) Depends only on s, so add and
+	// remove agree on which generic-slot customers are seated.
+	auto window_has_ne = [&](int pos) -> bool {
+		for (int d = 1; d < _n; ++d) {
+			int p = pos - d;
+			if (p >= 0 && p < M && s.ch(p).k >= 1)
+				return true;
+		}
+		return false;
+	};
 	if (add) {
 		for (int j = 0; j < M; ++j) {
 			chunk tv(s.ch(j));
@@ -605,15 +648,6 @@ void snpylm::_seat(nsentence& s, bool add) {
 					clen += ch.wd(w).len;
 				++_necnt[ch.k];
 				_nelen[ch.k] += clen;
-				// parallel generic-slot seating: same context, generic token.
-				if (_generic_backoff) {
-					context *hg = _bg_gen->h();
-					for (int d = 1; d < _n; ++d) {
-						int pid = (j-d >= 0) ? tvid[j-d] : 0;
-						hg = hg->make(pid);
-					}
-					_bg_gen->add(_ne_generic, hg);
-				}
 			}
 		}
 		// EOS template token (reserved id 0); default chunk => wd() is safe eos.
@@ -625,6 +659,34 @@ void snpylm::_seat(nsentence& s, bool add) {
 			h = h->make(pid);
 		}
 		_bg->add(eos, h);
+		// targeted generic-slot ledger (gvid-keyed contexts). (a) the NE slot at
+		// every NE position, (b) the exit-frame word after an NE, (c) EOS after an
+		// NE; NE-free positions are not seated.
+		if (_generic_backoff) {
+			for (int j = 0; j < M; ++j) {
+				int tok;
+				if (s.ch(j).k >= 1)
+					tok = _ne_generic;   // (a) NE slot
+				else if (window_has_ne(j))
+					tok = tvid[j];       // (b) exit-frame word
+				else
+					continue;
+				context *hg = _bg_gen->h();
+				for (int d = 1; d < _n; ++d) {
+					int pid = (j-d >= 0) ? gvid[j-d] : 0;
+					hg = hg->make(pid);
+				}
+				_bg_gen->add(tok, hg);
+			}
+			if (window_has_ne(M)) {          // (c) EOS after an NE
+				context *hg = _bg_gen->h();
+				for (int d = 1; d < _n; ++d) {
+					int pid = (M-d >= 0) ? gvid[M-d] : 0;
+					hg = hg->make(pid);
+				}
+				_bg_gen->add(0, hg);
+			}
+		}
 	} else {
 		chunk eos;
 		eos.id = 0;
@@ -656,16 +718,36 @@ void snpylm::_seat(nsentence& s, bool add) {
 					clen += ch.wd(w).len;
 				--_necnt[ch.k];
 				_nelen[ch.k] -= clen;
-				if (_generic_backoff) {
-					context *hg = _bg_gen->h();
-					for (int d = 1; d < _n && hg; ++d) {
-						int pid = (j-d >= 0) ? tvid[j-d] : 0;
-						hg = hg->find(pid);
-					}
-					if (!hg)
-						throw "bg_gen context not found in snpylm::remove";
-					_bg_gen->remove(_ne_generic, hg);
+			}
+		}
+		// symmetric removal of the targeted generic-slot ledger (same predicate).
+		if (_generic_backoff) {
+			for (int j = 0; j < M; ++j) {
+				int tok;
+				if (s.ch(j).k >= 1)
+					tok = _ne_generic;
+				else if (window_has_ne(j))
+					tok = tvid[j];
+				else
+					continue;
+				context *hg = _bg_gen->h();
+				for (int d = 1; d < _n && hg; ++d) {
+					int pid = (j-d >= 0) ? gvid[j-d] : 0;
+					hg = hg->find(pid);
 				}
+				if (!hg)
+					throw "bg_gen context not found in snpylm::remove";
+				_bg_gen->remove(tok, hg);
+			}
+			if (window_has_ne(M)) {
+				context *hg = _bg_gen->h();
+				for (int d = 1; d < _n && hg; ++d) {
+					int pid = (M-d >= 0) ? gvid[M-d] : 0;
+					hg = hg->find(pid);
+				}
+				if (!hg)
+					throw "bg_gen eos context not found in snpylm::remove";
+				_bg_gen->remove(0, hg);
 			}
 		}
 	}
@@ -719,19 +801,44 @@ double snpylm::_bg_lp(chunk& ch, int k, const context *c) {
 	return _bg->lp(tv, c ? c : _bg->h());
 }
 
-// transition score with generic NE-slot backoff. For O (k==0) / EOS or when the
-// backoff is disabled, this is just log P_bg(sigma|ctx). For an NE class k it is
-//   log( GEN_W * P_bg(NE_k|ctx) + (1-GEN_W) * P_gen(NE_generic|ctx) * rho_k ),
-// pooling frame statistics across classes via the parallel _bg_gen context cg
-// (same sigma keys as c). computed in log space (manual logsumexp) to avoid
-// underflow when the class-specific term vanishes.
-double snpylm::_trans_lp(chunk& ch, int k, const context *c, const context *cg) {
+// transition score with generic NE-slot backoff (WO-007, both frame sides).
+//   k >= 1 (an NE slot):  the LEFT side. Interpolate the class-specific slot
+//     predictive with the pooled generic slot (rho_k re-personalises it):
+//       log( w * P_bg(NE_k|ctx) + (1-w) * P_gen(NE_generic|gctx) * rho_k ).
+//   k == 0 (a word / EOS): the RIGHT side (exit frame "<NE> 氏 が"). Only when
+//     the n-1 history window contains an NE (ctx_has_ne) is the word predictive
+//     mixed with the pooled generic exit-frame count (no rho_k):
+//       log( w * P_bg(v|ctx) + (1-w) * P_gen(v|gctx) ).
+//     ctx_has_ne == false leaves the score exactly P_bg(v|ctx), so NE-free
+//     regions are unchanged (regression guard).
+// gctx (cg) is the parallel _bg_gen context, keyed on gvid: NE symbols in the
+// history are folded to _ne_generic (see _forward/_backward's gsig). w is the
+// member _gen_w. Computed in log space (manual logsumexp) to avoid underflow.
+//
+// Deficiency: the mixture is applied only to transitions whose window contains
+// an NE, so it does not normalise as a generative model over all next tokens
+// (a proper G^bg would). But the seating ledger (_bg / _bg_gen add/remove) is
+// exactly symmetric, so this is a consistent sampler score -- the same argument
+// as the len==1 l1-cache bypass in _emit_lp above.
+double snpylm::_trans_lp(chunk& ch, int k, const context *c, const context *cg,
+		bool ctx_has_ne) {
 	double base = _bg_lp(ch, k, c);
-	if (!_generic_backoff || k < 1)
+	if (!_generic_backoff)
 		return base;
-	double gen = _bg_gen->lp(_ne_generic, cg ? cg : _bg_gen->h());
-	double la = log(GEN_W) + base;
-	double lb = log(1.0 - GEN_W) + gen + log(_rho_k(k));
+	if (k >= 1) {
+		double gen = _bg_gen->lp(_ne_generic, cg ? cg : _bg_gen->h());
+		double la = log(_gen_w) + base;
+		double lb = log(1.0 - _gen_w) + gen + log(_rho_k(k));
+		double m = (la > lb) ? la : lb;
+		return m + log(exp(la-m) + exp(lb-m));
+	}
+	// k == 0: right-context mixing only when the window holds an NE.
+	if (!ctx_has_ne)
+		return base;
+	int sig = _sigma(ch, 0);
+	double gen = _bg_gen->lp(sig, cg ? cg : _bg_gen->h());
+	double la = log(_gen_w) + base;
+	double lb = log(1.0 - _gen_w) + gen;
 	double m = (la > lb) ? la : lb;
 	return m + log(exp(la-m) + exp(lb-m));
 }
@@ -782,7 +889,9 @@ void snpylm::_slice(clattice2& l, nsentence *cur) {
 					continue;
 				double em = _emit_lp(k, c);
 				l.emit[t][j][k] = em;
-				table.push_back(em + _trans_lp(c, k, _bg->h(), _bg_gen->h()));
+				// root context (no history) -> ctx_has_ne=false: identical to the
+				// pre-WO-007 slice score (NE path unaffected by ctx_has_ne).
+				table.push_back(em + _trans_lp(c, k, _bg->h(), _bg_gen->h(), false));
 				cls.push_back(k);
 			}
 			if (table.empty()) // no admissible class here (e.g. len>1 non-entity)
@@ -826,10 +935,10 @@ void snpylm::_slice(clattice2& l, nsentence *cur) {
 	}
 }
 
-void snpylm::_forward(clattice2& l, int i, const context *c, const context *cg, chunk& ch, int k, double emit, chunk& prev, int q, bool bos, vt& a, vt& b, int n) {
+void snpylm::_forward(clattice2& l, int i, const context *c, const context *cg, chunk& ch, int k, double emit, chunk& prev, int q, bool bos, vt& a, vt& b, int n, bool ctx_has_ne) {
 	if (n <= 1) {
 		if (bos || b.is_init()) {
-			double tr = _trans_lp(ch, k, c, cg);
+			double tr = _trans_lp(ch, k, c, cg, ctx_has_ne);
 			a.v = math::lse(a.v, b.v + emit + tr, !a.is_init());
 			a.set(true);
 		}
@@ -838,19 +947,23 @@ void snpylm::_forward(clattice2& l, int i, const context *c, const context *cg, 
 			chunk& y = l.ch(i, pp+1);
 			for (auto r = l.begin(i, pp); r != l.end(i, pp); ++r) {
 				int sig = _sigma(y, *r);
+				bool is_ne = _is_ne_sym(sig);
+				// generic-slot context folds NE symbols to _ne_generic (gsig).
+				int gsig = is_ne ? _ne_generic : sig;
 				const context *h = (sig != 1) ? c->find(sig) : NULL;
-				const context *hg = (sig != 1) ? cg->find(sig) : NULL;
+				const context *hg = (gsig != 1) ? cg->find(gsig) : NULL;
 				_forward(l, i-y.len, (h ? h : c), (hg ? hg : cg), ch, k, emit,
-						y, *r, (i < 0), a[prev.len-1][q], b[pp][*r], n-1);
+						y, *r, (i < 0), a[prev.len-1][q], b[pp][*r], n-1,
+						ctx_has_ne || is_ne);
 			}
 		}
 	}
 }
 
-void snpylm::_backward(clattice2& l, int i, const context *c, const context *cg, chunk& ch, int k, chunk& prev, int q, bool bos, double& lpr, vt& b, int n) {
+void snpylm::_backward(clattice2& l, int i, const context *c, const context *cg, chunk& ch, int k, chunk& prev, int q, bool bos, double& lpr, vt& b, int n, bool ctx_has_ne) {
 	if (n <= 1) {
 		if (bos || b.is_init()) {
-			double tr = _trans_lp(ch, k, c, cg);
+			double tr = _trans_lp(ch, k, c, cg, ctx_has_ne);
 			double emit = _emit_lp(k, ch);
 			lpr = math::lse(lpr, b.v + emit + tr, (lpr == 1.));
 		}
@@ -859,10 +972,12 @@ void snpylm::_backward(clattice2& l, int i, const context *c, const context *cg,
 			chunk& y = l.ch(i, pp+1);
 			for (auto r = l.begin(i, pp); r != l.end(i, pp); ++r) {
 				int sig = _sigma(y, *r);
+				bool is_ne = _is_ne_sym(sig);
+				int gsig = is_ne ? _ne_generic : sig;
 				const context *h = (sig != 1) ? c->find(sig) : NULL;
-				const context *hg = (sig != 1) ? cg->find(sig) : NULL;
+				const context *hg = (gsig != 1) ? cg->find(gsig) : NULL;
 				_backward(l, i-y.len, (h ? h : c), (hg ? hg : cg), ch, k, y, *r,
-						(i < 0), lpr, b[pp][*r], n-1);
+						(i < 0), lpr, b[pp][*r], n-1, ctx_has_ne || is_ne);
 			}
 		}
 	}
@@ -963,10 +1078,12 @@ nsentence snpylm::_infer(nio& f, int i, nsentence *cur, bool best) {
 					chunk& prev = l.ch(s, p+1);
 					for (auto q = l.begin(s, p); q != l.end(s, p); ++q) {
 						int sig = _sigma(prev, *q);
+						bool is_ne = _is_ne_sym(sig);
+						int gsig = is_ne ? _ne_generic : sig;
 						const context *h = (_n > 1 && sig != 1) ? _bg->h()->find(sig) : NULL;
-						const context *hg = (_n > 1 && sig != 1) ? _bg_gen->h()->find(sig) : NULL;
+						const context *hg = (_n > 1 && gsig != 1) ? _bg_gen->h()->find(gsig) : NULL;
 						_forward(l, s-prev.len, (h ? h : _bg->h()), (hg ? hg : _bg_gen->h()),
-								ch, *k, emit, prev, *q, (s < 0), dp[t][j][*k], dp[s][p][*q], _n-1);
+								ch, *k, emit, prev, *q, (s < 0), dp[t][j][*k], dp[s][p][*q], _n-1, is_ne);
 					}
 				}
 			}
@@ -990,10 +1107,12 @@ nsentence snpylm::_infer(nio& f, int i, nsentence *cur, bool best) {
 				len.push_back(p+1);
 				cls.push_back(*q);
 				int sig = _sigma(prev, *q);
+				bool is_ne = _is_ne_sym(sig);
+				int gsig = is_ne ? _ne_generic : sig;
 				const context *h = (_n > 1 && sig != 1) ? _bg->h()->find(sig) : NULL;
-				const context *hg = (_n > 1 && sig != 1) ? _bg_gen->h()->find(sig) : NULL;
+				const context *hg = (_n > 1 && gsig != 1) ? _bg_gen->h()->find(gsig) : NULL;
 				_backward(l, t-prev.len, (h ? h : _bg->h()), (hg ? hg : _bg_gen->h()),
-						*ch, ch->k, prev, *q, (t < 0), table[jd], dp[t][p][*q], _n-1);
+						*ch, ch->k, prev, *q, (t < 0), table[jd], dp[t][p][*q], _n-1, is_ne);
 			}
 		}
 		if (table.empty())
@@ -1158,11 +1277,19 @@ void snpylm::save(const char *file) {
 			if (fwrite(buf.data(), sizeof(int), buf.size(), fp) != buf.size())
 				throw "failed to write wfreq pairs in snpylm::save";
 		}
-		// generic NE-slot backoff (id + flag + parallel n-gram), appended last so
-		// legacy models load with the backoff off and an empty _bg_gen.
+		// generic NE-slot backoff, appended last (WO-007 gvid-keyed targeted
+		// ledger). A negative magic marks the new format; a legacy WO-006 block
+		// began with the positive _ne_generic id, so load() can tell them apart
+		// and disable the incompatible legacy ledger. Layout after the magic:
+		// {ne_generic, backoff flag} (int), gen_w (double), then _bg_gen.
+		int magic = SNPYLM_GEN_MAGIC;
+		if (fwrite(&magic, sizeof(int), 1, fp) != 1)
+			throw "failed to write generic magic in snpylm::save";
 		int gg[2] = {_ne_generic, _generic_backoff ? 1 : 0};
 		if (fwrite(gg, sizeof(int), 2, fp) != 2)
 			throw "failed to write generic header in snpylm::save";
+		if (fwrite(&_gen_w, sizeof(double), 1, fp) != 1)
+			throw "failed to write gen_w in snpylm::save";
 		_bg_gen->save(fp);
 	} catch (const char *ex) {
 		fclose(fp);
@@ -1247,15 +1374,31 @@ void snpylm::load(const char *file) {
 					_wfreq[buf[2*i]] = buf[2*i+1];
 			}
 		}
-		// generic NE-slot backoff; absent in legacy models -> disabled, empty _bg_gen.
-		int gg[2] = {0, 0};
-		if (fread(gg, sizeof(int), 2, fp) == 2) {
-			if (gg[0] > 0)
-				_ne_generic = gg[0];
-			_generic_backoff = (gg[1] != 0);
-			_bg_gen->load(fp);
-		} else {
-			_generic_backoff = false;
+		// generic NE-slot backoff. Three cases distinguished by the first int:
+		//   == SNPYLM_GEN_MAGIC : new WO-007 gvid-keyed block -> load fully.
+		//   >  0 (a positive _ne_generic id) : legacy WO-006 tvid-keyed block.
+		//     Its ledger semantics are incompatible, so disable the backoff and
+		//     keep _bg_gen empty (a one-line warning); the rest of the legacy
+		//     block is intentionally not read (it is the last block in the file).
+		//   fread fails (pre-generic legacy) : disabled, empty _bg_gen.
+		// _gen_w keeps its constructed default (0.5) unless the new block sets it.
+		_generic_backoff = false;
+		int first = 0;
+		if (fread(&first, sizeof(int), 1, fp) == 1) {
+			if (first == SNPYLM_GEN_MAGIC) {
+				int gg[2] = {0, 0};
+				if (fread(gg, sizeof(int), 2, fp) != 2)
+					throw "failed to read generic header in snpylm::load";
+				if (gg[0] > 0)
+					_ne_generic = gg[0];
+				_generic_backoff = (gg[1] != 0);
+				if (fread(&_gen_w, sizeof(double), 1, fp) != 1)
+					throw "failed to read gen_w in snpylm::load";
+				_bg_gen->load(fp);
+			} else if (first > 0) {
+				fprintf(stderr, "snpylm::load: legacy WO-006 generic block "
+					"detected; generic backoff disabled (incompatible ledger)\n");
+			}
 		}
 		_install_cbase();
 	} catch (const char *ex) {
