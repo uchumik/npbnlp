@@ -47,8 +47,12 @@ add_executable(test_snpylm_infer
 	${CMAKE_SOURCE_DIR}/tg/src/snpylm.cc
 	${CMAKE_SOURCE_DIR}/tg/src/clattice.cc
 	)
+add_executable(test_negative_binomial
+	test_negative_binomial.cc
+	${CMAKE_SOURCE_DIR}/rd/src/negative_binomial.cc
+	)
 
-foreach(t test_io test_hpyp_symmetry test_hpyp_roundtrip test_npylm_smoke test_serialize_compat test_nphsmm_roundtrip test_snpylm_roundtrip test_snpylm_infer)
+foreach(t test_io test_hpyp_symmetry test_hpyp_roundtrip test_npylm_smoke test_serialize_compat test_nphsmm_roundtrip test_snpylm_roundtrip test_snpylm_infer test_negative_binomial)
 	target_compile_options(${t} PUBLIC
 		$<$<CONFIG:Release>:-O2 -std=c++17>
 		$<$<CONFIG:Debug>:-g -std=c++17>
@@ -65,6 +69,7 @@ if (OpenMP_CXX_FOUND)
 	target_link_libraries(test_nphsmm_roundtrip PUBLIC OpenMP::OpenMP_CXX io rd lm tn icuuc ${Boost_LIBRARIES})
 	target_link_libraries(test_snpylm_roundtrip PUBLIC OpenMP::OpenMP_CXX io rd lm icuuc ${Boost_LIBRARIES})
 	target_link_libraries(test_snpylm_infer PUBLIC OpenMP::OpenMP_CXX io rd lm icuuc ${Boost_LIBRARIES})
+	target_link_libraries(test_negative_binomial PUBLIC OpenMP::OpenMP_CXX)
 else()
 	target_link_libraries(test_io PUBLIC io icuuc)
 	target_link_libraries(test_hpyp_symmetry PUBLIC io rd lm icuuc ${Boost_LIBRARIES})
@@ -84,3 +89,4 @@ add_test(NAME test_serialize_compat COMMAND test_serialize_compat)
 add_test(NAME test_nphsmm_roundtrip COMMAND test_nphsmm_roundtrip)
 add_test(NAME test_snpylm_roundtrip COMMAND test_snpylm_roundtrip)
 add_test(NAME test_snpylm_infer COMMAND test_snpylm_infer)
+add_test(NAME test_negative_binomial COMMAND test_negative_binomial)
