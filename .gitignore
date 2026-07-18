@@ -95,7 +95,6 @@ py/*.so
 # agent instruction / workspace files (local only; not shared with the repo)
 CLAUDE.md
 CLAUDE.local.md
-AGENTS.md
 AGENTS.local.md
 .mcp.json
 .agents/
