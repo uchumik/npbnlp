@@ -36,6 +36,7 @@ static int dot = 0;
 static int mh = 0;
 static int bottom_up = 0;
 static int random_seed = -1;
+static int ckpt = 0;
 static string train;
 static string test;
 static string model("ipcfg.model");
@@ -76,6 +77,7 @@ void usage(int argc, char **argv) {
 	cout << "--mh=flag use slice-CYK proposals with a sequential-HPYP MH correction (threads=1)\n";
 	cout << "--bottom_up=flag use legacy P(A|B,C)P(B)P(C|B) rule factor\n";
 	cout << "--seed=int use a deterministic random seed for reproducible experiments\n";
+	cout << "--ckpt=int    save model/dic every N epochs (0=only at the end)\n";
 	cout << "--dot=flag output in dot format for graphviz" << endl;
 	exit(1);
 }
@@ -108,6 +110,8 @@ int read_long_param(const char *opt, const char *arg) {
 		span_b = atof(arg);
 	} else if (check(opt, "seed")) {
 		random_seed = atoi(arg);
+	} else if (check(opt, "ckpt")) {
+		ckpt = atoi(arg);
 	} else {
 		return 1;
 	}
@@ -138,6 +142,7 @@ int read_param(int argc, char **argv) {
 			{"mh", no_argument, &mh, 1},
 			{"bottom_up", no_argument, &bottom_up, 1},
 			{"seed", required_argument, 0, 0},
+			{"ckpt", required_argument, 0, 0},
 			// flag option
 			{"dot", no_argument, &dot, 1},
 			{0, 0, 0, 0}
@@ -503,6 +508,18 @@ int mcmc() {
 				 << " log_alpha_mean=" << (mh_attempts ? mh_log_alpha_sum/mh_attempts : 0.)
 				 << " min=" << (mh_attempts ? mh_log_alpha_min : 0.)
 				 << " max=" << (mh_attempts ? mh_log_alpha_max : 0.) << endl;
+		if (ckpt > 0 && (i+1) % ckpt == 0) {
+			// crash-safe: write to a temp path, then rename over the target
+			string mtmp = model+".tmp";
+			string dtmp = dic+".tmp";
+			g.save(mtmp.c_str());
+			shared_ptr<wid> cd = wid::create();
+			cd->save(dtmp.c_str());
+			if (rename(mtmp.c_str(), model.c_str()) != 0 ||
+			    rename(dtmp.c_str(), dic.c_str()) != 0)
+				throw "failed to rename checkpoint in ipcfg train";
+			cerr << "[ipcfg-ckpt] epoch=" << (i+1) << " saved" << endl;
+		}
 		if (dmp && (i+1)%dmp == 0) {
 			cout << endl;
 			//for (auto s = corpus.begin(); s != corpus.end(); ++s)
