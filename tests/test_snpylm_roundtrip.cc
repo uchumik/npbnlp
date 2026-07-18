@@ -34,6 +34,8 @@ struct snpylm_probe : public snpylm {
 	using snpylm::_piw;
 	using snpylm::_pieos;
 	using snpylm::_psi;
+	using snpylm::_theta_sh;
+	using snpylm::_theta_k;
 	snpylm_probe(int n, int hn, int hl, int k): snpylm(n, hn, hl, k) {}
 };
 
@@ -147,6 +149,19 @@ static int run(int N) {
 	for (size_t i = 0; i < lm._psi.size(); ++i)
 		if (lm._psi[i] != 0) {
 			fprintf(stderr, "leak: psi[%zu]=%d (expected 0)\n", i, lm._psi[i]);
+			ok = false;
+			break;
+		}
+	// theta chunktype counts (both layers) must net to zero too (WO-009).
+	for (size_t i = 0; i < lm._theta_sh.size(); ++i)
+		if (lm._theta_sh[i] != 0) {
+			fprintf(stderr, "leak: theta_sh[%zu]=%d (expected 0)\n", i, lm._theta_sh[i]);
+			ok = false;
+			break;
+		}
+	for (size_t i = 0; i < lm._theta_k.size(); ++i)
+		if (lm._theta_k[i] != 0) {
+			fprintf(stderr, "leak: theta_k[%zu]=%d (expected 0)\n", i, lm._theta_k[i]);
 			ok = false;
 			break;
 		}

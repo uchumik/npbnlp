@@ -70,6 +70,32 @@ namespace npbnlp {
 			// in the lattice allowed set, so hiragana-only / punctuation-only spans
 			// can never be NE. O(1): a single ch.type lookup, no character rescan.
 			virtual void set_type_admission(bool f);
+			// probabilistic chunktype NE prior theta (WO-009). Replaces the hard
+			// NE_ADMISSIBLE bool gate with a 2-level Dirichlet: a shared layer
+			// q^(ct) = (n(ct)+beta_ct)/(n(.)+sum beta) whose asymmetric prior beta
+			// is the bool table transcribed (admissible type -> theta_hi, else
+			// theta_lo), and a plug-in class layer theta^_k(ct) =
+			// (n_k(ct)+kappa*q^(ct))/(n_k(.)+kappa). The NE emission (k>=1) is scored
+			// with the centred factor log theta^_k(ct) - log q_cand(ct), q_cand being
+			// the fixed background candidate-type distribution measured at training
+			// start (measure_qcand). set_theta_* fix the hyperparameters (defaults
+			// 30 / 0.1 / 30). --no_type_admission (set_type_admission(false)) now
+			// disables BOTH theta and the hard gate (fully neutral).
+			virtual void set_theta_hi(double f);
+			virtual void set_theta_lo(double f);
+			virtual void set_theta_kappa(double f);
+			// revive the legacy hard NE_ADMISSIBLE gate (default off) for A/B and as
+			// a safety valve; when on, theta scoring is disabled and the bool gate is
+			// enforced in the lattice allowed set exactly as before WO-009.
+			virtual void set_hard_type_admission(bool f);
+			// q_cand: the fixed background candidate-type distribution. set_qcand
+			// takes raw per-chunktype candidate counts and stores add-one-smoothed,
+			// normalised probabilities (the ledger side of the centring). measure_qcand
+			// builds a clattice2 for every sentence (using the model's own _clength),
+			// tallies each candidate span's chunk type, and calls set_qcand; it is the
+			// training-time entry point (called from sne.cc mcmc before any sampling).
+			virtual void set_qcand(const std::vector<double>& counts);
+			virtual void measure_qcand(nio& f);
 			// single-word (len==1) NE emission: when off (default), E_k for a
 			// length-1 span bypasses the chunk-PYP cache and pays the base measure
 			// H_k^0 directly, removing the rich-get-richer boost that lets a few
@@ -124,7 +150,20 @@ namespace npbnlp {
 			double _alpha;
 			double _pi;  // current P(new token is an NE symbol)
 			double _tau; // NE emission annealing exponent (1 = stationary)
-			bool _type_admission; // gate NE spans by admissible chunk type
+			bool _type_admission; // master switch for any chunktype NE prior (WO-009)
+			bool _hard_type_admission; // revive the legacy bool gate (theta off)
+			bool _theta_enabled;  // probabilistic theta prior active (off on legacy load)
+			double _theta_hi;     // beta pseudo-count for admissible chunk types
+			double _theta_lo;     // beta pseudo-count for inadmissible chunk types
+			double _theta_kappa;  // class-layer concentration kappa
+			// theta ledger. _theta_sh[ct] = shared-layer count n(ct) over chunktype2
+			// (size chunktype2::n). _theta_k = flat (K+1) x chunktype2::n class-layer
+			// counts n_k(ct) (index _thetaki, the _psi pattern). Both are seated in
+			// _seat's ch.k>=1 branch (add/remove symmetric, same site as _necnt).
+			// _qcand[ct] = fixed background candidate-type distribution (serialized).
+			std::vector<int> _theta_sh;
+			std::vector<int> _theta_k;
+			std::vector<double> _qcand;
 			bool _l1_cache;       // len==1 NE uses the chunk-PYP cache (default off)
 			int _freq_cap;        // single-word NE frequency cap (0 = disabled)
 			// corpus word-type frequencies (word id -> count), measured from the
@@ -199,6 +238,17 @@ namespace npbnlp {
 			void _hk_surf_remove(int k, chunk& ch);  // symmetric un-seating
 			int _psii(int k, int t) const;           // flat index into _psi
 			double _psi_lp(int k, chunk& ch);        // log psi(x|k) (char-type factor)
+			// theta (WO-009) helpers. _theta_beta(ct) transcribes the bool gate into
+			// the asymmetric Dirichlet prior; _qhat is the shared layer, _theta_k_hat
+			// the plug-in class layer; _theta_lp is the centred emission factor
+			// log theta^_k(ct) - log q_cand(ct); _theta_score_on gates all of the above.
+			int _thetaki(int k, int ct) const;       // flat index into _theta_k
+			double _theta_beta(int ct) const;        // beta_ct from the bool table
+			double _theta_beta_sum() const;          // sum_ct beta_ct
+			double _qhat(int ct) const;              // shared-layer q^(ct)
+			double _theta_k_hat(int k, int ct) const;// class-layer theta^_k(ct)
+			double _theta_lp(int k, chunk& ch);      // log theta^_k(ct) - log q_cand(ct)
+			bool _theta_score_on() const;            // theta emission factor active?
 			int _kind(int id) const;         // >0 NE class, 0 normal, -1 reserved
 			// true iff `id` is a registered class NE symbol (_nek[k], k>=1). O(1)
 			// via the _id2k hash; the generic symbol _ne_generic is NOT a class
