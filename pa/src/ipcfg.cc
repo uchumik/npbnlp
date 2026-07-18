@@ -251,11 +251,6 @@ void ipcfg::_init_node(tree& t, int idx, int label) {
 	vector<int> left;
 	vector<int> right;
 	for (int l = 1; l <= _k; ++l) {
-		double lp_l = _nonterm->lp(l, _nonterm->h());
-		context *h = _nonterm->h();
-		context *q = h->find(l);
-		if (q)
-			h = q;
 		for (int r = 1; r <= _k; ++r) {
 			if (!_parent_allowed(label, l, r)) continue;
 			table.push_back(_rule_lp(label, l, r));
@@ -318,10 +313,6 @@ double ipcfg::_init_logprob_and_add(tree& t, int idx) {
 	vector<double> table;
 	double selected = -numeric_limits<double>::infinity();
 	for (int l = 1; l <= _k; ++l) {
-		double lp_l = _nonterm->lp(l, _nonterm->h());
-		context *h = _nonterm->h();
-		context *q = h->find(l);
-		if (q) h = q;
 		for (int r = 1; r <= _k; ++r) {
 			if (!_parent_allowed(z.k, l, r)) continue;
 			double lp = _rule_lp(z.k, l, r);
@@ -734,23 +725,9 @@ double ipcfg::_traceback(cyk& c, int i, int j, int z, vt& a, tree& tr, bool best
 		vector<double> rule;
 		for (auto k = i; k < j; ++k) {
 			for (auto l = c.begin(i,k); l != c.end(i,k); ++l) {
-				double lp_l = _nonterm->lp(*l, _nonterm->h());
-				context *h = _nonterm->h();
-				context *t = h->find(*l);
-				if (t)
-					h = t;
 				for (auto r = c.begin(k+1,j); r != c.end(k+1,j); ++r) {
 					if (!_parent_allowed(z, *l, *r))
 						continue;
-					double lp_r = _nonterm->lp(*r, h);
-					context *s = _nonterm->h();
-					context *u = s->find(*r);
-					if (u) {
-						s = u;
-						u = s->find(*l);
-						if (u)
-							s = u;
-					}
 					double lp = _rule_lp(z, *l, *r)+_span_lp(c,i,j);
 					if (lp < mu)
 						continue;
@@ -799,20 +776,8 @@ double ipcfg::_traceback_logprob(cyk& c, int i, int j, int z, vt& a, tree& tr) {
 	double mu = c.mu[i][j];
 	for (int k = i; k < j; ++k) {
 		for (auto l = c.begin(i,k); l != c.end(i,k); ++l) {
-			double lp_l = _nonterm->lp(*l, _nonterm->h());
-			context *h = _nonterm->h();
-			context *t = h->find(*l);
-			if (t) h = t;
 			for (auto r = c.begin(k+1,j); r != c.end(k+1,j); ++r) {
 				if (!_parent_allowed(z, *l, *r)) continue;
-				double lp_r = _nonterm->lp(*r, h);
-				context *s = _nonterm->h();
-				context *u = s->find(*r);
-				if (u) {
-					s = u;
-					u = s->find(*l);
-					if (u) s = u;
-				}
 				double lp = _rule_lp(z, *l, *r)+_span_lp(c,i,j);
 				if (lp < mu) continue;
 				table.push_back(lp+a[i][k][*l].v+a[k+1][j][*r].v);
@@ -854,21 +819,7 @@ void ipcfg::_calc_nonterm(cyk& c, int i, int j, vt& a) {
 	double mu = c.mu[i][j];
 	for (auto k = i; k < j; ++k) {
 		for (auto l = c.begin(i,k); l != c.end(i,k); ++l) {
-			double lp_l = _nonterm->lp(*l, _nonterm->h());
-			context *h = _nonterm->h();
-			context *t = h->find(*l);
-			if (t)
-				h = t;
 			for (auto r = c.begin(k+1,j); r != c.end(k+1,j); ++r) {
-				double lp_r = _nonterm->lp(*r, h);
-				context *s = _nonterm->h();
-				context *u = s->find(*r);
-				if (u) {
-					s = u;
-					u = s->find(*l);
-					if (u)
-						s = u;
-				}
 				for (auto z = c.begin(i,j); z != c.end(i,j); ++z) {
 					if (!_parent_allowed(*z, *l, *r))
 						continue;
@@ -1032,21 +983,7 @@ double ipcfg::_marginalize(cyk& c, int i, int j) {
 	double z = 0;
 	for (auto k = i; k < j; ++k) {
 		for (auto l = c.begin(i,k); l != c.end(i,k); ++l) {
-			double lp_l = _nonterm->lp(*l, _nonterm->h());
-			context *h = _nonterm->h();
-			context *t = h->find(*l);
-			if (t)
-				h = t;
 			for (auto r = c.begin(k+1,j); r != c.end(k+1,j); ++r) {
-				double lp_r = _nonterm->lp(*r, h);
-				context *s = _nonterm->h();
-				context *u = s->find(*r);
-				if (u) {
-					s = u;
-					u = s->find(*l);
-					if (u)
-						s = u;
-				}
 				for (auto m = max(*l,*r); m > 0; --m) {
 					double lp = _rule_lp(m, *l, *r)+_span_lp(c,i,j);
 					math::lse(z,lp,(z==0.));
@@ -1063,21 +1000,7 @@ double ipcfg::_draw(cyk& c, int i, int j) {
 	vector<int> z;
 	for (auto k = i; k < j; ++k) {
 		for (auto l = c.begin(i,k); l != c.end(i,k); ++l) {
-			double lp_l = _nonterm->lp(*l, _nonterm->h());
-			context *h = _nonterm->h();
-			context *t = h->find(*l);
-			if (t)
-				h = t;
 			for (auto r = c.begin(k+1,j); r != c.end(k+1,j); ++r) {
-				double lp_r = _nonterm->lp(*r, h);
-				context *s = _nonterm->h();
-				context *u = s->find(*r);
-				if (u) {
-					s = u;
-					u = s->find(*l);
-					if (u)
-						s = u;
-				}
 				for (auto m = max(*l,*r); m > 0; --m) {
 					double lp = _rule_lp(m, *l, *r)+_span_lp(c,i,j);
 					table.push_back(lp);
@@ -1101,21 +1024,7 @@ void ipcfg::_slice_nonterm(cyk& c, int i, int j, double mu) {
 	vector<int> z;
 	for (auto k = i; k < j; ++k) {
 		for (auto l = c.begin(i,k); l != c.end(i,k); ++l) {
-			double lp_l = _nonterm->lp(*l, _nonterm->h());
-			context *h = _nonterm->h();
-			context *t = h->find(*l);
-			if (t)
-				h = t;
 			for (auto r = c.begin(k+1,j); r != c.end(k+1,j); ++r) {
-				double lp_r = _nonterm->lp(*r, h);
-				context *s = _nonterm->h();
-				context *u = s->find(*r);
-				if (u) {
-					s = u;
-					u = s->find(*l);
-					if (u)
-						s = u;
-				}
 				for (auto m = max(*l,*r); m > 0; --m) {
 					double lp = _rule_lp(m, *l, *r)+_span_lp(c,i,j);
 					table.push_back(lp);
@@ -1143,41 +1052,13 @@ void ipcfg::_slice_nonterm_cond(cyk& c, int i, int j, int lc, int rc, int kc, in
 	(void)kc; // split point is implied by lc/rc contexts; kept for clarity
 	beta_distribution be;
 	// score of the current on-path rule (same context construction as _draw)
-	double lp_l = _nonterm->lp(lc, _nonterm->h());
-	context *h = _nonterm->h();
-	context *t = h->find(lc);
-	if (t)
-		h = t;
-	double lp_r = _nonterm->lp(rc, h);
-	context *s = _nonterm->h();
-	context *u = s->find(rc);
-	if (u) {
-		s = u;
-		u = s->find(lc);
-		if (u)
-			s = u;
-	}
 	double score_cur = _rule_lp(mc, lc, rc)+_span_lp(c,i,j);
 	double mu = log(be(_a, _b))+score_cur;
 	c.mu[i][j] = mu;
 	// permitted set: enumerate every rule of this span exactly as _draw does
 	for (auto k = i; k < j; ++k) {
 		for (auto l = c.begin(i,k); l != c.end(i,k); ++l) {
-			double lpl = _nonterm->lp(*l, _nonterm->h());
-			context *hh = _nonterm->h();
-			context *tt = hh->find(*l);
-			if (tt)
-				hh = tt;
 			for (auto r = c.begin(k+1,j); r != c.end(k+1,j); ++r) {
-				double lpr = _nonterm->lp(*r, hh);
-				context *ss = _nonterm->h();
-				context *uu = ss->find(*r);
-				if (uu) {
-					ss = uu;
-					uu = ss->find(*l);
-					if (uu)
-						ss = uu;
-				}
 				for (auto mm = max(*l,*r); mm > 0; --mm) {
 					double lp = _rule_lp(mm, *l, *r)+_span_lp(c,i,j);
 					if (lp >= mu)
@@ -1247,52 +1128,6 @@ void ipcfg::_slice_preterm_cond(cyk& l, int i, int label) {
 	assert(l.k[i][i].count(label) > 0); // current pre-terminal must survive
 }
 
-/*
-   void ipcfg::_slice_nonterm(cyk& c, int i, int j) {
-   beta_distribution be;
-//shared_ptr<generator> g = generator::create();
-vector<double> table;
-vector<int> z;
-for (auto k = i; k < j; ++k) {
-for (auto l = c.begin(i,k); l != c.end(i,k); ++l) {
-double lp_l = _nonterm->lp(*l, _nonterm->h());
-context *h = _nonterm->h();
-context *t = h->find(*l);
-if (t)
-h = t;
-for (auto r = c.begin(k+1,j); r != c.end(k+1,j); ++r) {
-double lp_r = _nonterm->lp(*r, h);
-context *s = _nonterm->h();
-context *u = s->find(*r);
-if (u) {
-s = u;
-u = s->find(*l);
-if (u)
-s = u;
-}
-//for (auto m = 1; m < _k+1; ++m) {
-for (auto m = max(*l,*r); m > 0; --m) {
-double lp = _nonterm->lp(m, s)+lp_l+lp_r;
-table.push_back(lp);
-z.push_back(m);
-}
-}
-}
-}
-// P(B,C|A) := P(A->B C|A)
-// P(B,C|A) \propto P(B,C,A) = P(A|B,C)P(B,C)
-// draw A ~ P(A,B,C) for a threshold at cell_{i,j}
-int id = rd::ln_draw(table);
-double mu = log(be(_a, _b))+table[id];
-//double mu = table[id];
-c.mu[i][j] = mu;
-for (auto m = 0; m < (int)table.size(); ++m) {
-if (table[m] >= mu) {
-c.k[i][j].insert(z[m]);
-}
-}
-}
-*/
 
 void ipcfg::_slice_root(cyk& c) {
 	beta_distribution be;
@@ -1301,21 +1136,7 @@ void ipcfg::_slice_root(cyk& c) {
 	vector<double> table;
 	for (auto k = 0; k < size-1; ++k) {
 		for (auto l = c.begin(0, k); l != c.end(0, k); ++l) {
-			double lp_l = _nonterm->lp(*l, _nonterm->h());
-			context *h = _nonterm->h();
-			context *t = h->find(*l);
-			if (t)
-				h = t;
 			for (auto r = c.begin(k+1, size-1); r != c.end(k+1, size-1); ++r) {
-				double lp_r = _nonterm->lp(*r, h);
-				context *s = _nonterm->h();
-				context *u = s->find(*r);
-				if (u) {
-					s = u;
-					u = s->find(*l);
-					if (u)
-						s = u;
-				}
 				double lp = _rule_lp(0, *l, *r);
 				table.push_back(lp);
 			}
@@ -1344,20 +1165,6 @@ void ipcfg::_slice_root(cyk& c) {
 void ipcfg::_slice_root_cond(cyk& c, int lc, int rc) {
 	beta_distribution be;
 	int size = c.s.size();
-	double lp_l = _nonterm->lp(lc, _nonterm->h());
-	context *h = _nonterm->h();
-	context *t = h->find(lc);
-	if (t)
-		h = t;
-	double lp_r = _nonterm->lp(rc, h);
-	context *s = _nonterm->h();
-	context *u = s->find(rc);
-	if (u) {
-		s = u;
-		u = s->find(lc);
-		if (u)
-			s = u;
-	}
 	double score_cur = _rule_lp(0, lc, rc);
 	double mu = log(be(_a, _b))+score_cur;
 	c.mu[0][size-1] = mu;
