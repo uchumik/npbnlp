@@ -327,7 +327,7 @@ void snpylm::set_freq_cap(int cap) {
 		_freq_cap = 0; // no data -> gate disabled
 		return;
 	}
-	std::sort(freqs.begin(), freqs.end(), std::greater<int>());
+	std::sort(freqs.begin(), freqs.end(), std::greater<>());
 	double mass_th = 0.01 * (double)total;
 	long long cum = 0;
 	int f_cross = freqs.front();
