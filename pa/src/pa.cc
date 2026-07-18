@@ -34,7 +34,6 @@ static double span_a = 1;
 static double span_b = 1;
 static int dot = 0;
 static int mh = 0;
-static int bottom_up = 0;
 static int random_seed = -1;
 static int ckpt = 0;
 static string train;
@@ -75,7 +74,6 @@ void usage(int argc, char **argv) {
 	cout << "--span_beta=float prior beta for span continue probability(default 1)\n";
 	cout << "Parent labels are constrained to be no greater than a child label.\n";
 	cout << "--mh=flag use slice-CYK proposals with a sequential-HPYP MH correction (threads=1)\n";
-	cout << "--bottom_up=flag use legacy P(A|B,C)P(B)P(C|B) rule factor\n";
 	cout << "--seed=int use a deterministic random seed for reproducible experiments\n";
 	cout << "--ckpt=int    save model/dic every N epochs (0=only at the end)\n";
 	cout << "--dot=flag output in dot format for graphviz" << endl;
@@ -140,7 +138,6 @@ int read_param(int argc, char **argv) {
 			{"span_alpha", required_argument, 0, 0},
 			{"span_beta", required_argument, 0, 0},
 			{"mh", no_argument, &mh, 1},
-			{"bottom_up", no_argument, &bottom_up, 1},
 			{"seed", required_argument, 0, 0},
 			{"ckpt", required_argument, 0, 0},
 			// flag option
@@ -378,7 +375,6 @@ int mcmc() {
 	ipcfg g(m);
 	g.set(K);
 	g.slice(a, b);
-	g.bottom_up(bottom_up != 0);
 	if (span)
 		g.span(span_a, span_b);
 	if (mh && threads != 1) {

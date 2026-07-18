@@ -48,10 +48,6 @@ namespace npbnlp {
 			// vocabularies are inferred by the language models themselves.
 			virtual void set(int k);
 			virtual void slice(double a, double b);
-			// Legacy bottom-up rule factor P(A|B,C)P(B)P(C|B).  The default is
-			// the top-down normalized factor G_L(B|A)G_R(C|A,B).
-			virtual void bottom_up(bool enabled = true);
-			bool bottom_up_enabled() const { return _bottom_up; }
 			// Geometric prior over non-root internal span widths.  A span of
 			// width d=j-i emits one stop and d-1 continue events.
 			virtual void span(double a = 1., double b = 1.);
@@ -79,7 +75,6 @@ namespace npbnlp {
 			double _a;
 			double _b;
 			bool _span;
-			bool _bottom_up;
 			// All class-specific word HPYPs back off to this one shared character
 			// VPYP.  The vector retains one slot per class solely for legacy model
 			// serialization and bounds checks; its entries alias when enabled.
