@@ -550,6 +550,17 @@ int parse() {
 		cout << "node [fontname=IPAPGothic]" << endl;
 		cout << "edge [fontname=IPAPGothic]" << endl;
 	}
+	// parse() samples, so the dynamic schedule below makes the order in which
+	// sentences consume the RNG depend on thread timing.  --seed promises a
+	// reproducible run, so honour it the way mcmc() honours --mh.
+	if (random_seed >= 0 && threads != 1) {
+		cerr << "[ipcfg] forcing --threads 1: --seed requires a deterministic parse order" << endl;
+		threads = 1;
+	}
+#ifdef _OPENMP
+	threads = min(omp_get_max_threads(), threads);
+	omp_set_num_threads(threads);
+#endif
 #ifdef _OPENMP
 #pragma omp parallel for ordered schedule(dynamic)
 #endif
