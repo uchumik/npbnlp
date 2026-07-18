@@ -20,7 +20,7 @@
 using namespace std;
 using namespace npbnlp;
 
-ipcfg::ipcfg():_m(20), _k(20),_K(K), _v(C), _a(1), _b(1), _span(false), _bottom_up(false), _shared_letter(true), _span_a(1), _span_b(1), _span_p(.5), _span_stop(0), _span_continue(0), _slice_terminal_cells(0), _slice_terminal_labels(0), _slice_internal_cells(0), _slice_internal_labels(0), _nonterm(new hpyp(3)),_word(new vector<shared_ptr<hpyp> >),_letter(new vector<shared_ptr<vpyp> >) {
+ipcfg::ipcfg():_m(20), _k(20),_K(K), _v(C), _a(1), _b(1), _span(false), _shared_letter(true), _span_a(1), _span_b(1), _span_p(.5), _span_stop(0), _span_continue(0), _slice_terminal_cells(0), _slice_terminal_labels(0), _slice_internal_cells(0), _slice_internal_labels(0), _nonterm(new hpyp(3)),_word(new vector<shared_ptr<hpyp> >),_letter(new vector<shared_ptr<vpyp> >) {
 	shared_ptr<vpyp> letter(new vpyp(_m));
 	for (auto i = 0; i < _k+1; ++i) {
 		_word->push_back(shared_ptr<hpyp>(new hpyp(1)));
@@ -29,7 +29,7 @@ ipcfg::ipcfg():_m(20), _k(20),_K(K), _v(C), _a(1), _b(1), _span(false), _bottom_
 	}
 }
 
-ipcfg::ipcfg(int m):_m(m), _k(20), _K(K), _v(C), _a(1), _b(1), _span(false), _bottom_up(false), _shared_letter(true), _span_a(1), _span_b(1), _span_p(.5), _span_stop(0), _span_continue(0), _slice_terminal_cells(0), _slice_terminal_labels(0), _slice_internal_cells(0), _slice_internal_labels(0), _nonterm(new hpyp(3)), _word(new vector<shared_ptr<hpyp> >), _letter(new vector<shared_ptr<vpyp> >) {
+ipcfg::ipcfg(int m):_m(m), _k(20), _K(K), _v(C), _a(1), _b(1), _span(false), _shared_letter(true), _span_a(1), _span_b(1), _span_p(.5), _span_stop(0), _span_continue(0), _slice_terminal_cells(0), _slice_terminal_labels(0), _slice_internal_cells(0), _slice_internal_labels(0), _nonterm(new hpyp(3)), _word(new vector<shared_ptr<hpyp> >), _letter(new vector<shared_ptr<vpyp> >) {
 	shared_ptr<vpyp> letter(new vpyp(_m));
 	for (auto i = 0; i < _k+1; ++i) {
 		_word->push_back(shared_ptr<hpyp>(new hpyp(1)));
@@ -72,7 +72,10 @@ void ipcfg::_save(FILE *fp) const {
 		// Optional tail block: old models end after the language models and
 		// therefore load with the geometric span prior disabled.
 		uint32_t magic = 0x50414750; // "PAGP"
-		uint32_t version = 4;
+		// version 5 drops the trailing bottom_up bool (the top-down rule
+		// factor was removed in WO-011); the free_parent slot is still
+		// written so that older readers stay happy.
+		uint32_t version = 5;
 		int enabled = _span ? 1 : 0;
 		int free_parent = 0; // version-3 compatibility slot; ordered is fixed.
 		int shared_letter = _shared_letter ? 1 : 0;
@@ -85,8 +88,7 @@ void ipcfg::_save(FILE *fp) const {
 		    fwrite(&_span_stop, sizeof(long long), 1, fp) != 1 ||
 		    fwrite(&_span_continue, sizeof(long long), 1, fp) != 1 ||
 		    fwrite(&free_parent, sizeof(int), 1, fp) != 1 ||
-		    fwrite(&shared_letter, sizeof(int), 1, fp) != 1 ||
-		    fwrite(&_bottom_up, sizeof(bool), 1, fp) != 1)
+		    fwrite(&shared_letter, sizeof(int), 1, fp) != 1)
 			throw "failed to write span prior tail in ipcfg::save";
 	} catch (const char *ex) {
 		throw ex;
@@ -135,16 +137,14 @@ void ipcfg::_load(FILE *fp) {
 		size_t nr = fread(&magic, sizeof(uint32_t), 1, fp);
 		if (nr == 0 && feof(fp)) {
 			clearerr(fp);
-			_span = false;
-			_span_a = _span_b = 1.;
-			_span_p = .5;
-			_span_stop = _span_continue = 0;
-			_shared_letter = false;
+			// Tail-less models predate the tail block and were trained with
+			// the top-down rule factor removed in WO-011.
+			throw "ipcfg::load: model uses the removed top-down rule factor; retrain with the current binary";
 		} else {
 			uint32_t version = 0;
 			int enabled = 0;
 			if (nr != 1 || magic != 0x50414750 ||
-			    fread(&version, sizeof(uint32_t), 1, fp) != 1 || (version != 1 && version != 2 && version != 3 && version != 4) ||
+			    fread(&version, sizeof(uint32_t), 1, fp) != 1 || (version < 1 || version > 5) ||
 			    fread(&enabled, sizeof(int), 1, fp) != 1 ||
 			    fread(&_span_a, sizeof(double), 1, fp) != 1 ||
 			    fread(&_span_b, sizeof(double), 1, fp) != 1 ||
@@ -153,23 +153,28 @@ void ipcfg::_load(FILE *fp) {
 			    fread(&_span_continue, sizeof(long long), 1, fp) != 1)
 				throw "failed to read span prior tail in ipcfg::load";
 			_span = enabled != 0;
-			_bottom_up = false;
 			_shared_letter = false;
-			if (version == 2) {
-				int free_parent = 0;
-				if (fread(&free_parent, sizeof(int), 1, fp) != 1)
-					throw "failed to read parent-label mode in ipcfg::load";
-			} else if (version == 3 || version == 4) {
-				int free_parent = 0;
-				int shared_letter = 0;
-				if (fread(&free_parent, sizeof(int), 1, fp) != 1 ||
-				    fread(&shared_letter, sizeof(int), 1, fp) != 1)
-					throw "failed to read iPCFG shared-letter mode in ipcfg::load";
-				_shared_letter = shared_letter != 0;
-				if (_shared_letter)
-					_share_letters();
-				if (version == 4 && fread(&_bottom_up, sizeof(bool), 1, fp) != 1)
+			// Versions 1-3 always used the top-down rule factor removed in
+			// WO-011, so their nonterminal counts are incompatible.
+			if (version <= 3)
+				throw "ipcfg::load: model uses the removed top-down rule factor; retrain with the current binary";
+			int free_parent = 0;
+			int shared_letter = 0;
+			if (fread(&free_parent, sizeof(int), 1, fp) != 1 ||
+			    fread(&shared_letter, sizeof(int), 1, fp) != 1)
+				throw "failed to read iPCFG shared-letter mode in ipcfg::load";
+			_shared_letter = shared_letter != 0;
+			if (_shared_letter)
+				_share_letters();
+			if (version == 4) {
+				// version 4 recorded the rule-factor mode; only its
+				// bottom-up models carry counts compatible with the
+				// current single factor.
+				bool bottom_up = false;
+				if (fread(&bottom_up, sizeof(bool), 1, fp) != 1)
 					throw "failed to read iPCFG rule-factor mode in ipcfg::load";
+				if (!bottom_up)
+					throw "ipcfg::load: model uses the removed top-down rule factor; retrain with the current binary";
 			}
 		}
 	} catch (const char *ex) {
@@ -455,58 +460,38 @@ void ipcfg::_check_label(const node& z, const char *where) const {
 	}
 }
 
+// Bottom-up rule factor P(B) P(C|B) P(A|C,B): the observed word sequence is
+// abstracted at the pre-terminals and assembled upward. The top-down factor
+// G_L(B|A) G_R(C|A,B) was removed in WO-011.
 double ipcfg::_rule_lp(int parent, int left, int right) const {
-	if (_bottom_up) {
-		double lp = _nonterm->lp(left, _nonterm->h());
-		context *h = _nonterm->h();
-		if (context *q = h->find(left)) h = q;
-		lp += _nonterm->lp(right, h);
-		h = _nonterm->h();
-		if (context *q = h->find(right)) h = q;
-		if (context *q = h->find(left)) h = q;
-		return lp+_nonterm->lp(parent, h);
-	}
+	double lp = _nonterm->lp(left, _nonterm->h());
 	context *h = _nonterm->h();
-	if (context *q = h->find(parent)) h = q;
-	double lp = _nonterm->lp(left, h);
 	if (context *q = h->find(left)) h = q;
-	return lp+_nonterm->lp(right, h);
+	lp += _nonterm->lp(right, h);
+	h = _nonterm->h();
+	if (context *q = h->find(right)) h = q;
+	if (context *q = h->find(left)) h = q;
+	return lp+_nonterm->lp(parent, h);
 }
 
 void ipcfg::_rule_add(int parent, int left, int right) {
-	if (_bottom_up) {
-		context *h = _nonterm->h()->make(right)->make(left);
-		_nonterm->add(parent, h);
-		h = _nonterm->h();
-		_nonterm->add(left, h);
-		h = h->make(left);
-		_nonterm->add(right, h);
-		return;
-	}
-	context *h = _nonterm->h()->make(parent);
+	context *h = _nonterm->h()->make(right)->make(left);
+	_nonterm->add(parent, h);
+	h = _nonterm->h();
 	_nonterm->add(left, h);
 	h = h->make(left);
 	_nonterm->add(right, h);
 }
 
 void ipcfg::_rule_remove(int parent, int left, int right) {
-	if (_bottom_up) {
-		context *h = _nonterm->h()->find(right);
-		if (!h || !(h = h->find(left)))
-			throw "ipcfg::remove missing bottom-up parent context";
-		_nonterm->remove(parent, h);
-		h = _nonterm->h();
-		_nonterm->remove(left, h);
-		if (!(h = h->find(left)))
-			throw "ipcfg::remove missing bottom-up left context";
-		_nonterm->remove(right, h);
-		return;
-	}
-	context *h = _nonterm->h()->find(parent);
-	if (!h) throw "ipcfg::remove missing parent rule context";
+	context *h = _nonterm->h()->find(right);
+	if (!h || !(h = h->find(left)))
+		throw "ipcfg::remove missing bottom-up parent context";
+	_nonterm->remove(parent, h);
+	h = _nonterm->h();
 	_nonterm->remove(left, h);
-	h = h->find(left);
-	if (!h) throw "ipcfg::remove missing left rule context";
+	if (!(h = h->find(left)))
+		throw "ipcfg::remove missing bottom-up left context";
 	_nonterm->remove(right, h);
 }
 
@@ -656,10 +641,6 @@ void ipcfg::slice(double a, double b) {
 	}
 	_a = a;
 	_b = b;
-}
-
-void ipcfg::bottom_up(bool enabled) {
-	_bottom_up = enabled;
 }
 
 bool ipcfg::_parent_allowed(int parent, int left, int right) const {
