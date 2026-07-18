@@ -28,6 +28,11 @@ namespace npbnlp {
 			context* find(int k) const;
 			context* make(int k);
 			void cleanup();
+			// CRP accounting diagnostics.  valid() checks local restaurant
+			// totals recursively; empty() additionally requires no residual
+			// add/remove traffic anywhere below this context.
+			bool valid() const;
+			bool empty() const;
 			int n() const;
 			int a() const;
 			int b() const;

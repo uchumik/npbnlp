@@ -165,6 +165,46 @@ void context::cleanup() {
 	}
 }
 
+bool context::valid() const {
+	if (_customer < 0 || _table < 0 || _stop < 0 || _pass < 0)
+		return false;
+	int customers = 0;
+	int tables = 0;
+	for (auto it = _restaurant->cbegin(); it != _restaurant->cend(); ++it) {
+		const arrangements& a = *it->second;
+		if (a.n <= 0 || !a.table || a.table->empty())
+			return false;
+		int dish_customers = 0;
+		for (auto n : *a.table) {
+			if (n <= 0)
+				return false;
+			dish_customers += n;
+		}
+		if (dish_customers != a.n)
+			return false;
+		customers += dish_customers;
+		tables += a.table->size();
+	}
+	if (customers != _customer || tables != _table)
+		return false;
+	for (auto it = _child->cbegin(); it != _child->cend(); ++it) {
+		if (!it->second || !it->second->valid())
+			return false;
+	}
+	return true;
+}
+
+bool context::empty() const {
+	if (!valid() || _customer != 0 || _table != 0 || _stop != 0 || _pass != 0 ||
+	    !_restaurant->empty())
+		return false;
+	for (auto it = _child->cbegin(); it != _child->cend(); ++it) {
+		if (!it->second || !it->second->empty())
+			return false;
+	}
+	return true;
+}
+
 int context::sample(lm *m) {
 	context *h = this;
 	for (; h->_parent;)
@@ -408,4 +448,3 @@ void context::estimate_d(vector<double>& a, vector<double>& b, lm *m) {
 			(*_child)[key] = p;
 		}
 	}
-

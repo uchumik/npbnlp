@@ -713,6 +713,14 @@ bool hpyp::remove(int k, context *h) {
 	return remove_from_parent;
 }
 
+bool hpyp::valid() const {
+	return _h && _h->valid();
+}
+
+bool hpyp::empty() const {
+	return _h && _h->empty();
+}
+
 void hpyp::remove(word& w, context *h) {
 	if (remove(w.id, h) && _base) {
 		lock_guard<mutex> m(_mutex);

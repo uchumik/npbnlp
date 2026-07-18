@@ -9,6 +9,9 @@
 #include"cyk.h"
 #include<functional>
 #include<memory>
+#include<atomic>
+#include<unordered_map>
+#include<cstdio>
 
 namespace npbnlp {
 	class ipcfg {
@@ -18,13 +21,54 @@ namespace npbnlp {
 			virtual ~ipcfg();
 			virtual tree sample(io& f, int i);
 			virtual tree sample(io& f, int i, tree *cur);
+			// Slice-conditioned CYK proposal used by the MH correction.  The
+			// current tree and the proposal are both scored on the same sampled
+			// lattice, using root-inside plus traceback probabilities.
+			virtual tree mh_propose(io& f, int i, tree *cur, double& log_q,
+								 double& log_q_cur);
+			// Evaluate the same recursive generation process as init(): every
+			// predictive probability is read before its matching add().  The tree
+			// is left added to this model on return.
+			virtual double mh_logprob_and_add(tree& t);
+			// A serialization-based score snapshot is required because hpyp's C++
+			// copy constructor deliberately shares CRP state.  It is used only for
+			// predictive scoring (never remove/gibbs), because base-corpus witness
+			// lists are intentionally not part of persisted models.
+			virtual std::unique_ptr<ipcfg> snapshot() const;
+			// Sequential, model-based initialization.  This creates and returns a
+			// complete latent tree while updating the HPYPs as every production is
+			// generated; it deliberately does not invoke the slice sampler.
+			virtual tree init(io& f, int i);
 			virtual tree parse(io& f, int i);
 			virtual void add(tree& t);
 			virtual void remove(tree& t);
 			virtual void estimate(int iter);
 			virtual void poisson_correction(int n = 100);
-			virtual void set(int v, int k);
+			// Set only the maximum number of latent categories.  HPYP/VPYP
+			// vocabularies are inferred by the language models themselves.
+			virtual void set(int k);
 			virtual void slice(double a, double b);
+			// Legacy bottom-up rule factor P(A|B,C)P(B)P(C|B).  The default is
+			// the top-down normalized factor G_L(B|A)G_R(C|A,B).
+			virtual void bottom_up(bool enabled = true);
+			bool bottom_up_enabled() const { return _bottom_up; }
+			// Geometric prior over non-root internal span widths.  A span of
+			// width d=j-i emits one stop and d-1 continue events.
+			virtual void span(double a = 1., double b = 1.);
+			bool span_enabled() const { return _span; }
+			double span_probability() const { return _span_p; }
+			long long span_stops() const { return _span_stop; }
+			long long span_continues() const { return _span_continue; }
+			int category_count() const { return _k; }
+			// Atomically return and clear slice candidate diagnostics accumulated
+			// by sample().  Values exclude the structural root cell.
+			void slice_diagnostics(long long& terminal_cells, long long& terminal_labels,
+							long long& internal_cells, long long& internal_labels);
+			// Remove only trailing categories that are absent from a fully-added
+			// corpus.  Do not call while a sentence is temporarily held out.
+			void compact();
+			bool valid() const;
+			bool empty() const;
 			virtual void save(const char *file);
 			virtual void load(const char *file);
 		private:
@@ -34,16 +78,44 @@ namespace npbnlp {
 			int _v;
 			double _a;
 			double _b;
+			bool _span;
+			bool _bottom_up;
+			// All class-specific word HPYPs back off to this one shared character
+			// VPYP.  The vector retains one slot per class solely for legacy model
+			// serialization and bounds checks; its entries alias when enabled.
+			bool _shared_letter;
+			double _span_a;
+			double _span_b;
+			double _span_p;
+			long long _span_stop;
+			long long _span_continue;
+			std::atomic<long long> _slice_terminal_cells;
+			std::atomic<long long> _slice_terminal_labels;
+			std::atomic<long long> _slice_internal_cells;
+			std::atomic<long long> _slice_internal_labels;
+			std::unordered_map<int, int> _tfreq;
 			std::shared_ptr<hpyp> _nonterm;
 			std::shared_ptr<std::vector<std::shared_ptr<hpyp> > > _word;
 			std::shared_ptr<std::vector<std::shared_ptr<vpyp> > > _letter;
 			std::mutex _mutex;
-			void _traceback(cyk& c, int i, int j, int z, vt& a, tree& tr, bool best = false);
+			double _traceback(cyk& c, int i, int j, int z, vt& a, tree& tr, bool best = false);
+			double _traceback_logprob(cyk& c, int i, int j, int z, vt& a, tree& tr);
+			tree _sample(io& f, int i, tree *cur, bool full_cyk, double *log_q,
+						 double *log_q_cur = nullptr);
+			void _init_node(tree& t, int idx, int label);
+			double _init_logprob_and_add(tree& t, int idx);
 			void _add(tree& t, int i);
 			void _remove(tree& t, int i);
+			void _check_label(const node& z, const char *where) const;
+			// Grammar factorisation used everywhere a binary rule is scored:
+			// G_L(B|A) G_R(C|A,B).  The contexts are kept in one HPYP so their
+			// backing-off hierarchy is still learned from data.
+			double _rule_lp(int parent, int left, int right) const;
+			void _rule_add(int parent, int left, int right);
+			void _rule_remove(int parent, int left, int right);
 			void _calc_preterm(cyk& c, int j, vt& a);
 			void _calc_nonterm(cyk& c, int i, int j, vt& a);
-			void _slice(cyk& l, tree *cur);
+			void _slice(cyk& l, tree *cur, bool full_cyk = false);
 			void _slice_preterm(cyk& l, int i);
 			void _slice_preterm_cond(cyk& l, int i, int label);
 			//void _slice_nonterm(cyk& c, int i, int j);
@@ -54,8 +126,15 @@ namespace npbnlp {
 			void _slice_root(cyk& c);
 			void _slice_root_cond(cyk& c, int lc, int rc);
 			void _collect_spans(tree& t, int idx, std::vector<std::vector<const node*> >& on);
+			bool _parent_allowed(int parent, int left, int right) const;
+			void _record_slice(cyk& c);
+			double _span_lp(cyk& c, int i, int j);
 			void _resize();
 			void _shrink();
+			void _share_letters();
+			void _unshare_letters();
+			void _save(FILE *fp) const;
+			void _load(FILE *fp);
 	};
 }
 #endif

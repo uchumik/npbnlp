@@ -83,6 +83,8 @@ namespace npbnlp {
 			void set_v(int v);
 			void estimate(int iter);
 			void poisson_correction(int n = 1000);
+			bool valid() const;
+			bool empty() const;
 			void gibbs(int iter);
 			void save(const char *file);
 			void load(const char *file);

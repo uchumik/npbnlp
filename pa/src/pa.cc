@@ -5,6 +5,10 @@
 #include<cstring>
 #include<cstdlib>
 #include<getopt.h>
+#include<unordered_set>
+#include<map>
+#include<cmath>
+#include<limits>
 #ifdef _OPENMP
 #include<omp.h>
 #endif
@@ -23,10 +27,15 @@ static int K = 100; // base measure for transition
 static int threads = 4;
 static int epoch = 500;
 static int dmp = 0;
-static int vocab = 50000;
 static double a = 1;
 static double b = 1;
+static int span = 0;
+static double span_a = 1;
+static double span_b = 1;
 static int dot = 0;
+static int mh = 0;
+static int bottom_up = 0;
+static int random_seed = -1;
 static string train;
 static string test;
 static string model("ipcfg.model");
@@ -60,7 +69,13 @@ void usage(int argc, char **argv) {
 	cout << "-k, --max_category=int(default 100)\n";
 	cout << "-e, --epoch=int(default 500)\n";
 	cout << "-t, --threads=int(default 4)\n";
-	cout << "-v, --vocab=int(means letter variations. default 5000)\n";
+	cout << "--span=flag enable a Beta-geometric prior over non-root internal spans\n";
+	cout << "--span_alpha=float prior alpha for span stop probability(default 1)\n";
+	cout << "--span_beta=float prior beta for span continue probability(default 1)\n";
+	cout << "Parent labels are constrained to be no greater than a child label.\n";
+	cout << "--mh=flag use slice-CYK proposals with a sequential-HPYP MH correction (threads=1)\n";
+	cout << "--bottom_up=flag use legacy P(A|B,C)P(B)P(C|B) rule factor\n";
+	cout << "--seed=int use a deterministic random seed for reproducible experiments\n";
 	cout << "--dot=flag output in dot format for graphviz" << endl;
 	exit(1);
 }
@@ -87,8 +102,12 @@ int read_long_param(const char *opt, const char *arg) {
 		dmp = atoi(arg);
 	} else if (check(opt, "dot")) {
 		dot = 1;
-	} else if (check(opt, "vocab")) {
-		vocab = atoi(arg);
+	} else if (check(opt, "span_alpha")) {
+		span_a = atof(arg);
+	} else if (check(opt, "span_beta")) {
+		span_b = atof(arg);
+	} else if (check(opt, "seed")) {
+		random_seed = atoi(arg);
 	} else {
 		return 1;
 	}
@@ -113,13 +132,18 @@ int read_param(int argc, char **argv) {
 			{"epoch", required_argument, 0, 0},
 			{"threads", required_argument, 0, 0},
 			{"dump", required_argument, 0, 0},
-			{"vocab", required_argument, 0, 0},
+			{"span", no_argument, &span, 1},
+			{"span_alpha", required_argument, 0, 0},
+			{"span_beta", required_argument, 0, 0},
+			{"mh", no_argument, &mh, 1},
+			{"bottom_up", no_argument, &bottom_up, 1},
+			{"seed", required_argument, 0, 0},
 			// flag option
 			{"dot", no_argument, &dot, 1},
 			{0, 0, 0, 0}
 		};
 		int option_index = 0;
-		c = getopt_long(argc, argv, "m:k:e:t:v:", long_options, &option_index);
+		c = getopt_long(argc, argv, "m:k:e:t:", long_options, &option_index);
 		if (c == -1)
 			break;
 		switch (c) {
@@ -140,9 +164,6 @@ int read_param(int argc, char **argv) {
 				break;
 			case 't':
 				threads = atoi(optarg);
-				break;
-			case 'v':
-				vocab = atoi(optarg);
 				break;
 			case '?':
 			default:
@@ -280,32 +301,150 @@ void dump_all(vector<tree>& corpus) {
 		cout << "}" << endl;
 }
 
+void assign_balanced_labels(tree& tr, int index, int categories, long long& cursor) {
+	node& z = tr[index];
+	if (z.k < 0)
+		return;
+	if (z.k != 0)
+		z.k = 1+(cursor++ % categories);
+	if (z.i == z.j)
+		return;
+	int size = tr.s.size();
+	assign_balanced_labels(tr, size*z.i+z.b-z.i*(1.+z.i)/2, categories, cursor);
+	assign_balanced_labels(tr, size*(z.b+1)+z.j-(z.b+1.)*(z.b+2)/2, categories, cursor);
+}
+
+void report_epoch_diagnostics(int iter, vector<tree>& corpus, ipcfg& g) {
+	map<int, long long> internal, terminal, top_child;
+	long long ni = 0, nt = 0, nh = 0;
+	for (auto& tr : corpus) {
+		for (const auto& z : tr.c) {
+			if (z.k <= 0)
+				continue;
+			if (z.i == z.j) {
+				++terminal[z.k]; ++nt;
+			} else {
+				++internal[z.k]; ++ni;
+			}
+		}
+		if (tr.s.size() > 1) {
+			const node& root = tr[tr.s.size()-1];
+			int n = tr.s.size();
+			const node& left = tr[n*root.i+root.b-root.i*(1.+root.i)/2];
+			const node& right = tr[n*(root.b+1)+root.j-(root.b+1.)*(root.b+2)/2];
+			if (left.k > 0) { ++top_child[left.k]; ++nh; }
+			if (right.k > 0) { ++top_child[right.k]; ++nh; }
+		}
+	}
+	auto summarize = [](const map<int, long long>& h, long long n, int& active,
+						 double& entropy, double& max_share, int& winner) {
+		active = 0; entropy = 0.; max_share = 0.; winner = 0;
+		for (const auto& p : h) {
+			if (p.second == 0) continue;
+			++active;
+			double q = (double)p.second/n;
+			entropy -= q*log(q);
+			if (q > max_share) { max_share = q; winner = p.first; }
+		}
+	};
+	int ai, at, ah, wi, wt, wh;
+	double hi, ht, hh, mi, mt, mh;
+	summarize(internal, ni, ai, hi, mi, wi);
+	summarize(terminal, nt, at, ht, mt, wt);
+	summarize(top_child, nh, ah, hh, mh, wh);
+	long long sc_t, sl_t, sc_i, sl_i;
+	g.slice_diagnostics(sc_t, sl_t, sc_i, sl_i);
+	cerr << "[ipcfg-diag] epoch=" << (iter+1)
+		 << " k=" << g.category_count()
+		 << " internal_n=" << ni << " internal_active=" << ai
+		 << " internal_H=" << hi << " internal_max=" << mi << " internal_argmax=" << wi
+		 << " preterm_n=" << nt << " preterm_active=" << at
+		 << " preterm_H=" << ht << " preterm_max=" << mt << " preterm_argmax=" << wt
+		 << " top_child_n=" << nh << " top_child_active=" << ah
+		 << " top_child_H=" << hh << " top_child_max=" << mh << " top_child_argmax=" << wh
+		 << " slice_preterm_mean=" << (sc_t ? (double)sl_t/sc_t : 0.)
+		 << " slice_internal_mean=" << (sc_i ? (double)sl_i/sc_i : 0.) << endl;
+}
+
 int mcmc() {
 	io f(train.c_str());
 	vector<tree> corpus;
 	corpus.resize(f.head.size()-1);
 	ipcfg g(m);
-	g.set(vocab, K);
+	g.set(K);
 	g.slice(a, b);
+	g.bottom_up(bottom_up != 0);
+	if (span)
+		g.span(span_a, span_b);
+	if (mh && threads != 1) {
+		cerr << "[ipcfg-mh] forcing --threads 1: proposal scoring and snapshot restoration are sequential" << endl;
+		threads = 1;
+	}
 #ifdef _OPENMP
 	threads = min(omp_get_max_threads(), threads);
 	omp_set_num_threads(threads);
 #endif
+	// Model-based initialization is intentionally sequential: each generated
+	// production immediately changes the HPYP used for the next one.  It does
+	// not call the slice sampler.  The following MCMC sweep always starts by
+	// removing these trees, as in ma/src/ma.cc.
+	vector<int> init_rd(corpus.size(), 0);
+	rd::shuffle(init_rd.data(), corpus.size());
+	for (int j = 0; j < (int)corpus.size(); ++j)
+		corpus[init_rd[j]] = g.init(f, init_rd[j]);
+	g.estimate(20);
+	g.poisson_correction(1000);
+	report_epoch_diagnostics(-1, corpus, g);
 	for (auto i = 0; i < epoch; ++i) {
+		long long mh_attempts = 0;
+		long long mh_accepts = 0;
+		double mh_log_alpha_sum = 0.;
+		double mh_log_alpha_min = numeric_limits<double>::infinity();
+		double mh_log_alpha_max = -numeric_limits<double>::infinity();
 		vector<int> rd(corpus.size(), 0);
 		//int rd[corpus.size()] = {0};
 		rd::shuffle(rd.data(), corpus.size());
 		int j = 0;
 		while (j < (int)corpus.size()) {
 			// remove
-			if (i > 0) {
-				for (auto t = 0; t < threads; ++t) {
-					if (j+t < (int)corpus.size()) {
-						g.remove(corpus[rd[j+t]]);
-					}
+			for (auto t = 0; t < threads; ++t) {
+				if (j+t < (int)corpus.size()) {
+					g.remove(corpus[rd[j+t]]);
 				}
 			}
-#ifdef _OPENMP
+			if (mh) {
+				int id = rd[j];
+				// The old tree has already been removed.  Snapshot this common
+				// M_- state before either sequential target evaluation mutates it.
+				unique_ptr<ipcfg> base = g.snapshot();
+				double log_q_new = 0.;
+				double log_q_old = 0.;
+				// Both q values are evaluated on this one current-tree-conditioned
+				// slice lattice: root inside supplies its normalizer and traceback
+				// supplies the selected derivation probability.
+				tree proposal = g.mh_propose(f, id, &corpus[id], log_q_new, log_q_old);
+				double log_p_old = base->mh_logprob_and_add(corpus[id]);
+				double log_p_new = g.mh_logprob_and_add(proposal);
+				double log_alpha = log_p_new-log_p_old+log_q_old-log_q_new;
+				uniform u;
+				bool accept = log_alpha >= 0. || log(u(0., 1.)) < log_alpha;
+				++mh_attempts;
+				mh_log_alpha_sum += log_alpha;
+				mh_log_alpha_min = min(mh_log_alpha_min, log_alpha);
+				mh_log_alpha_max = max(mh_log_alpha_max, log_alpha);
+				if (accept) {
+					++mh_accepts;
+					corpus[id] = proposal;
+				} else {
+					// The tentative tree was added to g only to evaluate the
+					// sequential target.  Remove that exact seating and re-add the
+					// retained tree; this is the ordinary HPYP seating update for a
+					// held-out sentence and preserves every base-corpus witness.
+					g.remove(proposal);
+					g.add(corpus[id]);
+				}
+			} else {
+			#ifdef _OPENMP
 #pragma omp parallel
 			{ // sample segmentations
 				auto t = omp_get_thread_num();
@@ -334,11 +473,14 @@ int mcmc() {
 					}
 				}
 			}
-#endif
+			#endif
+			}
 			// add
-			for (auto t = 0; t < threads; ++t) {
-				if (j+t < (int)corpus.size()) {
-					g.add(corpus[rd[j+t]]);
+			if (!mh) {
+				for (auto t = 0; t < threads; ++t) {
+					if (j+t < (int)corpus.size()) {
+						g.add(corpus[rd[j+t]]);
+					}
 				}
 			}
 			j += threads;
@@ -347,9 +489,20 @@ int mcmc() {
 #endif
 			progress("epoch", i, (double)(j+1)/corpus.size());
 		}
+		// All trees are in the model again.  Only now is it safe to discard
+		// trailing empty latent categories.
+		g.compact();
 		// estimate hyperparameter
 		g.estimate(20);
 		g.poisson_correction(1000);
+		report_epoch_diagnostics(i, corpus, g);
+		if (mh)
+			cerr << "[ipcfg-mh] epoch=" << (i+1) << " accept=" << mh_accepts
+				 << "/" << mh_attempts << " rate="
+				 << (mh_attempts ? (double)mh_accepts/mh_attempts : 0.)
+				 << " log_alpha_mean=" << (mh_attempts ? mh_log_alpha_sum/mh_attempts : 0.)
+				 << " min=" << (mh_attempts ? mh_log_alpha_min : 0.)
+				 << " max=" << (mh_attempts ? mh_log_alpha_max : 0.) << endl;
 		if (dmp && (i+1)%dmp == 0) {
 			cout << endl;
 			//for (auto s = corpus.begin(); s != corpus.end(); ++s)
@@ -374,7 +527,8 @@ int parse() {
 	ipcfg g(m);
 	try {
 		g.load(model.c_str());
-		g.set(vocab, K);
+		// load() restores the training alphabet size.  Do not overwrite it
+		// with the command-line default during inference.
 	} catch (const char *ex) {
 		throw ex;
 	}
@@ -401,6 +555,8 @@ int parse() {
 int main(int argc, char **argv) {
 	try {
 		read_param(argc, argv);
+		if (random_seed >= 0)
+			seed::set((unsigned int)random_seed);
 		if (!train.empty()) {
 			mcmc();
 		}

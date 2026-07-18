@@ -39,8 +39,12 @@ tree::tree(const tree& t): c(t.c), s(t.s){
 }
 
 tree& tree::operator=(const tree& t) {
-	for (auto it = t.c.begin(); it != t.c.end(); ++it)
-		c.push_back(*it);
+	if (this == &t)
+		return *this;
+	// A tree is the complete latent state for one sentence.  Appending here
+	// leaves the old root at index N-1, so subsequent iPCFG add/remove calls
+	// silently use the previous sample rather than the newly sampled tree.
+	c = t.c;
 	s = t.s;
 	return *this;
 }
