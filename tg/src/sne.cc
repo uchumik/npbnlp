@@ -307,6 +307,19 @@ int mcmc(nio& f, vector<nsentence>& corpus) {
 	for (auto i = 0; i < (int)corpus.size(); ++i)
 		lm.count_freq(corpus[i]);
 	lm.set_freq_cap(ne_freq_cap);
+	// word-id vocabulary scale for the generic ledger's uniform base (1/W).
+	// Serialized inside the ledger, so parse restores it from the model.
+	int wv = 2;
+	for (auto i = 0; i < (int)corpus.size(); ++i) {
+		nsentence& s = corpus[i];
+		for (auto j = 0; j < s.size(); ++j) {
+			chunk& c = s.ch(j);
+			for (auto w = 0; w < c.len; ++w)
+				if (c.wd(w).id + 1 > wv)
+					wv = c.wd(w).id + 1;
+		}
+	}
+	lm.set_wv(wv);
 	// all-O seed (default): add the initial all-O segmentation so the background
 	// LM starts rich and NE must be *earned* by a clearly cheaper H_k surface.
 	// --init_random skips the seed and samples the prior at epoch 0 instead.

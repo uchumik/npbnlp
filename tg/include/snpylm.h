@@ -85,6 +85,13 @@ namespace npbnlp {
 			// class-specific P(sigma|ctx) against the pooled generic slot. Out of
 			// range throws. Serialized so parse reproduces the trained weight.
 			virtual void set_gen_w(double w);
+			// word-id vocabulary scale for the generic ledger's uniform int base.
+			// _bg_gen is constructed with the hpyp default _v=1, whose base is 1:
+			// a never-seen event then scores P~1 and the generic-backoff mixture
+			// degenerates into a flat log(1-w) bonus on every NE-window transition.
+			// v < 2 throws. Serialized inside _bg_gen (hpyp::save writes _v), so
+			// parse restores it from the model without re-calling this.
+			virtual void set_wv(int v);
 			// diagnostic (Phase A): dump per-span background scores for sentence i to
 			// stderr and return. Emits `spanscore <sent> <char_s>-<char_e> <surp>
 			// <fgain>` per lattice candidate; char offsets match NPBNLP_LATTICE_COVER.
@@ -140,8 +147,9 @@ namespace npbnlp {
 			//       add(tvid[j]) (the exit frame "<NE> 氏 が");
 			//   (c) at EOS when the trailing window contains an NE -> add(0).
 			// Contexts use gvid (先行 NE も generic 化), so frame statistics pool
-			// across classes. No base measure (uniform int base) -- it is a
-			// context-conditioned count table, not a generative LM.
+			// across classes. Base = uniform 1/W over the word-id vocabulary
+			// (set_wv; W is serialized inside the hpyp), so a never-seen event is
+			// ~1/W and the mixture only fires where real frame counts exist.
 			std::shared_ptr<hpyp> _bg_gen;
 			int _ne_generic;        // the generic NE symbol id (wid, serialized)
 			bool _generic_backoff;  // interpolate P(NE_k|ctx) with the generic slot

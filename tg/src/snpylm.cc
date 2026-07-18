@@ -269,6 +269,16 @@ void snpylm::set_gen_w(double w) {
 	_gen_w = w;
 }
 
+// vocab-scale uniform base for the generic ledger: hpyp::lp(int,...) bottoms
+// out at -log(_v), and _bg_gen keeps the constructed default _v=1 unless this
+// is called, so P_gen of a never-seen event would be ~1 and the backoff
+// mixture would collapse into a flat bonus (see snpylm.h).
+void snpylm::set_wv(int v) {
+	if (v < 2)
+		throw "wv must be >= 2 in snpylm::set_wv";
+	_bg_gen->set_v(v);
+}
+
 // tally every corpus word type (id -> occurrence count). Called over each
 // sentence once, before set_freq_cap, from the sne.cc collection loop (which
 // runs independently of the all-O seed). This is a static observation of the
