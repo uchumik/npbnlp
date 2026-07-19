@@ -289,8 +289,10 @@ class Pa {
 			std::shared_ptr<wid> d = wid::create();
 			if (!d->load(dic.c_str()))
 				throw "Pa: failed to load dic";
+			// load() restores the trained alphabet size and category cap.  Do
+			// not overwrite them here -- pa.cc's parse() deliberately skips
+			// set() for the same reason.
 			_g.load(model.c_str());
-			_g.set(50000, 100); // matches pa.cc statics vocab=50000, K=100
 		}
 		std::vector<std::string> parse(const std::string& text) {
 			std::istringstream iss(text);
