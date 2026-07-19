@@ -20,7 +20,7 @@
 using namespace std;
 using namespace npbnlp;
 
-ipcfg::ipcfg():_m(20), _k(20),_K(K), _v(C), _a(1), _b(1), _span(false), _shared_letter(true), _span_a(1), _span_b(1), _span_p(.5), _span_stop(0), _span_continue(0), _slice_terminal_cells(0), _slice_terminal_labels(0), _slice_internal_cells(0), _slice_internal_labels(0), _nonterm(new hpyp(3)),_word(new vector<shared_ptr<hpyp> >),_letter(new vector<shared_ptr<vpyp> >) {
+ipcfg::ipcfg():_m(20), _k(20),_K(K), _v(C), _a(1), _b(1), _span(false), _shared_letter(true), _split(false), _split_fixed(false), _span_a(1), _span_b(1), _span_p(.5), _span_stop(0), _span_continue(0), _split_a(1), _split_b(1), _split_q(.5), _split_n(0), _split_sum(0), _slice_terminal_cells(0), _slice_terminal_labels(0), _slice_internal_cells(0), _slice_internal_labels(0), _nonterm(new hpyp(3)),_word(new vector<shared_ptr<hpyp> >),_letter(new vector<shared_ptr<vpyp> >) {
 	shared_ptr<vpyp> letter(new vpyp(_m));
 	for (auto i = 0; i < _k+1; ++i) {
 		_word->push_back(shared_ptr<hpyp>(new hpyp(1)));
@@ -29,7 +29,7 @@ ipcfg::ipcfg():_m(20), _k(20),_K(K), _v(C), _a(1), _b(1), _span(false), _shared_
 	}
 }
 
-ipcfg::ipcfg(int m):_m(m), _k(20), _K(K), _v(C), _a(1), _b(1), _span(false), _shared_letter(true), _span_a(1), _span_b(1), _span_p(.5), _span_stop(0), _span_continue(0), _slice_terminal_cells(0), _slice_terminal_labels(0), _slice_internal_cells(0), _slice_internal_labels(0), _nonterm(new hpyp(3)), _word(new vector<shared_ptr<hpyp> >), _letter(new vector<shared_ptr<vpyp> >) {
+ipcfg::ipcfg(int m):_m(m), _k(20), _K(K), _v(C), _a(1), _b(1), _span(false), _shared_letter(true), _split(false), _split_fixed(false), _span_a(1), _span_b(1), _span_p(.5), _span_stop(0), _span_continue(0), _split_a(1), _split_b(1), _split_q(.5), _split_n(0), _split_sum(0), _slice_terminal_cells(0), _slice_terminal_labels(0), _slice_internal_cells(0), _slice_internal_labels(0), _nonterm(new hpyp(3)), _word(new vector<shared_ptr<hpyp> >), _letter(new vector<shared_ptr<vpyp> >) {
 	shared_ptr<vpyp> letter(new vpyp(_m));
 	for (auto i = 0; i < _k+1; ++i) {
 		_word->push_back(shared_ptr<hpyp>(new hpyp(1)));
@@ -75,7 +75,9 @@ void ipcfg::_save(FILE *fp) const {
 		// version 5 drops the trailing bottom_up bool (the top-down rule
 		// factor was removed in WO-011); the free_parent slot is still
 		// written so that older readers stay happy.
-		uint32_t version = 5;
+		// version 6 appends the truncated-geometric split prior; version 5
+		// records load with _split disabled.
+		uint32_t version = 6;
 		int enabled = _span ? 1 : 0;
 		int free_parent = 0; // version-3 compatibility slot; ordered is fixed.
 		int shared_letter = _shared_letter ? 1 : 0;
@@ -90,6 +92,20 @@ void ipcfg::_save(FILE *fp) const {
 		    fwrite(&free_parent, sizeof(int), 1, fp) != 1 ||
 		    fwrite(&shared_letter, sizeof(int), 1, fp) != 1)
 			throw "failed to write span prior tail in ipcfg::save";
+		int split_enabled = _split ? 1 : 0;
+		int hist = (int)_split_hist.size();
+		if (fwrite(&split_enabled, sizeof(int), 1, fp) != 1 ||
+		    fwrite(&_split_a, sizeof(double), 1, fp) != 1 ||
+		    fwrite(&_split_b, sizeof(double), 1, fp) != 1 ||
+		    fwrite(&_split_q, sizeof(double), 1, fp) != 1 ||
+		    fwrite(&_split_n, sizeof(long long), 1, fp) != 1 ||
+		    fwrite(&_split_sum, sizeof(long long), 1, fp) != 1 ||
+		    fwrite(&hist, sizeof(int), 1, fp) != 1)
+			throw "failed to write split prior tail in ipcfg::save";
+		for (int i = 0; i < hist; ++i) {
+			if (fwrite(&_split_hist[i], sizeof(long long), 1, fp) != 1)
+				throw "failed to write split prior histogram in ipcfg::save";
+		}
 	} catch (const char *ex) {
 		throw ex;
 	}
@@ -144,7 +160,7 @@ void ipcfg::_load(FILE *fp) {
 			uint32_t version = 0;
 			int enabled = 0;
 			if (nr != 1 || magic != 0x50414750 ||
-			    fread(&version, sizeof(uint32_t), 1, fp) != 1 || (version < 1 || version > 5) ||
+			    fread(&version, sizeof(uint32_t), 1, fp) != 1 || (version < 1 || version > 6) ||
 			    fread(&enabled, sizeof(int), 1, fp) != 1 ||
 			    fread(&_span_a, sizeof(double), 1, fp) != 1 ||
 			    fread(&_span_b, sizeof(double), 1, fp) != 1 ||
@@ -175,6 +191,30 @@ void ipcfg::_load(FILE *fp) {
 					throw "failed to read iPCFG rule-factor mode in ipcfg::load";
 				if (!bottom_up)
 					throw "ipcfg::load: model uses the removed top-down rule factor; retrain with the current binary";
+			}
+			// Versions <= 5 predate the split prior and load with it disabled.
+			_split = false;
+			_split_fixed = false;
+			_split_n = 0;
+			_split_sum = 0;
+			_split_hist.clear();
+			if (version >= 6) {
+				int split_enabled = 0;
+				int hist = 0;
+				if (fread(&split_enabled, sizeof(int), 1, fp) != 1 ||
+				    fread(&_split_a, sizeof(double), 1, fp) != 1 ||
+				    fread(&_split_b, sizeof(double), 1, fp) != 1 ||
+				    fread(&_split_q, sizeof(double), 1, fp) != 1 ||
+				    fread(&_split_n, sizeof(long long), 1, fp) != 1 ||
+				    fread(&_split_sum, sizeof(long long), 1, fp) != 1 ||
+				    fread(&hist, sizeof(int), 1, fp) != 1 || hist < 0)
+					throw "failed to read split prior tail in ipcfg::load";
+				_split = split_enabled != 0;
+				_split_hist.assign(hist, 0);
+				for (int i = 0; i < hist; ++i) {
+					if (fread(&_split_hist[i], sizeof(long long), 1, fp) != 1)
+						throw "failed to read split prior histogram in ipcfg::load";
+				}
 			}
 		}
 	} catch (const char *ex) {
@@ -250,8 +290,18 @@ void ipcfg::_init_node(tree& t, int idx, int label) {
 
 	_check_label(z, "ipcfg::init encountered an inactive nonterminal label");
 	shared_ptr<generator> g = generator::create();
-	uniform_int_distribution<> split(z.i, z.j-1);
-	z.b = split((*g)());
+	if (_split) {
+		// Draw the split point from the truncated geometric prior instead of
+		// uniformly.  The disabled branch is kept verbatim so that a run
+		// without --split consumes the RNG exactly as it did before.
+		vector<double> btable;
+		for (int b = z.i; b < z.j; ++b)
+			btable.push_back(_split_lp(z.i, z.j, b));
+		z.b = z.i+rd::ln_draw(btable);
+	} else {
+		uniform_int_distribution<> split(z.i, z.j-1);
+		z.b = split((*g)());
+	}
 	vector<double> table;
 	vector<int> left;
 	vector<int> right;
@@ -276,6 +326,8 @@ void ipcfg::_init_node(tree& t, int idx, int label) {
 		++_span_stop;
 		_span_continue += z.j-z.i-1;
 	}
+	// The split prior covers the root as well, so this is not root-excluded.
+	_split_add(z.i, z.j, z.b);
 	_rule_add(label, l, r);
 
 	int size = t.s.size();
@@ -331,7 +383,14 @@ double ipcfg::_init_logprob_and_add(tree& t, int idx) {
 	double norm = -numeric_limits<double>::infinity();
 	for (double lp : table)
 		norm = math::lse(norm, lp, !isfinite(norm));
-	double lp = selected-norm-log((double)(z.j-z.i));
+	// The uniform 1/(j-i) split factor is replaced -- not multiplied -- by the
+	// truncated geometric prior: the joint must carry exactly one normalised
+	// distribution over b.
+	double lp = selected-norm;
+	if (_split)
+		lp += _split_lp(z.i, z.j, z.b);
+	else
+		lp -= log((double)(z.j-z.i));
 	if (_span && !(z.i == 0 && z.j == N-1)) {
 		const double floor = numeric_limits<double>::min();
 		lp += log(max(floor, _span_p))+
@@ -342,6 +401,7 @@ double ipcfg::_init_logprob_and_add(tree& t, int idx) {
 		++_span_stop;
 		_span_continue += z.j-z.i-1;
 	}
+	_split_add(z.i, z.j, z.b);
 	_rule_add(z.k, left.k, right.k);
 	return lp+_init_logprob_and_add(t, li)+_init_logprob_and_add(t, ri);
 }
@@ -504,6 +564,7 @@ void ipcfg::_add(tree& t, int i) {
 			++_span_stop;
 			_span_continue += z.j-z.i-1;
 		}
+		_split_add(z.i, z.j, z.b);
 		node& left = t[t.s.size()*z.i+z.b-z.i*(1.+z.i)/2];
 		node& right = t[t.s.size()*(z.b+1)+z.j-(1.+z.b)*(z.b+2)/2];
 		_rule_add(z.k, left.k, right.k);
@@ -550,6 +611,7 @@ void ipcfg::_remove(tree& t, int i) {
 			if (_span_stop < 0 || _span_continue < 0)
 				throw "span prior count underflow in ipcfg::remove";
 		}
+		_split_remove(z.i, z.j, z.b);
 		node& left = t[t.s.size()*z.i+z.b-z.i*(1.+z.i)/2];
 		node& right = t[t.s.size()*(z.b+1)+z.j-(1.+z.b)*(z.b+2)/2];
 		_rule_remove(z.k, left.k, right.k);
@@ -593,6 +655,12 @@ bool ipcfg::valid() const {
 bool ipcfg::empty() const {
 	if (!valid() || !_nonterm->empty() || _span_stop != 0 || _span_continue != 0)
 		return false;
+	if (_split_n != 0 || _split_sum != 0)
+		return false;
+	for (auto it = _split_hist.cbegin(); it != _split_hist.cend(); ++it) {
+		if (*it != 0)
+			return false;
+	}
 	for (int i = 0; i <= _k; ++i) {
 		if (!(*_word)[i]->empty() || !(*_letter)[i]->empty())
 			return false;
@@ -622,6 +690,8 @@ void ipcfg::estimate(int iter) {
 		cerr << "[span] p=" << _span_p << " stop=" << _span_stop
 		     << " continue=" << _span_continue << endl;
 	}
+	if (_split)
+		_estimate_split();
 }
 
 void ipcfg::poisson_correction(int n) {
@@ -690,6 +760,109 @@ double ipcfg::_span_lp(cyk& c, int i, int j) {
 	return log(max(floor, _span_p))+(j-i-1)*log(max(floor, 1.-_span_p));
 }
 
+void ipcfg::split(double a, double b, double q, bool fixed) {
+	if (a <= 0 || b <= 0 || q <= 0. || q >= 1.)
+		return;
+	_split = true;
+	_split_a = a;
+	_split_b = b;
+	_split_q = q;
+	_split_fixed = fixed;
+}
+
+// Truncated geometric prior over the split point b of an internal span (i,j).
+// L = b-i+1 is the left-child width and lives in [1, w-1] with w = j-i+1, so
+// the geometric mass is renormalised over exactly that support.  Width-2 spans
+// have a single legal split, the normaliser collapses to q and the factor is
+// identically 0 in the log domain -- returned early to keep it bit-exact.
+// This applies to every node that chooses a split, the root included, which is
+// deliberately different from _span_lp (root- and terminal-excluded).
+double ipcfg::_split_lp(int i, int j, int b) const {
+	if (!_split || i >= j)
+		return 0.;
+	int w = j-i+1;
+	if (w <= 2)
+		return 0.;
+	const double floor = numeric_limits<double>::min();
+	double lq = log(max(floor, _split_q));
+	double l1q = log(max(floor, 1.-_split_q));
+	double denom = 1.-pow(1.-_split_q, (double)(w-1));
+	return lq+(double)(b-i)*l1q-log(max(floor, denom));
+}
+
+// Sufficient statistics for q, kept strictly add/remove symmetric.  Width-2
+// splits are excluded because the truncated prior gives them probability 1
+// regardless of q.
+void ipcfg::_split_add(int i, int j, int b) {
+	if (!_split || i >= j)
+		return;
+	int w = j-i+1;
+	if (w < 3)
+		return;
+	++_split_n;
+	_split_sum += b-i; // L-1
+	if ((int)_split_hist.size() <= w)
+		_split_hist.resize(w+1, 0);
+	++_split_hist[w];
+}
+
+void ipcfg::_split_remove(int i, int j, int b) {
+	if (!_split || i >= j)
+		return;
+	int w = j-i+1;
+	if (w < 3)
+		return;
+	--_split_n;
+	_split_sum -= b-i;
+	if (w < (int)_split_hist.size())
+		--_split_hist[w];
+	if (_split_n < 0 || _split_sum < 0 ||
+	    w >= (int)_split_hist.size() || _split_hist[w] < 0)
+		throw "split prior count underflow in ipcfg::remove";
+}
+
+// The truncation constant 1-(1-q)^(w-1) depends on w, so q has no conjugate
+// update.  Sample it with a griddy Gibbs step instead (matching the sampling --
+// not MAP -- discipline of the Beta draw for _span_p).
+void ipcfg::_estimate_split() {
+	// --split_fixed holds q at its initial value for ablation runs; it also
+	// skips the draw so that the RNG stream is not perturbed.
+	if (!_split_fixed) {
+		const int grid = 100;
+		vector<double> logpost;
+		vector<double> qs;
+		logpost.reserve(grid);
+		qs.reserve(grid);
+		for (int g = 0; g < grid; ++g) {
+			double q = (g+.5)/grid;
+			double lq = log(q);
+			double l1q = log(1.-q);
+			double lp = (_split_a-1.)*lq+(_split_b-1.)*l1q+
+				(double)_split_n*lq+(double)_split_sum*l1q;
+			for (int w = 3; w < (int)_split_hist.size(); ++w) {
+				if (_split_hist[w] == 0)
+					continue;
+				double denom = 1.-pow(1.-q, (double)(w-1));
+				lp -= (double)_split_hist[w]*
+					log(max(numeric_limits<double>::min(), denom));
+			}
+			qs.push_back(q);
+			logpost.push_back(lp);
+		}
+		_split_q = qs[rd::ln_draw(logpost)];
+	}
+	// mean(L)/mean(w) over the recorded (w>=3) splits.  This is the ratio of the
+	// two means, not the mean of the ratio, because only marginal statistics are
+	// kept.
+	double mean_l = _split_n ? (double)_split_sum/_split_n+1. : 0.;
+	double sum_w = 0.;
+	for (int w = 3; w < (int)_split_hist.size(); ++w)
+		sum_w += (double)_split_hist[w]*w;
+	double mean_w = _split_n ? sum_w/_split_n : 0.;
+	cerr << "[split] q=" << _split_q << " n=" << _split_n
+	     << " mean_L_over_w=" << (mean_w > 0. ? mean_l/mean_w : 0.) << endl;
+}
+
 double ipcfg::_traceback(cyk& c, int i, int j, int z, vt& a, tree& tr, bool best) {
 	double mu = c.mu[i][j];
 	if (i == j) { // pre-terminal
@@ -709,7 +882,8 @@ double ipcfg::_traceback(cyk& c, int i, int j, int z, vt& a, tree& tr, bool best
 				for (auto r = c.begin(k+1,j); r != c.end(k+1,j); ++r) {
 					if (!_parent_allowed(z, *l, *r))
 						continue;
-					double lp = _rule_lp(z, *l, *r)+_span_lp(c,i,j);
+					double lp = _rule_lp(z, *l, *r)+_span_lp(c,i,j)+
+						_split_lp(i,j,k);
 					if (lp < mu)
 						continue;
 					table.push_back(lp+a[i][k][*l].v+a[k+1][j][*r].v);
@@ -759,7 +933,8 @@ double ipcfg::_traceback_logprob(cyk& c, int i, int j, int z, vt& a, tree& tr) {
 		for (auto l = c.begin(i,k); l != c.end(i,k); ++l) {
 			for (auto r = c.begin(k+1,j); r != c.end(k+1,j); ++r) {
 				if (!_parent_allowed(z, *l, *r)) continue;
-				double lp = _rule_lp(z, *l, *r)+_span_lp(c,i,j);
+				double lp = _rule_lp(z, *l, *r)+_span_lp(c,i,j)+
+					_split_lp(i,j,k);
 				if (lp < mu) continue;
 				table.push_back(lp+a[i][k][*l].v+a[k+1][j][*r].v);
 				rule.push_back(lp);
@@ -804,7 +979,8 @@ void ipcfg::_calc_nonterm(cyk& c, int i, int j, vt& a) {
 				for (auto z = c.begin(i,j); z != c.end(i,j); ++z) {
 					if (!_parent_allowed(*z, *l, *r))
 						continue;
-					double lp = _rule_lp(*z, *l, *r)+_span_lp(c,i,j);
+					double lp = _rule_lp(*z, *l, *r)+_span_lp(c,i,j)+
+						_split_lp(i,j,k);
 					if (lp < mu)
 						continue;
 					a[i][j][*z].v = math::lse(a[i][j][*z].v, lp+a[i][k][*l].v+a[k+1][j][*r].v, !a[i][j][*z].is_init());
@@ -905,7 +1081,7 @@ void ipcfg::_slice(cyk& l, tree *cur, bool full_cyk) {
 			const node *rn = on[b+1][size-1];
 			if (ln != nullptr && rn != nullptr &&
 			    ln->k >= 1 && ln->k <= _k && rn->k >= 1 && rn->k <= _k)
-				_slice_root_cond(l, ln->k, rn->k);
+				_slice_root_cond(l, ln->k, rn->k, b);
 			else
 				_slice_root(l);
 		} else {
@@ -961,13 +1137,14 @@ void ipcfg::_slice(cyk& l, tree *cur, bool full_cyk) {
 }
 
 double ipcfg::_marginalize(cyk& c, int i, int j) {
-	double z = 0;
+	double z = -numeric_limits<double>::infinity();
 	for (auto k = i; k < j; ++k) {
 		for (auto l = c.begin(i,k); l != c.end(i,k); ++l) {
 			for (auto r = c.begin(k+1,j); r != c.end(k+1,j); ++r) {
 				for (auto m = max(*l,*r); m > 0; --m) {
-					double lp = _rule_lp(m, *l, *r)+_span_lp(c,i,j);
-					math::lse(z,lp,(z==0.));
+					double lp = _rule_lp(m, *l, *r)+_span_lp(c,i,j)+
+						_split_lp(i,j,k);
+					z = math::lse(z, lp, !isfinite(z));
 				}
 			}
 		}
@@ -983,7 +1160,8 @@ double ipcfg::_draw(cyk& c, int i, int j) {
 		for (auto l = c.begin(i,k); l != c.end(i,k); ++l) {
 			for (auto r = c.begin(k+1,j); r != c.end(k+1,j); ++r) {
 				for (auto m = max(*l,*r); m > 0; --m) {
-					double lp = _rule_lp(m, *l, *r)+_span_lp(c,i,j);
+					double lp = _rule_lp(m, *l, *r)+_span_lp(c,i,j)+
+						_split_lp(i,j,k);
 					table.push_back(lp);
 					z.push_back(m);
 				}
@@ -1007,7 +1185,8 @@ void ipcfg::_slice_nonterm(cyk& c, int i, int j, double mu) {
 		for (auto l = c.begin(i,k); l != c.end(i,k); ++l) {
 			for (auto r = c.begin(k+1,j); r != c.end(k+1,j); ++r) {
 				for (auto m = max(*l,*r); m > 0; --m) {
-					double lp = _rule_lp(m, *l, *r)+_span_lp(c,i,j);
+					double lp = _rule_lp(m, *l, *r)+_span_lp(c,i,j)+
+						_split_lp(i,j,k);
 					table.push_back(lp);
 					z.push_back(m);
 				}
@@ -1030,10 +1209,10 @@ void ipcfg::_slice_nonterm(cyk& c, int i, int j, double mu) {
 // (_nonterm->lp(mc,s)+lp_l+lp_r). mu = log(be)+score_cur with log(be)<=0
 // guarantees score_cur >= mu, so the current rule always survives the slice.
 void ipcfg::_slice_nonterm_cond(cyk& c, int i, int j, int lc, int rc, int kc, int mc) {
-	(void)kc; // split point is implied by lc/rc contexts; kept for clarity
 	beta_distribution be;
 	// score of the current on-path rule (same context construction as _draw)
-	double score_cur = _rule_lp(mc, lc, rc)+_span_lp(c,i,j);
+	double score_cur = _rule_lp(mc, lc, rc)+_span_lp(c,i,j)+
+		_split_lp(i,j,kc);
 	double mu = log(be(_a, _b))+score_cur;
 	c.mu[i][j] = mu;
 	// permitted set: enumerate every rule of this span exactly as _draw does
@@ -1041,7 +1220,8 @@ void ipcfg::_slice_nonterm_cond(cyk& c, int i, int j, int lc, int rc, int kc, in
 		for (auto l = c.begin(i,k); l != c.end(i,k); ++l) {
 			for (auto r = c.begin(k+1,j); r != c.end(k+1,j); ++r) {
 				for (auto mm = max(*l,*r); mm > 0; --mm) {
-					double lp = _rule_lp(mm, *l, *r)+_span_lp(c,i,j);
+					double lp = _rule_lp(mm, *l, *r)+_span_lp(c,i,j)+
+						_split_lp(i,j,k);
 					if (lp >= mu)
 						c.k[i][j].insert(mm);
 				}
@@ -1118,7 +1298,7 @@ void ipcfg::_slice_root(cyk& c) {
 	for (auto k = 0; k < size-1; ++k) {
 		for (auto l = c.begin(0, k); l != c.end(0, k); ++l) {
 			for (auto r = c.begin(k+1, size-1); r != c.end(k+1, size-1); ++r) {
-				double lp = _rule_lp(0, *l, *r);
+				double lp = _rule_lp(0, *l, *r)+_split_lp(0, size-1, k);
 				table.push_back(lp);
 			}
 		}
@@ -1143,10 +1323,10 @@ void ipcfg::_slice_root(cyk& c) {
 // root split into children lc/rc. score_cur = log P(0|lc,rc)+log P(lc)+
 // log P(rc|lc) matches _slice_root's table entry; mu = log(be)+score_cur
 // ensures the current root decomposition survives traceback pruning.
-void ipcfg::_slice_root_cond(cyk& c, int lc, int rc) {
+void ipcfg::_slice_root_cond(cyk& c, int lc, int rc, int bc) {
 	beta_distribution be;
 	int size = c.s.size();
-	double score_cur = _rule_lp(0, lc, rc);
+	double score_cur = _rule_lp(0, lc, rc)+_split_lp(0, size-1, bc);
 	double mu = log(be(_a, _b))+score_cur;
 	c.mu[0][size-1] = mu;
 	c.k[0][size-1].insert(0);
