@@ -36,6 +36,8 @@ struct snpylm_probe : public snpylm {
 	using snpylm::_psi;
 	using snpylm::_theta_sh;
 	using snpylm::_theta_k;
+	using snpylm::_gate_ne;
+	using snpylm::_gate_o;
 	snpylm_probe(int n, int hn, int hl, int k): snpylm(n, hn, hl, k) {}
 };
 
@@ -105,6 +107,11 @@ static int run(int N) {
 	}
 
 	snpylm_probe lm(N, HN, HL, K);
+	// WO-012: exercise the soft NE gate in its self-estimating mode, where the
+	// per-chunktype NE / O counters are actually read by the score. The counters
+	// are seated for EVERY segment (O and NE alike), so a full add/remove cycle
+	// must return them all to zero exactly like the theta ledger.
+	lm.set_gate_learn(true);
 
 	try {
 		for (int i = 0; i < NSENT; ++i)
@@ -112,6 +119,21 @@ static int run(int N) {
 	} catch (const char *ex) {
 		fprintf(stderr, "exception during init(): %s\n", ex);
 		return 1;
+	}
+
+	// guard against a vacuous gate check: the counters must actually be seated by
+	// init() (both sides -- the corpus has ~30% NE chunks and ~70% O), otherwise
+	// the all-zero assertion after remove() would prove nothing.
+	{
+		long gne = 0, go = 0;
+		for (size_t i = 0; i < lm._gate_ne.size(); ++i)
+			gne += lm._gate_ne[i];
+		for (size_t i = 0; i < lm._gate_o.size(); ++i)
+			go += lm._gate_o[i];
+		if (gne <= 0 || go <= 0) {
+			fprintf(stderr, "gate ledger not exercised after init(): ne=%ld o=%ld\n", gne, go);
+			return 1;
+		}
 	}
 
 	// interleave estimate() (gibbs re-seats the G^bg base corpus and the H_k
@@ -162,6 +184,19 @@ static int run(int N) {
 	for (size_t i = 0; i < lm._theta_k.size(); ++i)
 		if (lm._theta_k[i] != 0) {
 			fprintf(stderr, "leak: theta_k[%zu]=%d (expected 0)\n", i, lm._theta_k[i]);
+			ok = false;
+			break;
+		}
+	// soft NE gate counters, both sides, must net to zero too (WO-012).
+	for (size_t i = 0; i < lm._gate_ne.size(); ++i)
+		if (lm._gate_ne[i] != 0) {
+			fprintf(stderr, "leak: gate_ne[%zu]=%d (expected 0)\n", i, lm._gate_ne[i]);
+			ok = false;
+			break;
+		}
+	for (size_t i = 0; i < lm._gate_o.size(); ++i)
+		if (lm._gate_o[i] != 0) {
+			fprintf(stderr, "leak: gate_o[%zu]=%d (expected 0)\n", i, lm._gate_o[i]);
 			ok = false;
 			break;
 		}

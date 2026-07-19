@@ -35,6 +35,20 @@
 #define THETA_HI 30.0
 #define THETA_LO 0.1
 #define THETA_KAPPA 30.0
+// serialize marker for the WO-012 per-chunktype soft NE gate block, appended
+// after the theta block. Legacy models hit EOF here and load with the gate
+// disabled + hard-gate fallback.
+#define SNPYLM_GATE_MAGIC (-770012)
+// soft NE gate defaults (WO-012). GATE_HI is the prior mean g_ct for an
+// admissible chunk type and is 0.5 ON PURPOSE: the score is the log-odds
+// log g - log(1-g), so g=0.5 contributes exactly 0 and an admissible type is
+// scored exactly as in the type-neutral baseline (no regression by
+// construction). GATE_LO=0.001 turns the bool table's hard "forbidden" into a
+// finite log-odds penalty of about -6.9. GATE_STRENGTH is a+b, only consulted
+// in the experimental self-estimation mode (--gate_learn).
+#define GATE_HI 0.5
+#define GATE_LO 0.001
+#define GATE_STRENGTH 1000.0
 
 using namespace std;
 using namespace npbnlp;
@@ -84,6 +98,14 @@ static double psi_beta_sum() {
 // already tags each candidate with ch.type via chunktype2::start/transition, so
 // this is an O(1) table lookup (no character rescan). The commander tunes the
 // final values from lattice-coverage / per-type NE-density measurements.
+// short chunktype2 names for the stats() dumps (theta and the WO-012 gate).
+static const char *CTNAME[chunktype2::n] = {
+	"hira", "kata", "kanji", "latin", "digit", "punc", "sym", "h+k",
+	"h+kj", "h+d", "h+p", "k+kj", "k+l", "k+d", "k+p", "kj+l", "kj+d",
+	"kj+p", "l+d", "l+p", "l+s", "d+p", "hkkj", "hkjd", "hkjp", "kkjd",
+	"kkjp", "klp", "kdp", "kjdp", "ldp", "misc"
+};
+
 static const bool NE_ADMISSIBLE[chunktype2::n] = {
 	false, //  0 CH_HIRAGANA        hira
 	true,  //  1 CH_KATAKANA        kata *
@@ -131,8 +153,10 @@ snpylm::snpylm(): snpylm(2, 1, 8, 10) {
 snpylm::snpylm(int n, int hn, int hl, int k):
 	_n(n < 2 ? 2 : n), _hn(hn < 1 ? 1 : hn), _hl(hl), _l(SLEN), _k(k), _v(SVOCAB),
 	_gamma(SGAMMA), _alpha(SALPHA), _pi(1.0/(1.0+SGAMMA)), _tau(1.0),
-	_type_admission(true), _hard_type_admission(false), _theta_enabled(true),
+	_type_admission(true), _hard_type_admission(false), _theta_enabled(false),
 	_theta_hi(THETA_HI), _theta_lo(THETA_LO), _theta_kappa(THETA_KAPPA),
+	_gate_enabled(true), _gate_learn(false), _gate_hi(GATE_HI), _gate_lo(GATE_LO),
+	_gate_strength(GATE_STRENGTH),
 	_l1_cache(false), _freq_cap(0), _a(SA), _b(SB),
 	_clength(chunktype2::n, SLEN),
 	_bg(new hpyp(_n)), _bg_gen(new hpyp(_n)), _ne_generic(0), _generic_backoff(true),
@@ -152,6 +176,10 @@ snpylm::snpylm(int n, int hn, int hl, int k):
 	_theta_sh.assign(chunktype2::n, 0);
 	_theta_k.assign((size_t)(_k+1)*chunktype2::n, 0);
 	_qcand.assign(chunktype2::n, 1.0/(double)chunktype2::n);
+	// soft NE gate ledger (WO-012): per-chunktype NE / O segment counts. Only
+	// read in --gate_learn mode, but always seated (see _seat).
+	_gate_ne.assign(chunktype2::n, 0);
+	_gate_o.assign(chunktype2::n, 0);
 	for (int i = 0; i <= _k; ++i) {
 		_hkletter->push_back(shared_ptr<hpyp>(new hpyp(_hl)));
 		(*_hkletter)[i]->set_v(_v);
@@ -277,23 +305,53 @@ void snpylm::set_type_admission(bool f) {
 	_type_admission = f;
 }
 
+// theta (WO-009) is off by default since WO-012; an explicit set_theta_* call is
+// what re-enables it (the CLI only calls these when --theta_* was given), so the
+// A/B path stays available without changing the default model.
 void snpylm::set_theta_hi(double f) {
 	if (f > 0)
 		_theta_hi = f;
+	_theta_enabled = true;
 }
 
 void snpylm::set_theta_lo(double f) {
 	if (f > 0)
 		_theta_lo = f;
+	_theta_enabled = true;
 }
 
 void snpylm::set_theta_kappa(double f) {
 	if (f > 0)
 		_theta_kappa = f;
+	_theta_enabled = true;
 }
 
 void snpylm::set_hard_type_admission(bool f) {
 	_hard_type_admission = f;
+}
+
+// soft NE gate hyperparameters (WO-012). g_ct is a probability, so hi/lo must
+// lie strictly inside (0,1): 0 or 1 would make the log-odds infinite.
+void snpylm::set_gate_hi(double f) {
+	if (f <= 0 || f >= 1)
+		throw "gate_hi must lie in (0,1) in snpylm::set_gate_hi";
+	_gate_hi = f;
+}
+
+void snpylm::set_gate_lo(double f) {
+	if (f <= 0 || f >= 1)
+		throw "gate_lo must lie in (0,1) in snpylm::set_gate_lo";
+	_gate_lo = f;
+}
+
+void snpylm::set_gate_strength(double f) {
+	if (f <= 0)
+		throw "gate_strength must be positive in snpylm::set_gate_strength";
+	_gate_strength = f;
+}
+
+void snpylm::set_gate_learn(bool f) {
+	_gate_learn = f;
 }
 
 // store q_cand: raw per-chunktype candidate counts -> add-one-smoothed,
@@ -597,6 +655,55 @@ bool snpylm::_theta_score_on() const {
 	return _theta_enabled && _type_admission && !_hard_type_admission;
 }
 
+// ---------------------------------------------------------------------------
+// soft NE gate g_ct (WO-012). g_ct = P(z>=1 | type=ct), transcribed from the
+// NE_ADMISSIBLE bool table. The emission contribution is the LOG-ODDS
+// log g_ct - log(1-g_ct), applied to NE segments only (see _emit_lp).
+// ---------------------------------------------------------------------------
+
+// fixed prior mean, straight off the bool table.
+double snpylm::_gate_prior(int ct) const {
+	return (ct >= 0 && ct < chunktype2::n && NE_ADMISSIBLE[ct]) ? _gate_hi : _gate_lo;
+}
+
+// the g actually used. Default: the fixed prior (the type's NE-bearing tendency
+// is language knowledge, not a corpus statistic to re-estimate -- a self-fitted
+// prior is descriptive and self-reinforcing). --gate_learn switches to the Beta
+// posterior mean g^_ct = (n_NE + a)/(n_NE + n_O + a + b) with a+b = _gate_strength;
+// that mode exists to demonstrate the self-reinforcement, not to be used.
+double snpylm::_gate_ghat(int ct) const {
+	double g0 = _gate_prior(ct);
+	if (!_gate_learn)
+		return g0;
+	if (ct < 0 || ct >= (int)_gate_ne.size())
+		return g0;
+	double a = _gate_strength * g0;
+	double b = _gate_strength - a;
+	double ne = _gate_ne[ct];
+	double o = _gate_o[ct];
+	double den = ne + o + a + b;
+	if (den <= 0)
+		return g0;
+	return (ne + a) / den;
+}
+
+// log-odds contribution. Clamped away from 0/1 so an extreme hyperparameter or
+// an all-NE type in learn mode can never produce +-inf in the lattice score.
+double snpylm::_gate_lp(int ct) const {
+	double g = _gate_ghat(ct);
+	if (g < 1e-12)
+		g = 1e-12;
+	if (g > 1.0-1e-12)
+		g = 1.0-1e-12;
+	return log(g) - log(1.0-g);
+}
+
+// gate active iff enabled, the master type switch is on, and the legacy hard
+// gate is not in force (hard mode is a pure bool-gate A/B, gate contributes 0).
+bool snpylm::_gate_score_on() const {
+	return _gate_enabled && _type_admission && !_hard_type_admission;
+}
+
 // collect the characters of a chunk's whole span as one sequence (words
 // concatenated) with a trailing EOS (0). Shared by the H_k^0 lp/add/remove so
 // they walk an identical key sequence (CRP add/remove symmetry).
@@ -782,6 +889,16 @@ void snpylm::_seat(nsentence& s, bool add) {
 			}
 			_bg->add(tv, h);
 			chunk& ch = s.ch(j);
+			// soft NE gate ledger (WO-012): every segment, NE and O alike, is
+			// tallied against its chunk type. Seated unconditionally (not under
+			// _gate_learn) so flipping the flag mid-run cannot leak; the score
+			// side reads these counts only when _gate_learn is on.
+			if (ch.type >= 0 && ch.type < chunktype2::n) {
+				if (ch.k >= 1)
+					++_gate_ne[ch.type];
+				else if (ch.k == 0)
+					++_gate_o[ch.type];
+			}
 			if (ch.k >= 1) {
 				ch.id = cdic->index(ch);
 				(*_hk)[ch.k]->add(ch, (*_hk)[ch.k]->h());
@@ -861,6 +978,13 @@ void snpylm::_seat(nsentence& s, bool add) {
 				throw "bg context not found in snpylm::remove";
 			_bg->remove(tv, c);
 			chunk& ch = s.ch(j);
+			// symmetric un-seating of the gate ledger (identical predicate).
+			if (ch.type >= 0 && ch.type < chunktype2::n) {
+				if (ch.k >= 1)
+					--_gate_ne[ch.type];
+				else if (ch.k == 0)
+					--_gate_o[ch.type];
+			}
 			if (ch.k >= 1) {
 				context *r = (*_hk)[ch.k]->h();
 				(*_hk)[ch.k]->remove(ch, r);
@@ -955,6 +1079,15 @@ double snpylm::_emit_lp(int k, chunk& ch) {
 	// so the sampler score stays consistent (same argument as the l1-cache bypass).
 	if (_theta_score_on() && ch.type >= 0 && ch.type < chunktype2::n)
 		lp += _theta_lp(k, ch);
+	// soft NE gate (WO-012): the log-odds log g_ct - log(1-g_ct), also OUTSIDE the
+	// tau annealing (a prior over the span's type, not surface likelihood). Added
+	// on the NE side ONLY -- the O branch returned 0 above and must keep returning
+	// 0. Paying log(1-g) per O segment would look symmetric but would make the
+	// total score depend on the NUMBER of segments, biasing the sampler towards
+	// coarser segmentations; the log-odds form is chunk-count neutral. An
+	// out-of-range ch.type contributes nothing.
+	if (_gate_score_on() && ch.type >= 0 && ch.type < chunktype2::n)
+		lp += _gate_lp(ch.type);
 	return lp;
 }
 
@@ -1037,13 +1170,16 @@ void snpylm::_slice(clattice2& l, nsentence *cur) {
 			l.emit[t][j].assign(_k+1, 0);
 			vector<double> table;
 			vector<int> cls;
-			// type-driven admission (WO-009). Three modes:
+			// type-driven admission (WO-009 / WO-012). Three modes:
 			//  - neutral (--no_type_admission, _type_admission==false): every type is
-			//    an NE candidate, no theta and no gate.
+			//    an NE candidate, no soft gate, no theta, no hard gate.
 			//  - hard (--hard_type_admission): revive the legacy bool gate; a span
-			//    whose chunk type is not entity-bearing cannot be NE. theta is off.
-			//  - default: every type is an NE candidate; theta (in _emit_lp) softly
-			//    suppresses inadmissible types instead of a hard cut.
+			//    whose chunk type is not entity-bearing cannot be NE. The soft gate
+			//    and theta are both off.
+			//  - default: every type is an NE candidate; the soft gate g_ct (in
+			//    _emit_lp) suppresses inadmissible types by a finite log-odds
+			//    penalty instead of a hard cut, so the current assignment can never
+			//    be eliminated from the lattice by the type prior (slice safety).
 			int ct = c.type;
 			bool ne_ok;
 			if (!_type_admission)
@@ -1367,6 +1503,45 @@ void snpylm::stats() const {
 		fprintf(stderr, "[snpylm] freq_cap=0(disabled) wfreq_types=%zu\n",
 				_wfreq.size());
 	}
+	// soft NE gate (WO-012): the per-type g^_ct actually in force plus its NE / O
+	// segment counts. In --gate_learn mode this is the drift monitor: watch a type
+	// that starts at gate_lo (e.g. hira) climb epoch by epoch, and note that once
+	// g^ passes 0.5 the log-odds turns positive and the prior self-reinforces.
+	if (_gate_score_on()) {
+		fprintf(stderr, "[snpylm] gate hi=%.4f lo=%.4f strength=%.1f learn=%s\n",
+				_gate_hi, _gate_lo, _gate_strength, _gate_learn ? "on" : "off");
+		int ord[chunktype2::n];
+		for (int t = 0; t < chunktype2::n; ++t)
+			ord[t] = t;
+		// insertion sort by g^ descending (chunktype2::n is 32; keep it simple).
+		for (int i = 1; i < chunktype2::n; ++i) {
+			int key = ord[i];
+			double kv = _gate_ghat(key);
+			int j = i-1;
+			while (j >= 0 && _gate_ghat(ord[j]) < kv) {
+				ord[j+1] = ord[j];
+				--j;
+			}
+			ord[j+1] = key;
+		}
+		const int SHOW = 5;
+		for (int r = 0; r < SHOW && r < chunktype2::n; ++r) {
+			int t = ord[r];
+			fprintf(stderr, "  [gate top%d] %s g=%.4f dlt=%+.3f ne=%d o=%d\n",
+					r+1, CTNAME[t], _gate_ghat(t), _gate_lp(t),
+					_gate_ne[t], _gate_o[t]);
+		}
+		for (int r = 0; r < SHOW && chunktype2::n-1-r >= SHOW; ++r) {
+			int t = ord[chunktype2::n-1-r];
+			fprintf(stderr, "  [gate bot%d] %s g=%.4f dlt=%+.3f ne=%d o=%d\n",
+					r+1, CTNAME[t], _gate_ghat(t), _gate_lp(t),
+					_gate_ne[t], _gate_o[t]);
+		}
+	} else {
+		fprintf(stderr, "[snpylm] gate disabled (%s)\n",
+				!_type_admission ? "neutral" :
+				(_hard_type_admission ? "hard gate" : "legacy load"));
+	}
 	static const char *tname[chartype::n] = {
 		"hira", "kata", "k/h", "kanji", "h+k", "h+kj", "k+kj", "hkk", "misc",
 		"arab", "grk", "hang", "hebr", "latn", "myan", "thai", "digit", "punc", "sym"
@@ -1393,12 +1568,7 @@ void snpylm::stats() const {
 					_psi[_psii(i, best)]/tot, tname[second], _psi[_psii(i, second)]/tot);
 		}
 		// theta (WO-009): per-class top-2 chunk types and their mass share.
-		static const char *ctname[chunktype2::n] = {
-			"hira", "kata", "kanji", "latin", "digit", "punc", "sym", "h+k",
-			"h+kj", "h+d", "h+p", "k+kj", "k+l", "k+d", "k+p", "kj+l", "kj+d",
-			"kj+p", "l+d", "l+p", "l+s", "d+p", "hkkj", "hkjd", "hkjp", "kkjd",
-			"kkjp", "klp", "kdp", "kjdp", "ldp", "misc"
-		};
+		const char **ctname = CTNAME;
 		double ttot = 0;
 		for (int t = 0; t < chunktype2::n; ++t)
 			ttot += _theta_k[_thetaki(i, t)];
@@ -1513,6 +1683,22 @@ void snpylm::save(const char *file) {
 		int tf[2] = {_theta_enabled ? 1 : 0, _hard_type_admission ? 1 : 0};
 		if (fwrite(tf, sizeof(int), 2, fp) != 2)
 			throw "failed to write theta flags in snpylm::save";
+		// per-chunktype soft NE gate (WO-012), appended last. Layout after the
+		// magic: {ct_n, gate_enabled, gate_learn} (int), {gate_hi, gate_lo,
+		// gate_strength} (double), _gate_ne[ct_n] (int), _gate_o[ct_n] (int).
+		int gmagic = SNPYLM_GATE_MAGIC;
+		if (fwrite(&gmagic, sizeof(int), 1, fp) != 1)
+			throw "failed to write gate magic in snpylm::save";
+		int gdim[3] = {chunktype2::n, _gate_enabled ? 1 : 0, _gate_learn ? 1 : 0};
+		if (fwrite(gdim, sizeof(int), 3, fp) != 3)
+			throw "failed to write gate dims in snpylm::save";
+		double gh[3] = {_gate_hi, _gate_lo, _gate_strength};
+		if (fwrite(gh, sizeof(double), 3, fp) != 3)
+			throw "failed to write gate hyper in snpylm::save";
+		if (fwrite(_gate_ne.data(), sizeof(int), chunktype2::n, fp) != (size_t)chunktype2::n)
+			throw "failed to write gate_ne in snpylm::save";
+		if (fwrite(_gate_o.data(), sizeof(int), chunktype2::n, fp) != (size_t)chunktype2::n)
+			throw "failed to write gate_o in snpylm::save";
 	} catch (const char *ex) {
 		fclose(fp);
 		throw ex;
@@ -1675,6 +1861,42 @@ void snpylm::load(const char *file) {
 			fprintf(stderr, "snpylm::load: no theta block (legacy model); NE theta "
 				"prior disabled, hard type-admission gate fallback\n");
 			_theta_enabled = false;
+			_hard_type_admission = true;
+		}
+		// per-chunktype soft NE gate (WO-012). Same positional rule as theta: only
+		// reachable when the theta block was present (file position known). Absent
+		// -> gate disabled + hard-gate fallback (one-line warning), matching how a
+		// pre-WO-012 model was actually trained.
+		_gate_enabled = false;
+		_gate_ne.assign(chunktype2::n, 0);
+		_gate_o.assign(chunktype2::n, 0);
+		bool gate_loaded = false;
+		if (theta_loaded) {
+			int gmagic = 0;
+			if (fread(&gmagic, sizeof(int), 1, fp) == 1 && gmagic == SNPYLM_GATE_MAGIC) {
+				int gdim[3] = {0, 0, 0};
+				if (fread(gdim, sizeof(int), 3, fp) != 3)
+					throw "failed to read gate dims in snpylm::load";
+				if (gdim[0] != chunktype2::n)
+					throw "gate chunktype count mismatch in snpylm::load";
+				_gate_enabled = (gdim[1] != 0);
+				_gate_learn = (gdim[2] != 0);
+				double gh[3] = {0, 0, 0};
+				if (fread(gh, sizeof(double), 3, fp) != 3)
+					throw "failed to read gate hyper in snpylm::load";
+				_gate_hi = gh[0]; _gate_lo = gh[1]; _gate_strength = gh[2];
+				if (fread(_gate_ne.data(), sizeof(int), chunktype2::n, fp) != (size_t)chunktype2::n)
+					throw "failed to read gate_ne in snpylm::load";
+				if (fread(_gate_o.data(), sizeof(int), chunktype2::n, fp) != (size_t)chunktype2::n)
+					throw "failed to read gate_o in snpylm::load";
+				gate_loaded = true;
+			}
+		}
+		if (!gate_loaded) {
+			fprintf(stderr, "snpylm::load: no gate block (legacy model); soft NE "
+				"gate disabled, hard type-admission gate fallback\n");
+			_gate_enabled = false;
+			_gate_learn = false;
 			_hard_type_admission = true;
 		}
 		_install_cbase();
