@@ -32,6 +32,11 @@ static double b = 1;
 static int span = 0;
 static double span_a = 1;
 static double span_b = 1;
+static int split = 0;
+static int split_fixed = 0;
+static double split_a = 1;
+static double split_b = 1;
+static double split_q = .5;
 static int dot = 0;
 static int mh = 0;
 static int random_seed = -1;
@@ -72,6 +77,16 @@ void usage(int argc, char **argv) {
 	cout << "--span=flag enable a Beta-geometric prior over non-root internal spans\n";
 	cout << "--span_alpha=float prior alpha for span stop probability(default 1)\n";
 	cout << "--span_beta=float prior beta for span continue probability(default 1)\n";
+	cout << "--split=flag enable a truncated geometric prior over split points (root included)\n";
+	cout << "--split_alpha=float Beta(a,b) prior alpha for the split probability q(default 1)\n";
+	cout << "--split_beta=float Beta(a,b) prior beta for the split probability q(default 1)\n";
+	cout << "  larger q concentrates on L=1 (a one-word left child) = right branching,\n";
+	cout << "  so use alpha>beta for right-branching languages (English), beta>alpha for\n";
+	cout << "  left-branching ones (Japanese); the default 1/1 is uninformative and lets\n";
+	cout << "  the branching bias be learned from data.\n";
+	cout << "--split_q_init=float initial value of q for the sampler(default 0.5); this is a\n";
+	cout << "  starting point, not prior knowledge -- inject knowledge via --split_alpha/--split_beta\n";
+	cout << "--split_fixed=flag hold q at --split_q_init instead of learning it (ablation)\n";
 	cout << "Parent labels are constrained to be no greater than a child label.\n";
 	cout << "--mh=flag use slice-CYK proposals with a sequential-HPYP MH correction (threads=1)\n";
 	cout << "--seed=int use a deterministic random seed for reproducible experiments\n";
@@ -106,6 +121,12 @@ int read_long_param(const char *opt, const char *arg) {
 		span_a = atof(arg);
 	} else if (check(opt, "span_beta")) {
 		span_b = atof(arg);
+	} else if (check(opt, "split_alpha")) {
+		split_a = atof(arg);
+	} else if (check(opt, "split_beta")) {
+		split_b = atof(arg);
+	} else if (check(opt, "split_q_init")) {
+		split_q = atof(arg);
 	} else if (check(opt, "seed")) {
 		random_seed = atoi(arg);
 	} else if (check(opt, "ckpt")) {
@@ -137,6 +158,11 @@ int read_param(int argc, char **argv) {
 			{"span", no_argument, &span, 1},
 			{"span_alpha", required_argument, 0, 0},
 			{"span_beta", required_argument, 0, 0},
+			{"split", no_argument, &split, 1},
+			{"split_alpha", required_argument, 0, 0},
+			{"split_beta", required_argument, 0, 0},
+			{"split_q_init", required_argument, 0, 0},
+			{"split_fixed", no_argument, &split_fixed, 1},
 			{"mh", no_argument, &mh, 1},
 			{"seed", required_argument, 0, 0},
 			{"ckpt", required_argument, 0, 0},
@@ -377,6 +403,8 @@ int mcmc() {
 	g.slice(a, b);
 	if (span)
 		g.span(span_a, span_b);
+	if (split)
+		g.split(split_a, split_b, split_q, split_fixed != 0);
 	if (mh && threads != 1) {
 		cerr << "[ipcfg-mh] forcing --threads 1: proposal scoring and snapshot restoration are sequential" << endl;
 		threads = 1;

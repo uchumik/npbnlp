@@ -55,6 +55,21 @@ namespace npbnlp {
 			double span_probability() const { return _span_p; }
 			long long span_stops() const { return _span_stop; }
 			long long span_continues() const { return _span_continue; }
+			// Truncated geometric prior over the split point of every internal
+			// node, including the root.  For a span of width w=j-i+1 split at b,
+			// the left-child width L=b-i+1 lives in [1,w-1] and
+			// P(b|i,j) = q(1-q)^(L-1) / (1 - (1-q)^(w-1)).
+			// Unlike span(), this applies to the root as well: the root's split
+			// direction is part of the branching bias the prior is meant to learn.
+			virtual void split(double a = 1., double b = 1., double q = .5,
+							bool fixed = false);
+			bool split_enabled() const { return _split; }
+			double split_probability() const { return _split_q; }
+			long long split_count() const { return _split_n; }
+			long long split_left_excess() const { return _split_sum; }
+			// Public only so the unit test can check the truncated normalisation
+			// Sum_{L=1}^{w-1} exp(split_logprob(i,j,b)) == 1.
+			double split_logprob(int i, int j, int b) const { return _split_lp(i, j, b); }
 			int category_count() const { return _k; }
 			// Atomically return and clear slice candidate diagnostics accumulated
 			// by sample().  Values exclude the structural root cell.
@@ -79,11 +94,23 @@ namespace npbnlp {
 			// VPYP.  The vector retains one slot per class solely for legacy model
 			// serialization and bounds checks; its entries alias when enabled.
 			bool _shared_letter;
+			bool _split;
+			bool _split_fixed;
 			double _span_a;
 			double _span_b;
 			double _span_p;
 			long long _span_stop;
 			long long _span_continue;
+			double _split_a;
+			double _split_b;
+			double _split_q;
+			// Sufficient statistics for q, maintained with exactly the same
+			// discipline as _span_stop/_span_continue: they describe the current
+			// corpus state and return to zero once every tree is removed.
+			// Width-2 spans carry no information about q and are excluded.
+			long long _split_n;
+			long long _split_sum;
+			std::vector<long long> _split_hist;
 			std::atomic<long long> _slice_terminal_cells;
 			std::atomic<long long> _slice_terminal_labels;
 			std::atomic<long long> _slice_internal_cells;
@@ -119,11 +146,15 @@ namespace npbnlp {
 			void _slice_nonterm(cyk& c, int i, int j, double mu);
 			void _slice_nonterm_cond(cyk& c, int i, int j, int lc, int rc, int kc, int mc);
 			void _slice_root(cyk& c);
-			void _slice_root_cond(cyk& c, int lc, int rc);
+			void _slice_root_cond(cyk& c, int lc, int rc, int bc);
 			void _collect_spans(tree& t, int idx, std::vector<std::vector<const node*> >& on);
 			bool _parent_allowed(int parent, int left, int right) const;
 			void _record_slice(cyk& c);
 			double _span_lp(cyk& c, int i, int j);
+			double _split_lp(int i, int j, int b) const;
+			void _split_add(int i, int j, int b);
+			void _split_remove(int i, int j, int b);
+			void _estimate_split();
 			void _resize();
 			void _shrink();
 			void _share_letters();
