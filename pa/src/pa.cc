@@ -37,6 +37,7 @@ static int split_fixed = 0;
 static double split_a = 1;
 static double split_b = 1;
 static double split_q = .5;
+static int wngram = 2;
 static int dot = 0;
 static int mh = 0;
 static int random_seed = -1;
@@ -87,6 +88,9 @@ void usage(int argc, char **argv) {
 	cout << "--split_q_init=float initial value of q for the sampler(default 0.5); this is a\n";
 	cout << "  starting point, not prior knowledge -- inject knowledge via --split_alpha/--split_beta\n";
 	cout << "--split_fixed=flag hold q at --split_q_init instead of learning it (ablation)\n";
+	cout << "--wngram=int order of the pre-terminal word emission P(w_i|w_{i-1}..,A)(default 2);\n";
+	cout << "  1 is the historical unigram emission P(w_i|A). Ignored with a warning when the\n";
+	cout << "  loaded model was trained at another order\n";
 	cout << "Parent labels are constrained to be no greater than a child label.\n";
 	cout << "--mh=flag use slice-CYK proposals with a sequential-HPYP MH correction (threads=1)\n";
 	cout << "--seed=int use a deterministic random seed for reproducible experiments\n";
@@ -127,6 +131,8 @@ int read_long_param(const char *opt, const char *arg) {
 		split_b = atof(arg);
 	} else if (check(opt, "split_q_init")) {
 		split_q = atof(arg);
+	} else if (check(opt, "wngram")) {
+		wngram = atoi(arg);
 	} else if (check(opt, "seed")) {
 		random_seed = atoi(arg);
 	} else if (check(opt, "ckpt")) {
@@ -163,6 +169,7 @@ int read_param(int argc, char **argv) {
 			{"split_beta", required_argument, 0, 0},
 			{"split_q_init", required_argument, 0, 0},
 			{"split_fixed", no_argument, &split_fixed, 1},
+			{"wngram", required_argument, 0, 0},
 			{"mh", no_argument, &mh, 1},
 			{"seed", required_argument, 0, 0},
 			{"ckpt", required_argument, 0, 0},
@@ -392,6 +399,14 @@ void report_epoch_diagnostics(int iter, vector<tree>& corpus, ipcfg& g) {
 		 << " top_child_H=" << hh << " top_child_max=" << mh << " top_child_argmax=" << wh
 		 << " slice_preterm_mean=" << (sc_t ? (double)sl_t/sc_t : 0.)
 		 << " slice_internal_mean=" << (sc_i ? (double)sl_i/sc_i : 0.) << endl;
+	// Pre-terminal failure mode for the word n-gram emission: when the mean
+	// number of surviving labels per terminal cell falls to 1, the word alone
+	// determines its class and the grammar has nothing left to decide.
+	cerr << "[preterm] epoch=" << (iter+1)
+		 << " wngram=" << g.word_ngram()
+		 << " slice_terminal_labels=" << sl_t
+		 << " slice_terminal_cells=" << sc_t
+		 << " labels_per_cell=" << (sc_t ? (double)sl_t/sc_t : 0.) << endl;
 }
 
 int mcmc() {
@@ -400,6 +415,8 @@ int mcmc() {
 	corpus.resize(f.head.size()-1);
 	ipcfg g(m);
 	g.set(K);
+	// Must precede every add(): word_ngram() rebuilds the class HPYPs.
+	g.word_ngram(wngram);
 	g.slice(a, b);
 	if (span)
 		g.span(span_a, span_b);
@@ -424,6 +441,17 @@ int mcmc() {
 	g.estimate(20);
 	g.poisson_correction(1000);
 	report_epoch_diagnostics(-1, corpus, g);
+	{
+		// Deeper contexts route fewer customers to the root, so fewer tokens
+		// reach the base measure whose witnesses the Poisson correction is
+		// estimated from.  Reported once, right after initialization.
+		vector<long long> bc;
+		g.base_corpus_sizes(bc);
+		cerr << "[preterm] base_corpus";
+		for (int c = 0; c < (int)bc.size(); ++c)
+			cerr << " " << c << ":" << bc[c];
+		cerr << endl;
+	}
 	for (auto i = 0; i < epoch; ++i) {
 		long long mh_attempts = 0;
 		long long mh_accepts = 0;
@@ -567,6 +595,9 @@ int parse() {
 	d->load(dic.c_str());
 	ipcfg g(m);
 	try {
+		// Record the requested order so load() can report a conflict; the
+		// order stored in the model always wins (see ipcfg::_load).
+		g.word_ngram(wngram);
 		g.load(model.c_str());
 		// load() restores the training alphabet size.  Do not overwrite it
 		// with the command-line default during inference.

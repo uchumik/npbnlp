@@ -47,6 +47,17 @@ namespace npbnlp {
 			// Set only the maximum number of latent categories.  HPYP/VPYP
 			// vocabularies are inferred by the language models themselves.
 			virtual void set(int k);
+			// Order of the pre-terminal word HPYPs: the emission becomes
+			// P(A) P(w_i | w_{i-1},...,w_{i-n+1}, A).  n == 1 is the historical
+			// unigram emission and is bit-exact with it.  Must be called before
+			// any tree is added (the HPYPs are rebuilt) and before load(), whose
+			// stored order wins.
+			virtual void word_ngram(int n);
+			int word_ngram() const { return _wn; }
+			// Diagnostic: per-class size of the word base corpus (_bc).  Deeper
+			// n-gram contexts starve the base measure that feeds the Poisson
+			// length correction, so this is reported once after init.
+			void base_corpus_sizes(std::vector<long long>& out) const;
 			virtual void slice(double a, double b);
 			// Geometric prior over non-root internal span widths.  A span of
 			// width d=j-i emits one stop and d-1 continue events.
@@ -87,6 +98,9 @@ namespace npbnlp {
 			int _k;
 			int _K;
 			int _v;
+			// Effective order of every (*_word)[k].  All classes must share it;
+			// load() enforces that and lets the stored value win over the CLI.
+			int _wn;
 			double _a;
 			double _b;
 			bool _span;
@@ -129,6 +143,14 @@ namespace npbnlp {
 			void _add(tree& t, int i);
 			void _remove(tree& t, int i);
 			void _check_label(const node& z, const char *where) const;
+			// Strict counterpart of hpyp::find(sentence&,int) for _remove.
+			// hpyp::find silently stops at the deepest existing node, so a
+			// shallow return would un-seat a customer from a restaurant that
+			// never seated one (and _bc_remove would then evict a random
+			// witness, irrecoverably).  _add always seats at the full-depth
+			// node built by make(), so failing to reach depth _wn-1 means the
+			// ledger is already broken: throw instead of corrupting it.
+			context* _word_context_remove(int k, sentence& s, int i) const;
 			// Grammar factorisation used everywhere a binary rule is scored:
 			// G_L(B|A) G_R(C|A,B).  The contexts are kept in one HPYP so their
 			// backing-off hierarchy is still learned from data.
