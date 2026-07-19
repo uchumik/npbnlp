@@ -560,8 +560,6 @@ int parse() {
 #ifdef _OPENMP
 	threads = min(omp_get_max_threads(), threads);
 	omp_set_num_threads(threads);
-#endif
-#ifdef _OPENMP
 #pragma omp parallel for ordered schedule(dynamic)
 #endif
 	for (auto i = 0; i < (int)f.head.size()-1; ++i) {
