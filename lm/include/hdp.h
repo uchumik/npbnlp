@@ -1,7 +1,6 @@
 #ifndef NPBNLP_HDP_H
 #define NPBNLP_HDP_H
 
-#include"cache.h"
 #include"word.h"
 #include"sentence.h"
 #include"lm.h"
@@ -54,7 +53,6 @@ namespace npbnlp {
 		private:
 			using base_corpus = std::unordered_map<int, std::vector<word> >;
 			using cbase_corpus = std::unordered_map<int, std::vector<chunk> >;
-			//using cache = std::unordered_map<const context*, std::unordered_map<int, double>, contexthash, contexteq>;
 			int _n;
 			double _a;
 			double _b;
@@ -69,13 +67,6 @@ namespace npbnlp {
 			double _prb(chunk& c) const;
 			double _lpb(word& w) const;
 			double _lpb(chunk& c) const;
-			/*
-			double _find_cache(int k, const context *c);
-			double _find_cache(word& w, const context *c);
-			double _set_cache(int k, const context *c, double lpr);
-			double _set_cache(word& w, const context *c, double lpr);
-			*/
-			cache _cache;
 
 	};
 }

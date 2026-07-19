@@ -311,13 +311,7 @@ double hpyp::lp(chunk& ch, const context *h) {
 	if (!h) {
 		return _lpb(ch);
 	}
-	//bool chk = false;
-	//double lpr = _cache.get(ch, h, chk);
 	double lpr = 0;
-	/*
-	if (chk)
-		return lpr;
-		*/
 	double c = h->c();
 	double t = h->t();
 	double cu = h->cu(ch.id);
@@ -331,7 +325,6 @@ double hpyp::lp(chunk& ch, const context *h) {
 	else
 		lpr = math::lse(log(a)-log(d), log(b)+lp(ch, h->parent())-log(d));
 	return lpr;
-	//return _cache.set(ch, h, lpr);
 
 }
 
@@ -403,13 +396,7 @@ double hpyp::lp(word& w, const context *h) {
 	if (!h) {
 		return _lpb(w);
 	}
-	bool chk = false;
 	double lpr = 0;
-	/*
-	double lpr = _cache.get(w, h, chk);
-	if (chk)
-		return lpr;
-		*/
 	double c = h->c();
 	double t = h->t();
 	double cu = h->cu(w.id);
@@ -424,7 +411,6 @@ double hpyp::lp(word& w, const context *h) {
 		lpr = math::lse(log(a)-log(d), log(b)+lp(w, h->parent())-log(d));
 	//cout << "c:" << c << " t:" << t << " cu:" << cu << " tu:" << tu << " n:" << n << " stlength:" << (*_strength)[n] << " discount:" << (*_discount)[n] << " v:" << _v << " lp:" << lpr << endl;
 	return lpr;
-	//return _cache.set(w, h, lpr);
 }
 
 double hpyp::lp(int k, const context *h) {
@@ -439,13 +425,7 @@ double hpyp::lp(int k, const context *h) {
 		//return log(_v-_h->v())-log(_v);
 	}
 	*/
-	//bool chk = false;
 	double lpr = 0;
-	/*
-	double lpr = _cache.get(k, h, chk);
-	if (chk)
-		return lpr;
-		*/
 	double c = h->c();
 	double t = h->t();
 	double cu = h->cu(k);
@@ -467,7 +447,6 @@ double hpyp::lp(int k, const context *h) {
 		lpr = math::lse(log(a)-log(d), log(b)+lp(k, h->parent())-log(d));
 	//cout << "c:" << c << " t:" << t << " cu:" << cu << " tu:" << tu << " n:" << n << " stlength:" << (*_strength)[n] << " discount:" << (*_discount)[n] << " v:" << _v << " lp:" << lpr << endl;
 	return lpr;
-	//return _cache.set(k, h, lpr);
 }
 
 context* hpyp::h() const {
@@ -632,7 +611,6 @@ bool hpyp::add(int k, context *h) {
 		if (!h)
 			++_v;
 	}
-	//_cache.clear();
 	return add_to_parent;
 }
 
@@ -700,7 +678,6 @@ void hpyp::add(word& w, context *h) {
 		lock_guard<mutex> m(_mutex);
 		_bc_add(_bc, w);
 	}
-	//_cache.clear();
 }
 
 void hpyp::add(chunk& c, context *h) {
@@ -708,7 +685,6 @@ void hpyp::add(chunk& c, context *h) {
 		lock_guard<mutex> m(_mutex);
 		_bc_add(_cbc, c);
 	}
-	//_cache.clear();
 }
 
 bool hpyp::remove(int k, context *h) {
@@ -718,7 +694,6 @@ bool hpyp::remove(int k, context *h) {
 		if (!h)
 			--_v;
 	}
-	//_cache.clear();
 	return remove_from_parent;
 }
 
@@ -735,7 +710,6 @@ void hpyp::remove(word& w, context *h) {
 		lock_guard<mutex> m(_mutex);
 		_bc_remove(_bc, w);
 	}
-	//_cache.clear();
 }
 
 void hpyp::remove(chunk& c, context *h) {
@@ -743,7 +717,6 @@ void hpyp::remove(chunk& c, context *h) {
 		lock_guard<mutex> m(_mutex);
 		_bc_remove(_cbc, c);
 	}
-	//_cache.clear();
 }
 
 void hpyp::estimate(int iter) {
@@ -769,7 +742,6 @@ void hpyp::estimate(int iter) {
 			(*_strength)[j] = gm((*g)());
 		}
 	}
-	//_cache.clear();
 }
 
 void hpyp::poisson_correction(int n) {

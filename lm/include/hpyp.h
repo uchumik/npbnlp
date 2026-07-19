@@ -1,7 +1,6 @@
 #ifndef NPBNLP_HPYP_H
 #define NPBNLP_HPYP_H
 
-#include"cache.h"
 #include"nsentence.h"
 #include"sentence.h"
 #include"chunk.h"
@@ -137,7 +136,6 @@ namespace npbnlp {
 			void _estimate_length(int n);
 			void _sample(std::vector<unsigned int>& w);
 			std::mutex _mutex;
-			cache _cache;
 	};
 }
 #endif

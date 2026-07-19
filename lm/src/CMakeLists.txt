@@ -5,13 +5,13 @@ include_directories(${CMAKE_SOURCE_DIR}/dt/include)
 include_directories(${CPLUS_INCLUDE_PATH})
 
 #set(CMAKE_CXX_FLAGS "-std=c++17 -O3")
-add_executable(lm_test test.cc hpyp.cc vpyp.cc context.cc hdp.cc hdp_context.cc cache.cc chartype.cc)
+add_executable(lm_test test.cc hpyp.cc vpyp.cc context.cc hdp.cc hdp_context.cc chartype.cc)
 add_executable(hpy_test hpy_sample.cc hpy.cc)
 add_executable(vpy_test vpy_sample.cc vpy.cc hpy.cc)
 add_executable(npy_test npy_sample.cc vpy.cc hpy.cc)
 add_executable(kn_test kn_sample.cc kn.cc)
-add_executable(hdp_test hdp_test.cc hpyp.cc vpyp.cc context.cc hdp.cc hdp_context.cc cache.cc chartype.cc)
-add_library(lm SHARED hdp.cc hpyp.cc vpyp.cc context.cc hdp_context.cc cache.cc chartype.cc kn.cc hpy.cc vpy.cc)
+add_executable(hdp_test hdp_test.cc hpyp.cc vpyp.cc context.cc hdp.cc hdp_context.cc chartype.cc)
+add_library(lm SHARED hdp.cc hpyp.cc vpyp.cc context.cc hdp_context.cc chartype.cc kn.cc hpy.cc vpy.cc)
 target_compile_options(lm_test PUBLIC
 	$<$<CONFIG:Release>:-O3 -std=c++17>
 	$<$<CONFIG:Debug>:-g -std=c++17>
