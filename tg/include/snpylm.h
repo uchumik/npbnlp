@@ -64,7 +64,13 @@ namespace npbnlp {
 			// observed degeneracy is all-NE, so early sampling must weaken NE, the
 			// opposite sign to the all-O remedy sketched in math 4.7(iii).
 			virtual void set_temp(double tau);
-			// hard constraint (default on): an NE span (z>=1) is admissible only if
+			// master switch for ANY chunktype NE prior (soft gate / theta / hard
+			// gate). Set false (--no_type_admission) for a fully type-neutral model.
+			// NOTE since WO-012 the DEFAULT type prior is the soft gate g_ct
+			// (set_gate_*), not the hard bool gate described below; the hard gate is
+			// only enforced under set_hard_type_admission(true).
+			//
+			// hard constraint (legacy, opt-in): an NE span (z>=1) is admissible only if
 			// its chunk type (chunktype2, already computed by clattice2) contains an
 			// entity script (kanji / katakana / latin / digit). Enforced structurally
 			// in the lattice allowed set, so hiragana-only / punctuation-only spans
@@ -79,8 +85,11 @@ namespace npbnlp {
 			// with the centred factor log theta^_k(ct) - log q_cand(ct), q_cand being
 			// the fixed background candidate-type distribution measured at training
 			// start (measure_qcand). set_theta_* fix the hyperparameters (defaults
-			// 30 / 0.1 / 30). --no_type_admission (set_type_admission(false)) now
-			// disables BOTH theta and the hard gate (fully neutral).
+			// 30 / 0.1 / 30). --no_type_admission (set_type_admission(false))
+			// disables theta, the soft gate AND the hard gate (fully neutral).
+			// SINCE WO-012 theta is OFF by default (it modelled P(type|class), not
+			// the P(NE|type) that was wanted, and regressed span F .234 -> .128); it
+			// is kept for A/B only and each set_theta_* call re-enables it.
 			virtual void set_theta_hi(double f);
 			virtual void set_theta_lo(double f);
 			virtual void set_theta_kappa(double f);
@@ -88,6 +97,30 @@ namespace npbnlp {
 			// a safety valve; when on, theta scoring is disabled and the bool gate is
 			// enforced in the lattice allowed set exactly as before WO-009.
 			virtual void set_hard_type_admission(bool f);
+			// per-chunktype soft NE gate g_ct (WO-012, the DEFAULT type prior).
+			// g_ct = P(z>=1 | type=ct) transcribed from the NE_ADMISSIBLE bool table
+			// (admissible -> gate_hi, default 0.5; inadmissible -> gate_lo, default
+			// 0.001). The score contribution is the LOG-ODDS
+			//     Delta(ct) = log g_ct - log(1 - g_ct)
+			// added to NE segments (k>=1) only; the O side gets nothing. The
+			// log-odds form (rather than the symmetric "NE pays log g, O pays
+			// log(1-g)") is what keeps the score CHUNK-COUNT NEUTRAL: a per-segment
+			// constant on both sides would favour whichever parse has fewer
+			// segments. With g=0.5 the contribution is exactly 0, so an admissible
+			// type scores identically to the type-neutral baseline; g=0.001 turns
+			// the bool table's "forbidden" into a finite -6.9 penalty.
+			// The defaults are a FIXED, NON-UPDATED prior: how likely a script type
+			// is to bear an NE is linguistic knowledge, not something to re-estimate
+			// from the model's own guesses on this corpus.
+			virtual void set_gate_hi(double f);
+			virtual void set_gate_lo(double f);
+			virtual void set_gate_strength(double f); // Beta pseudo-count total a+b
+			// self-estimation mode (default OFF, experimental): replace the fixed
+			// prior with g^_ct = (n_NE(ct) + a_ct)/(n_NE(ct) + n_O(ct) + a_ct + b_ct).
+			// This is the "confirm it breaks" condition: once g^_ct exceeds 0.5 the
+			// log-odds turns POSITIVE and the prior starts reinforcing itself.
+			// stats() dumps g^_ct per type so the drift is observable per epoch.
+			virtual void set_gate_learn(bool f);
 			// q_cand: the fixed background candidate-type distribution. set_qcand
 			// takes raw per-chunktype candidate counts and stores add-one-smoothed,
 			// normalised probabilities (the ledger side of the centring). measure_qcand
@@ -164,6 +197,19 @@ namespace npbnlp {
 			std::vector<int> _theta_sh;
 			std::vector<int> _theta_k;
 			std::vector<double> _qcand;
+			// soft NE gate g_ct (WO-012). Enabled by default; disabled on a legacy
+			// load (hard-gate fallback). _gate_ne[ct] / _gate_o[ct] are the NE / O
+			// segment counts per chunk type, seated for EVERY segment in _seat
+			// (add/remove symmetric, unconditionally -- like _psi/_theta -- so that
+			// toggling --gate_learn mid-run cannot leak). They are only READ when
+			// _gate_learn is on.
+			bool _gate_enabled;
+			bool _gate_learn;
+			double _gate_hi;       // prior mean g for admissible chunk types
+			double _gate_lo;       // prior mean g for inadmissible chunk types
+			double _gate_strength; // a_ct + b_ct
+			std::vector<int> _gate_ne;
+			std::vector<int> _gate_o;
 			bool _l1_cache;       // len==1 NE uses the chunk-PYP cache (default off)
 			int _freq_cap;        // single-word NE frequency cap (0 = disabled)
 			// corpus word-type frequencies (word id -> count), measured from the
@@ -249,6 +295,14 @@ namespace npbnlp {
 			double _theta_k_hat(int k, int ct) const;// class-layer theta^_k(ct)
 			double _theta_lp(int k, chunk& ch);      // log theta^_k(ct) - log q_cand(ct)
 			bool _theta_score_on() const;            // theta emission factor active?
+			// soft NE gate (WO-012). _gate_prior is the fixed prior mean from the
+			// bool table, _gate_ghat the value actually used (prior, or the Beta
+			// posterior mean when _gate_learn), _gate_lp the log-odds contribution
+			// log g - log(1-g) added to k>=1 emissions only.
+			double _gate_prior(int ct) const;
+			double _gate_ghat(int ct) const;
+			double _gate_lp(int ct) const;
+			bool _gate_score_on() const;             // gate emission factor active?
 			int _kind(int id) const;         // >0 NE class, 0 normal, -1 reserved
 			// true iff `id` is a registered class NE symbol (_nek[k], k>=1). O(1)
 			// via the _id2k hash; the generic symbol _ne_generic is NOT a class
