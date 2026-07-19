@@ -1137,14 +1137,14 @@ void ipcfg::_slice(cyk& l, tree *cur, bool full_cyk) {
 }
 
 double ipcfg::_marginalize(cyk& c, int i, int j) {
-	double z = 0;
+	double z = -numeric_limits<double>::infinity();
 	for (auto k = i; k < j; ++k) {
 		for (auto l = c.begin(i,k); l != c.end(i,k); ++l) {
 			for (auto r = c.begin(k+1,j); r != c.end(k+1,j); ++r) {
 				for (auto m = max(*l,*r); m > 0; --m) {
 					double lp = _rule_lp(m, *l, *r)+_span_lp(c,i,j)+
 						_split_lp(i,j,k);
-					math::lse(z,lp,(z==0.));
+					z = math::lse(z, lp, !isfinite(z));
 				}
 			}
 		}
