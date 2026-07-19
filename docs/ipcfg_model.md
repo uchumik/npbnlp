@@ -12,7 +12,8 @@
 | `P(C|B)` | 左子を見た右子ラベル `C` の HPYP 予測分布。文脈 `B` に対応。 |
 | `P(A|C,B)` | 子対をまとめ上げる親ラベル `A` の HPYP 予測分布。文脈 `C,B` に対応。 |
 | `P(A)` | pre-terminal ラベルの HPYP 予測分布（空文脈）。 |
-| `W_A(w)` | クラス `A` の単語 HPYP による語 `w` の予測分布。基底は全クラス共有 VPYP。 |
+| `W_A(w_i)` | クラス `A` の単語 HPYP による語 `w_i` の予測分布。**次数 `n_w` の n-gram** で、文脈は観測済みの先行単語 `w_{i-1},...,w_{i-n_w+1}`（`i<1` は BOS=0 で埋める）。基底は全クラス共有 VPYP。`n_w=1` が WO-014 以前の unigram。CLI は `--wngram`。 |
+| `n_w` | pre-terminal 単語 HPYP の次数（`ipcfg::_wn`）。全クラスで共通。モデルに記録され、load 時はファイルの値が CLI より優先される。 |
 | `P_span(i,j)` | 非 root 内部 span の幾何減衰。`p` を stop 確率として `p(1-p)^(j-i-1)`。root と terminal には掛けない。 |
 | `q` | 分割点事前の幾何パラメータ。`q->1` は `L=1`（左子が1語）に集中 = **右分岐**、`q->0` は分割点一様。`Beta(a_q,b_q)` 事前から griddy Gibbs で毎 epoch サンプルする（打ち切り項が `w` に依存するので共役ではない）。 |
 | `P_split(b|i,j)` | 分割点 `b` の打ち切り幾何事前。左子幅 `L=b-i+1`、幅 `w=j-i+1` として `q(1-q)^(L-1)/(1-(1-q)^(w-1))`。台 `[1,w-1]` 上で厳密に正規化される。**root を含む全内部ノード**に掛ける（`P_span` と適用範囲が異なる）。`w=2` では恒等的に 1。 |
@@ -57,10 +58,42 @@ $$
 span prior を掛ける。pre-terminal は
 
 $$
-P(A\to w)=P(A)W_A(w)
+P(A\to w_i)=P(A)\,W_A(w_i\mid w_{i-1},\dots,w_{i-n_w+1})
 $$
 
 であり、各 `W_A` の基底は共有文字 VPYP である。
+
+### 原案からの逸脱: pre-terminal 出力の n-gram 化（WO-014）
+
+原案（`unsupervised_learnings_for_nlp.md` の infinite PCFG 節、142 行目付近）の
+pre-terminal 出力は `P(w|A)P(A)` の **unigram** である。ここは意図的に逸脱している。
+
+**逸脱の理由。** unigram 出力では、未知語・低頻度語においてどのクラスも基底の文字 VPYP
+まで落ちて同値になり、argmax が実質 `P(A)` 最大のクラスを選ぶだけになる。実測（PTB 1K・
+20 epoch・seed1729、decode 50 文 346 トークン vs gold 品詞）で pre-terminal クラスは
+decode 時に退化していた:
+
+| 指標 | 値 |
+| --- | --- |
+| many-to-one 品詞純度 | 0.153 |
+| decode 時の実効クラス数 | 7（学習時は `preterm_active=15`） |
+| 最大クラス占有 | 86%（`DT:36 NNP:31 NN:28 RB:27`） |
+
+**影響。** 条件部は**観測済みの前方単語**なので、この因子はクラス列を固定すると
+**木の形に依らない**。したがって規則因子・span/split 事前・CYK の構造には手が入らず、
+inside/traceback/slice の各セル score に同一の項が加わるだけである。各 `w_i` は
+pre-terminal でちょうど一度だけ生成されるので二重計上も無い。文脈キーは観測文からのみ
+引くため、add の `make` 経路と remove の `find` 経路が同一キー列を辿ることが構造的に
+保証される（木の走査順にも add 済みかにも依存しない）。
+
+`n_w=1` は n-gram の特殊ケースとして残っており、`hpyp::find/make` のループが
+1 度も回らないため WO-014 以前と完全に一致する。
+
+**失敗モードの監視。** 深い文脈は「単語を見ればクラスが一意」への退化を招きうる。
+`[preterm]` 行の `labels_per_cell`（slice を生き残った terminal セルあたりの平均ラベル数）
+が 1 に近づくのがそのサインで、文法に決める余地が無くなったことを意味する。
+また root に到達する客が減るため各クラスの base corpus（Poisson 長さ補正の推定母数）が
+痩せる。init 直後の `[preterm] base_corpus` 行で確認する。
 
 `_nonterm` の root 文脈には pre-terminal ラベル `A` と内部ノードの左子 `B` が
 直接着席する。これはラベルに対する単一のカテゴリ事前を全ノードで共有するという
@@ -72,13 +105,13 @@ top-down 因子 `G_L(B|A)G_R(C|A,B)` は `docs/ipcfg_rule_factor_reformulation.m
 ## 同時確率
 
 $$
-\log p(T,w)=\sum_{v\in I}[\log P_{split}(b_v|i_v,j_v)+\log P(B_v)+\log P(C_v|B_v)+\log P(A_v|C_v,B_v)+\log P_{span}(v)] + \sum_{v\in P}[\log P(A_v)+\log W_{A_v}(w_v)].
+\log p(T,w)=\sum_{v\in I}[\log P_{split}(b_v|i_v,j_v)+\log P(B_v)+\log P(C_v|B_v)+\log P(A_v|C_v,B_v)+\log P_{span}(v)] + \sum_{v\in P}[\log P(A_v)+\log W_{A_v}(w_{i_v}\mid w_{i_v-1},\dots,w_{i_v-n_w+1})].
 $$
 
 `--split` を指定しないときは `P_split` の代わりに一様分布 `-\log(|v|-1)` を用いる
-（WO-012 以前の挙動）。**この一様因子は逐次 target `p_seq` にしか入っておらず、
+（WO-013 以前の挙動）。**この一様因子は逐次 target `p_seq` にしか入っておらず、
 CYK inside と traceback は `b` について重み 1 で総和していた。すなわち分割は同時確率上
-正規化されていなかった。** WO-012 の `P_split` は逐次 target・CYK・traceback・slice・
+正規化されていなかった。** WO-013 の `P_split` は逐次 target・CYK・traceback・slice・
 init のすべてに同一に入るため、この非正規性が解消される。`P_split` と一様因子は
 どちらか一方のみを掛ける（二重に掛けない）。
 
@@ -92,7 +125,7 @@ $$
 \alpha_{i,j}(A)=\sum_b\sum_{B,C}P_{split}(b|i,j)P(B)P(C|B)P(A|C,B)P_{span}(i,j)\alpha_{i,b}(B)\alpha_{b+1,j}(C),
 $$
 
-terminal は `alpha[i,i](A)=P(A)W_A(w_i)` である。root inside `Z=alpha[0,n-1](0)` を正規化定数とし、traceback は各候補を inside 寄与に比例して選ぶ。木の再帰 raw score を `s(T)` とすれば `log q(T)=s(T)-log Z` である。
+terminal は `alpha[i,i](A)=P(A)W_A(w_i|w_{i-1},...,w_{i-n_w+1})` である。文脈は観測列から引くので `alpha` の再帰構造は変わらない。root inside `Z=alpha[0,n-1](0)` を正規化定数とし、traceback は各候補を inside 寄与に比例して選ぶ。木の再帰 raw score を `s(T)` とすれば `log q(T)=s(T)-log Z` である。
 
 ## slice と MH
 
@@ -109,3 +142,19 @@ $$
 $$
 
 棄却時は提案木を remove して旧木を add し、共有 VPYP への customer を add/remove 対称に保つ。
+
+## 保存形式
+
+tail block は magic `"PAGP"` + version。version 7 で `_wn`（pre-terminal 単語 HPYP の
+次数）を末尾に追記した。version 6 以前は `_wn` を持たないが、それらは常に unigram で
+書かれているので `_wn=1` として正常に load する（n=1 は n-gram の特殊ケースであり、
+拒否する理由が無い）。
+
+`hpyp::load` は保存された `_n` で無条件に上書きするため、異種次数が混在すると
+`_slice_preterm` が異なる次数の LM を同一表で比較してしまう。これを防ぐため load 後に
+
+1. 全クラスの `(*_word)[k]->n()` が一致すること
+2. version 7 なら記録された `_wn` が実際の LM の次数と一致すること
+
+を検査し、**ファイル側の値を採用**する。CLI の `--wngram` と食い違う場合は cerr へ
+警告を出す（黙って無視しない）。

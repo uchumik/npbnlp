@@ -16,23 +16,26 @@
 //#define C 50000
 #define C 1
 #define K 1000
+// Default order of the pre-terminal word HPYPs (WO-014).  1 reproduces the
+// historical P(A)P(w|A) unigram emission bit for bit.
+#define WNGRAM 2
 
 using namespace std;
 using namespace npbnlp;
 
-ipcfg::ipcfg():_m(20), _k(20),_K(K), _v(C), _a(1), _b(1), _span(false), _shared_letter(true), _split(false), _split_fixed(false), _span_a(1), _span_b(1), _span_p(.5), _span_stop(0), _span_continue(0), _split_a(1), _split_b(1), _split_q(.5), _split_n(0), _split_sum(0), _slice_terminal_cells(0), _slice_terminal_labels(0), _slice_internal_cells(0), _slice_internal_labels(0), _nonterm(new hpyp(3)),_word(new vector<shared_ptr<hpyp> >),_letter(new vector<shared_ptr<vpyp> >) {
+ipcfg::ipcfg():_m(20), _k(20),_K(K), _v(C), _wn(WNGRAM), _a(1), _b(1), _span(false), _shared_letter(true), _split(false), _split_fixed(false), _span_a(1), _span_b(1), _span_p(.5), _span_stop(0), _span_continue(0), _split_a(1), _split_b(1), _split_q(.5), _split_n(0), _split_sum(0), _slice_terminal_cells(0), _slice_terminal_labels(0), _slice_internal_cells(0), _slice_internal_labels(0), _nonterm(new hpyp(3)),_word(new vector<shared_ptr<hpyp> >),_letter(new vector<shared_ptr<vpyp> >) {
 	shared_ptr<vpyp> letter(new vpyp(_m));
 	for (auto i = 0; i < _k+1; ++i) {
-		_word->push_back(shared_ptr<hpyp>(new hpyp(1)));
+		_word->push_back(shared_ptr<hpyp>(new hpyp(_wn)));
 		_letter->push_back(letter);
 		(*_word)[i]->set_base(letter.get());
 	}
 }
 
-ipcfg::ipcfg(int m):_m(m), _k(20), _K(K), _v(C), _a(1), _b(1), _span(false), _shared_letter(true), _split(false), _split_fixed(false), _span_a(1), _span_b(1), _span_p(.5), _span_stop(0), _span_continue(0), _split_a(1), _split_b(1), _split_q(.5), _split_n(0), _split_sum(0), _slice_terminal_cells(0), _slice_terminal_labels(0), _slice_internal_cells(0), _slice_internal_labels(0), _nonterm(new hpyp(3)), _word(new vector<shared_ptr<hpyp> >), _letter(new vector<shared_ptr<vpyp> >) {
+ipcfg::ipcfg(int m):_m(m), _k(20), _K(K), _v(C), _wn(WNGRAM), _a(1), _b(1), _span(false), _shared_letter(true), _split(false), _split_fixed(false), _span_a(1), _span_b(1), _span_p(.5), _span_stop(0), _span_continue(0), _split_a(1), _split_b(1), _split_q(.5), _split_n(0), _split_sum(0), _slice_terminal_cells(0), _slice_terminal_labels(0), _slice_internal_cells(0), _slice_internal_labels(0), _nonterm(new hpyp(3)), _word(new vector<shared_ptr<hpyp> >), _letter(new vector<shared_ptr<vpyp> >) {
 	shared_ptr<vpyp> letter(new vpyp(_m));
 	for (auto i = 0; i < _k+1; ++i) {
-		_word->push_back(shared_ptr<hpyp>(new hpyp(1)));
+		_word->push_back(shared_ptr<hpyp>(new hpyp(_wn)));
 		_letter->push_back(letter);
 		(*_word)[i]->set_base(letter.get());
 	}
@@ -77,7 +80,9 @@ void ipcfg::_save(FILE *fp) const {
 		// written so that older readers stay happy.
 		// version 6 appends the truncated-geometric split prior; version 5
 		// records load with _split disabled.
-		uint32_t version = 6;
+		// version 7 appends the pre-terminal word n-gram order; versions <= 6
+		// were always unigram and load with _wn = 1.
+		uint32_t version = 7;
 		int enabled = _span ? 1 : 0;
 		int free_parent = 0; // version-3 compatibility slot; ordered is fixed.
 		int shared_letter = _shared_letter ? 1 : 0;
@@ -106,6 +111,8 @@ void ipcfg::_save(FILE *fp) const {
 			if (fwrite(&_split_hist[i], sizeof(long long), 1, fp) != 1)
 				throw "failed to write split prior histogram in ipcfg::save";
 		}
+		if (fwrite(&_wn, sizeof(int), 1, fp) != 1)
+			throw "failed to write word n-gram order in ipcfg::save";
 	} catch (const char *ex) {
 		throw ex;
 	}
@@ -141,7 +148,7 @@ void ipcfg::_load(FILE *fp) {
 		if (_shared_letter)
 			_unshare_letters();
 		while ((int)_word->size() < _k+1) {
-			_word->push_back(shared_ptr<hpyp>(new hpyp(1)));
+			_word->push_back(shared_ptr<hpyp>(new hpyp(_wn)));
 			_letter->push_back(shared_ptr<vpyp>(new vpyp(_m)));
 			(*_word)[_word->size()-1]->set_base((*_letter)[_word->size()-1].get());
 		}
@@ -160,7 +167,7 @@ void ipcfg::_load(FILE *fp) {
 			uint32_t version = 0;
 			int enabled = 0;
 			if (nr != 1 || magic != 0x50414750 ||
-			    fread(&version, sizeof(uint32_t), 1, fp) != 1 || (version < 1 || version > 6) ||
+			    fread(&version, sizeof(uint32_t), 1, fp) != 1 || (version < 1 || version > 7) ||
 			    fread(&enabled, sizeof(int), 1, fp) != 1 ||
 			    fread(&_span_a, sizeof(double), 1, fp) != 1 ||
 			    fread(&_span_b, sizeof(double), 1, fp) != 1 ||
@@ -216,6 +223,32 @@ void ipcfg::_load(FILE *fp) {
 						throw "failed to read split prior histogram in ipcfg::load";
 				}
 			}
+			// Danger 3: hpyp::load overwrites _n unconditionally, so the stored
+			// order silently wins over whatever the constructor built.  Reading a
+			// unigram model with --wngram 2 would leave the loaded classes at
+			// n=1 while _resize() created n=2 ones, and _slice_preterm would then
+			// compare different-order language models in one table.  Verify that
+			// every class agrees, adopt the file's value and say so out loud.
+			int wn_actual = (*_word)[0]->n();
+			for (int i = 1; i <= _k; ++i) {
+				if ((*_word)[i]->n() != wn_actual)
+					throw "ipcfg::load: word HPYPs disagree on their n-gram order";
+			}
+			if (version >= 7) {
+				int wn_file = 1;
+				if (fread(&wn_file, sizeof(int), 1, fp) != 1)
+					throw "failed to read word n-gram order in ipcfg::load";
+				if (wn_file != wn_actual)
+					throw "ipcfg::load: recorded word n-gram order disagrees with the stored language models";
+			}
+			// Versions <= 6 record no order of their own; genuine ones were
+			// written by binaries that only ever built hpyp(1), so wn_actual is
+			// 1 for them.  Trust the language models rather than the version,
+			// so a downgraded-version fixture still loads at its real order.
+			if (_wn != wn_actual) {
+				fprintf(stderr, "[ipcfg] warning: model was trained with word n-gram order %d; ignoring the requested order %d\n", wn_actual, _wn);
+			}
+			_wn = wn_actual;
 		}
 	} catch (const char *ex) {
 		throw ex;
@@ -237,6 +270,9 @@ unique_ptr<ipcfg> ipcfg::snapshot() const {
 		if (!in)
 			throw "failed to reopen in-memory iPCFG snapshot";
 		unique_ptr<ipcfg> copy(new ipcfg(_m));
+		// Carry the order over before _load so its mismatch warning stays
+		// reserved for genuine CLI/file conflicts.
+		copy->_wn = _wn;
 		copy->_load(in);
 		fclose(in);
 		copy->_a = _a;
@@ -283,7 +319,9 @@ void ipcfg::_init_node(tree& t, int idx, int label) {
 		_check_label(z, "ipcfg::init encountered an inactive preterminal label");
 		_tfreq[label]++;
 		word& w = t.wd(z.i);
-		(*_word)[label]->add(w, (*_word)[label]->h());
+		// The word context is read off the observed sentence only, so _add and
+		// _remove walk the identical key sequence regardless of traversal order.
+		(*_word)[label]->add(w, (*_word)[label]->make(t.s, z.i));
 		_nonterm->add(label, _nonterm->h());
 		return;
 	}
@@ -350,10 +388,15 @@ double ipcfg::_init_logprob_and_add(tree& t, int idx) {
 		if (z.k <= 0)
 			return 0.;
 		word& w = t.wd(z.i);
-		double lp = (*_word)[z.k]->lp(w, (*_word)[z.k]->h())+
+		// Sequential target: read the predictive probability at exactly the
+		// context the matching add() will seat into.  make() is safe here (this
+		// path is single-threaded), and a freshly made node has no customers, so
+		// the probability equals the one find() would have returned.
+		context *h = (*_word)[z.k]->make(t.s, z.i);
+		double lp = (*_word)[z.k]->lp(w, h)+
 			_nonterm->lp(z.k, _nonterm->h());
 		_tfreq[z.k]++;
-		(*_word)[z.k]->add(w, (*_word)[z.k]->h());
+		(*_word)[z.k]->add(w, h);
 		_nonterm->add(z.k, _nonterm->h());
 		return lp;
 	}
@@ -511,6 +554,25 @@ void ipcfg::add(tree& t) {
 		_resize();
 }
 
+// Strict context lookup for _remove.  hpyp::find(sentence&,int) stops at the
+// deepest node that happens to exist and returns it, so a missing node would
+// hand _remove a shallower restaurant than _add seated into: hpyp::remove would
+// then drive that restaurant's counts negative and _bc_remove would evict a
+// randomly chosen, unrelated witness -- unrecoverable and silent.  Since _add
+// always builds the full depth with make() from the same observed sentence,
+// falling short here means the ledger is already inconsistent, so we throw.
+// (ma/src/phsmm.cc uses the unguarded find; snpylm's throwing walk is the
+// pattern followed here.)
+context* ipcfg::_word_context_remove(int k, sentence& s, int i) const {
+	hpyp& lm = *(*_word)[k];
+	context *h = lm.h();
+	for (int m = 1; m < lm.n() && h; ++m)
+		h = h->find(s[i-m]);
+	if (!h)
+		throw "ipcfg::remove could not reach the full-depth word context";
+	return h;
+}
+
 void ipcfg::_check_label(const node& z, const char *where) const {
 	if (z.k < 0 || z.k > _k || z.k >= (int)_word->size() ||
 	    z.k >= (int)_letter->size()) {
@@ -572,7 +634,7 @@ void ipcfg::_add(tree& t, int i) {
 		_add(t, t.s.size()*(z.b+1)+z.j-(1.+z.b)*(z.b+2)/2);
 	} else if (z.k > 0) { // preterminal
 		word& w = t.wd(z.i);
-		context *h = (*_word)[z.k]->h();
+		context *h = (*_word)[z.k]->make(t.s, z.i);
 		(*_word)[z.k]->add(w, h);
 		_nonterm->add(z.k, _nonterm->h());
 	}
@@ -619,7 +681,7 @@ void ipcfg::_remove(tree& t, int i) {
 		_remove(t, t.s.size()*(z.b+1)+z.j-(1.+z.b)*(z.b+2)/2);
 	} else if (z.k > 0) { // preterminal
 		word& w = t.wd(z.i);
-		context *h = (*_word)[z.k]->h();
+		context *h = _word_context_remove(z.k, t.s, z.i);
 		(*_word)[z.k]->remove(w, h);
 		_nonterm->remove(z.k, _nonterm->h());
 	}
@@ -703,6 +765,31 @@ void ipcfg::poisson_correction(int n) {
 void ipcfg::set(int k) {
 	_K = k;
 	_k = min(_k, _K);
+}
+
+void ipcfg::word_ngram(int n) {
+	if (n < 1)
+		throw "ipcfg::word_ngram requires n >= 1";
+	if (n == _wn)
+		return;
+	// The order is baked into hpyp at construction, so the class models are
+	// rebuilt.  That is only sound while they are still empty, i.e. before any
+	// tree has been added; refuse otherwise rather than dropping seated counts.
+	for (int i = 0; i < (int)_word->size(); ++i) {
+		if (!(*_word)[i]->empty())
+			throw "ipcfg::word_ngram must be called before any tree is added";
+	}
+	_wn = n;
+	for (int i = 0; i < (int)_word->size(); ++i) {
+		(*_word)[i] = shared_ptr<hpyp>(new hpyp(_wn));
+		(*_word)[i]->set_base((*_letter)[i].get());
+	}
+}
+
+void ipcfg::base_corpus_sizes(vector<long long>& out) const {
+	out.clear();
+	for (int i = 0; i <= _k; ++i)
+		out.push_back((*_word)[i]->base_customers());
 }
 
 void ipcfg::slice(double a, double b) {
@@ -869,7 +956,9 @@ double ipcfg::_traceback(cyk& c, int i, int j, int z, vt& a, tree& tr, bool best
 		word& w = c.wd(i);
 		// A pre-terminal emits the observed terminal word.  This factor must
 		// be part of the returned tree probability, not only of the inside DP.
-		return (*_word)[z]->lp(w, (*_word)[z]->h())+
+		// find() only -- scoring runs inside the OpenMP region and make()
+		// writes to context::_child, which find() reads without the lock.
+		return (*_word)[z]->lp(w, (*_word)[z]->find(c.s, i))+
 			_nonterm->lp(z, _nonterm->h());
 	} else { // non-terminal
 		vector<double> table;
@@ -919,7 +1008,7 @@ double ipcfg::_traceback(cyk& c, int i, int j, int z, vt& a, tree& tr, bool best
 double ipcfg::_traceback_logprob(cyk& c, int i, int j, int z, vt& a, tree& tr) {
 	if (i == j) {
 		word& w = c.wd(i);
-		return (*_word)[z]->lp(w, (*_word)[z]->h())+
+		return (*_word)[z]->lp(w, (*_word)[z]->find(c.s, i))+
 			_nonterm->lp(z, _nonterm->h());
 	}
 	int N = tr.s.size();
@@ -963,7 +1052,7 @@ void ipcfg::_calc_preterm(cyk& c, int j, vt& a) {
 	word& w = c.wd(j);
 	double mu = c.mu[j][j];
 	for (auto k = c.begin(j,j); k != c.end(j,j); ++k) {
-		double lp = (*_word)[*k]->lp(w, (*_word)[*k]->h())+_nonterm->lp(*k, _nonterm->h());
+		double lp = (*_word)[*k]->lp(w, (*_word)[*k]->find(c.s, j))+_nonterm->lp(*k, _nonterm->h());
 		if (lp >= mu) {
 			a[*k].v = math::lse(a[*k].v, lp, true);
 			a[*k].set(true);
@@ -1253,7 +1342,7 @@ void ipcfg::_slice_preterm(cyk& l, int i) {
 	word& w = l.wd(i);
 	vector<double> table;
 	for (auto k = 1; k < _k+1; ++k) {
-		double lp = (*_word)[k]->lp(w, (*_word)[k]->h())+_nonterm->lp(k, _nonterm->h());
+		double lp = (*_word)[k]->lp(w, (*_word)[k]->find(l.s, i))+_nonterm->lp(k, _nonterm->h());
 		table.push_back(lp);
 	}
 	int id = rd::ln_draw(table);
@@ -1275,7 +1364,7 @@ void ipcfg::_slice_preterm_cond(cyk& l, int i, int label) {
 	word& w = l.wd(i);
 	vector<double> table;
 	for (auto k = 1; k < _k+1; ++k) {
-		double lp = (*_word)[k]->lp(w, (*_word)[k]->h())+_nonterm->lp(k, _nonterm->h());
+		double lp = (*_word)[k]->lp(w, (*_word)[k]->find(l.s, i))+_nonterm->lp(k, _nonterm->h());
 		table.push_back(lp);
 	}
 	double score_cur = table[label-1];
@@ -1336,7 +1425,11 @@ void ipcfg::_resize() {
 	if (_k+1 > _K)
 		return;
 	++_k;
-	_word->resize(_k+1, shared_ptr<hpyp>(new hpyp(1)));
+	// push_back, not resize(n, shared_ptr(new ...)): the latter would hand every
+	// added slot the same object.  Only one slot grows per call today, but the
+	// new class must in any case be built at the effective order _wn.
+	while ((int)_word->size() < _k+1)
+		_word->push_back(shared_ptr<hpyp>(new hpyp(_wn)));
 	if (_shared_letter) {
 		_letter->push_back((*_letter)[0]);
 		(*_word)[_k]->set_base((*_letter)[0].get());

@@ -63,6 +63,10 @@ namespace npbnlp {
 			int draw_k(context *h);
 			int n() const;
 			int v() const;
+			// Diagnostic only: number of tokens currently held in the word
+			// base corpus (_bc), i.e. the witnesses backing the base measure.
+			// Used to detect base measures starved by deeper n-gram contexts.
+			long long base_customers() const;
 			void add(chunk& c, context *h);
 			void add(word& w, context *h);
 			bool add(int k, context *h);

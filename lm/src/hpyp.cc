@@ -162,6 +162,15 @@ int hpyp::n() const {
 	return _n;
 }
 
+long long hpyp::base_customers() const {
+	long long n = 0;
+	if (_bc) {
+		for (auto it = _bc->cbegin(); it != _bc->cend(); ++it)
+			n += (long long)it->second.size();
+	}
+	return n;
+}
+
 double hpyp::discount(int n) const {
 	if (n < 0 || n >= _n) {
 		throw "found access to out of range n >= _n: at discount param";
