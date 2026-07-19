@@ -92,6 +92,9 @@ py/*.so
 # local claude workspace
 .claude/
 
+# local experiment/evaluation tooling (durable on disk, deliberately not in the repo)
+tools/
+
 # agent instruction / workspace files (local only; not shared with the repo)
 CLAUDE.md
 CLAUDE.local.md
