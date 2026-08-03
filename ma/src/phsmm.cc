@@ -6,11 +6,13 @@
 #include"lattice.h"
 #include"generator.h"
 #include<random>
+#include<cmath>
+#include<limits>
 #ifdef _OPENMP
 #include<omp.h>
 #endif
 
-#define C 50000
+#define C 1
 #define K 1000
 #define ZERO 1e-36
 
@@ -21,7 +23,8 @@ static unordered_map<int, int> wfreq;
 static unordered_map<int, int> pfreq;
 
 phsmm::phsmm():_n(1),_m(10),_l(2),_k(20),_v(C),_K(K),_a(1),_b(1),_pos(new hpyp(_l)),_word(new vector<shared_ptr<hpyp> >),_letter(new vector<shared_ptr<vpyp> >) {
-	_pos->set_v(_K);
+	//_pos->set_v(_K);
+	_pos->set_v(1);
 	for (auto i = 0; i < _k+1; ++i) {
 		_word->push_back(shared_ptr<hpyp>(new hpyp(_n)));
 		_letter->push_back(shared_ptr<vpyp>(new vpyp(_m)));
@@ -31,7 +34,8 @@ phsmm::phsmm():_n(1),_m(10),_l(2),_k(20),_v(C),_K(K),_a(1),_b(1),_pos(new hpyp(_
 }
 
 phsmm::phsmm(int n, int m, int l, int k):_n(n),_m(m),_l(l),_k(k),_v(C),_K(K),_a(1),_b(1),_pos(new hpyp(_l)),_word(new vector<shared_ptr<hpyp> >),_letter(new vector<shared_ptr<vpyp> >) {
-	_pos->set_v(_K);
+	//_pos->set_v(_K);
+	_pos->set_v(1);
 	for (auto i = 0; i < _k+1; ++i) {
 		_word->push_back(shared_ptr<hpyp>(new hpyp(_n)));
 		_letter->push_back(shared_ptr<vpyp>(new vpyp(_m)));
@@ -44,13 +48,15 @@ phsmm::~phsmm() {
 }
 
 void phsmm::set(int v, int k) {
-	_v = v;
+	//_v = v;
 	_K = k;
 	_k = min(_k, _K);
+	/*
 	for (auto it = _letter->begin(); it != _letter->end(); ++it) {
 		(*it)->set_v(_v);
 	}
 	_pos->set_v(k);
+	*/
 }
 
 int phsmm::n() {
@@ -306,6 +312,8 @@ void phsmm::poisson_correction(int n) {
 }
 
 sentence phsmm::parse(io& f, int i) {
+	return _minfer(f, i, true, NULL);
+#if 0
 	lattice l(f, i);
 	vt dp;
 	// slice
@@ -405,103 +413,15 @@ sentence phsmm::parse(io& f, int i) {
 	reverse(s.w.begin(), s.w.end());
 	s.n.resize(s.w.size(), 0);
 	return s;
+#endif
 }
 
 sentence phsmm::sample(io& f, int i) {
-	lattice l(f, i);
-	vt dp;
-	// slice
-	_slice(l);
-	// forward filtering
-	for (auto t = 0; t < (int)l.w.size(); ++t) {
-		for (auto j = 0; j < l.size(t); ++j) {
-			/*
-			if (l.skip(t,j))
-				continue;
-				*/
-			word& w = l.wd(t, j+1);
-			//for (auto p = 1; p < _k+1; ++p) {
-			for (auto pt = l.sbegin(t, j); pt != l.send(t, j); ++pt) {
-				int p = *pt;
-				const context *c = (*_word)[p]->h();
-				const context *z = _pos->h();
-				for (auto k = 0; k < l.size(t-w.len); ++k) {
-					/*
-					if (l.skip(t-w.len,k))
-						continue;
-						*/
-					const context *h = NULL;
-					word& prev = l.wd(t-w.len, k+1);
-					if (_n > 1)
-						h = c->find(prev.id);
-					// pos transition
-					//for (auto q = 1; q < _k+1; ++q) {
-					for (auto it = l.sbegin(t-w.len, k); it != l.send(t-w.len, k); ++it) {
-						int q = *it;
-						const context *u = NULL;
-						if (_l > 1)
-							u = z->find(q);
-						if (h && u)
-							_forward(l, t-w.len-prev.len, h, u, w, p, prev, q, dp[t][j][p], dp[t-w.len][k][q], _n-1, _l-1, false, false);
-						else if (h)
-							_forward(l, t-w.len-prev.len, h, z, w, p, prev, q, dp[t][j][p], dp[t-w.len][k][q], _n-1, _l-1, false, true);
-						else if (u)
-							_forward(l, t-w.len-prev.len, c, u, w, p, prev, q, dp[t][j][p], dp[t-w.len][k][q], _n-1, _l-1, true, false);
-						else
-							_forward(l, t-w.len-prev.len, c, z, w, p, prev, q, dp[t][j][p], dp[t-w.len][k][q], _n-1, _l-1, true, true);
-					}
-				}
-			}
-		}
-	}
-	// backward sampling
-	sentence s;
-	word *w = l.wp(l.w.size(), 1);
-	int t = (int)l.w.size()-w->len;
-	while (t >= 0) {
-		const context *c = (*_word)[w->pos]->h();
-		const context *z = _pos->h();
-		vector<double> table;
-		vector<int> len;
-		vector<int> pos;
-		for (auto k = 0; k < l.size(t); ++k) {
-			/*
-			if (l.skip(t, k))
-				continue;
-				*/
-			const context *h = NULL;
-			word& prev = l.wd(t, k+1);
-			if (_n > 1)
-				h = c->find(prev.id);
-			//for (auto q = 1; q < _k+1; ++q) {
-			for (auto qt = l.sbegin(t, k); qt != l.send(t, k); ++qt) {
-				int q = *qt;
-				const context *u = NULL;
-				int j = table.size();
-				table.push_back(1.);
-				len.push_back(k+1);
-				pos.push_back(q);
-				if (_l > 1)
-					u = z->find(q);
-				if (h && u)
-					_backward(l, t-prev.len, h, u, *w, w->pos, prev, q, table[j], dp[t][k][q], _n-1, _l-1, false, false);
-				else if (h)
-					_backward(l, t-prev.len, h, z, *w, w->pos, prev, q, table[j], dp[t][k][q], _n-1, _l-1, false, true);
-				else if (u)
-					_backward(l, t-prev.len, c, u, *w, w->pos, prev, q, table[j], dp[t][k][q], _n-1, _l-1, true, false);
-				else
-					_backward(l, t-prev.len, c, z, *w, w->pos, prev, q, table[j], dp[t][k][q], _n-1, _l-1, true, true);
-			}
-		}
-		int id = rd::ln_draw(table);
-		w = l.wp(t, len[id]);
-		w->pos = pos[id];
-		s.w.push_back(*w);
-		t -= w->len;
-	}
-	reverse(s.w.begin(), s.w.end());
-	s.n.resize(s.w.size(), 0);
-	return s;
+	return _minfer(f, i, false, NULL);
+}
+
+sentence phsmm::sample(io& f, int i, sentence *cur) {
+	return _minfer(f, i, false, cur);
 }
 
 void phsmm::_forward(lattice& l, int i, const context *c, const context *t, word& w, int p, word& prev, int q, vt& a, vt& b, int n, int m, bool unk, bool not_exist) {
@@ -512,9 +432,9 @@ void phsmm::_forward(lattice& l, int i, const context *c, const context *t, word
 	} else {
 		for (auto j = 0; j < l.size(i); ++j) {
 			/*
-			if (l.skip(i, j))
-				continue;
-				*/
+			   if (l.skip(i, j))
+			   continue;
+			   */
 			word& y = l.wd(i, j+1);
 			const context *h = NULL;
 			if (!unk && n > 1)
@@ -543,9 +463,9 @@ void phsmm::_backward(lattice& l, int i, const context *c, const context *t, wor
 	} else {
 		for (auto j = 0; j < l.size(i); ++j) {
 			/*
-			if (l.skip(i, j))
-				continue;
-				*/
+			   if (l.skip(i, j))
+			   continue;
+			   */
 			word& y = l.wd(i, j+1);
 			const context *h = NULL;
 			if (!unk && n > 1)
@@ -568,17 +488,30 @@ void phsmm::_backward(lattice& l, int i, const context *c, const context *t, wor
 	}
 }
 
-void phsmm::_slice(lattice& l) {
+void phsmm::_slice(lattice& l, sentence *cur) {
 	beta_distribution be;
-	shared_ptr<generator> g = generator::create();
+	vector<vector<int> > anchor(l.w.size());
+	for (auto t = 0; t < (int)l.w.size(); ++t)
+		anchor[t].resize(l.size(t), 0);
+	// During Gibbs sampling, use the removed sentence as the slice anchor.  Its
+	// cells therefore stay in the permitted lattice; parse has no such state.
+	if (cur) {
+		int t = -1;
+		for (auto w = cur->w.begin(); w != cur->w.end(); ++w) {
+			t += w->len;
+			if (t >= 0 && t < (int)l.w.size() && w->len <= l.size(t))
+				anchor[t][w->len-1] = w->pos;
+		}
+	}
 	for (auto t = 0; t < (int)l.w.size(); ++t) {
 		// marginarize \sum_k p(c_{t-j+1}^t, k)
 		//vector<double> lpw;
-		for (auto w = l.w[t].begin(); w != l.w[t].end(); ++w) {
+		for (auto j = 0; j < l.size(t); ++j) {
+			word& w = l.wd(t, j+1);
 			double z = 0; // p(c_{t-j+1}^t)
 			vector<double> table;
 			for (auto k = 1; k < _k+1; ++k) {
-				double lp = (*_word)[k]->lp(*w, (*_word)[k]->h())+_pos->lp(k, _pos->h());
+				double lp = (*_word)[k]->lp(w, (*_word)[k]->h())+_pos->lp(k, _pos->h());
 				z = math::lse(z, lp, (z==0));
 				table.push_back(lp);
 			}
@@ -589,32 +522,273 @@ void phsmm::_slice(lattice& l) {
 			//lpw.push_back(z);
 			// for slice pos
 			/*
-			for (auto k = 1; k < _k+1; ++k) {
-				// p(k|c_{t-j+1}~t)
-				double lp = (*_word)[k]->lp(*w, (*_word)[k]->h())+_pos->lp(k, _pos->h())-z;
-				table.push_back(lp);
+			   for (auto k = 1; k < _k+1; ++k) {
+			// p(k|c_{t-j+1}~t)
+			double lp = (*_word)[k]->lp(*w, (*_word)[k]->h())+_pos->lp(k, _pos->h())-z;
+			table.push_back(lp);
 			}
 			*/
 			//w->pos = rd::ln_draw(table)+1;
-			int id = rd::ln_draw(table);
+			int id = anchor[t][j]-1;
+			if (id < 0 || id >= _k)
+				id = rd::ln_draw(table);
 			double mu = log(be(_a, _b))+table[id];
 			for (auto i = 0; i < (int)table.size(); ++i) {
 				if (table[i] >= mu)
-					l.k[t][w->len-1].push_back(i+1);
+					l.k[t][j].push_back(i+1);
 			}
+			if (anchor[t][j] && find(l.k[t][j].begin(), l.k[t][j].end(), anchor[t][j]) == l.k[t][j].end())
+				throw "slice removed the current phsmm state";
 
 		}
 		/*
-		   //uniform_int_distribution<> v(1, l.size(t));
-		   //int len = v((*g)()); // for slice words
-		   int len = 1+rd::ln_draw(lpw);
-		   double nu = log(be(_a, _b))+lpw[len-1];
-		   for (auto j = 0; j < lpw.size(); ++j) {
-		   if (lpw[j] < nu) {
-		   l.check[t][j] = 1;
-		   }
-		   }
-		   */
+		//uniform_int_distribution<> v(1, l.size(t));
+		//int len = v((*g)()); // for slice words
+		int len = 1+rd::ln_draw(lpw);
+		double nu = log(be(_a, _b))+lpw[len-1];
+		for (auto j = 0; j < lpw.size(); ++j) {
+		if (lpw[j] < nu) {
+		l.check[t][j] = 1;
+		}
+		}
+		*/
+	}
+}
+
+sentence phsmm::_minfer(io& f, int i, bool best, sentence *cur) {
+	lattice l(f, i);
+	vt dp, am, trm, bos;
+	_slice(l, cur);
+	int nw = _n-1;
+	int nc = max(_l-1, 1);
+	vt *node = &bos;
+	for (int d = 0; d < nw+nc; ++d)
+		node = &(*node)[0];
+	node->v = 0;
+	node->set(true);
+	_mfill(l, dp, am, bos, trm);
+
+	sentence s;
+	word *eos = l.wp(l.w.size(), 1);
+	int t = (int)l.w.size()-eos->len;
+	vector<int> lam, rcs;
+	vector<double> tbl;
+	vector<vector<int> > lpath, rpath;
+	vector<int> cl, cr;
+	_mtable(l, t, nw, nc, (*_word)[eos->pos]->h(), false, *eos,
+	        am[t], trm, cl, cr, tbl, lpath, rpath);
+	if (tbl.empty())
+		throw "failed to construct backward table in phsmm::_minfer";
+	int id = best ? rd::best(tbl) : rd::ln_draw(tbl);
+	lam = lpath[id];
+	rcs = rpath[id];
+	while (t >= 0) {
+		int P = rcs[0];
+		int J = 0;
+		if (nw == 0) {
+			vector<double> tb;
+			vector<int> cand;
+			for (auto it = dp[t].begin(); it != dp[t].end(); ++it) {
+				vt *leaf = &(*(it->second))[P];
+				for (int d = 1; d < nc; ++d)
+					leaf = &(*leaf)[rcs[d]];
+				if (leaf->is_init()) {
+					cand.push_back(it->first);
+					tb.push_back(leaf->v);
+				}
+			}
+			if (tb.empty())
+				throw "failed to draw a word length in phsmm::_minfer";
+			J = cand[best ? rd::best(tb) : rd::ln_draw(tb)];
+		} else {
+			J = lam[0];
+		}
+		word *w = l.wp(t, J);
+		w->pos = P;
+		s.w.push_back(*w);
+		int tn = t-w->len;
+		if (tn < 0)
+			break;
+		int lnew = 0;
+		if (nw >= 1) {
+			vt *lnode = &dp[t];
+			lnode = &(*lnode)[J];
+			lnode = &(*lnode)[P];
+			for (int d = 1; d < nw; ++d)
+				lnode = &(*lnode)[lam[d]];
+			vector<double> tb;
+			vector<int> cand;
+			for (auto it = lnode->begin(); it != lnode->end(); ++it) {
+				vt *leaf = it->second.get();
+				for (int d = 1; d < nc; ++d)
+					leaf = &(*leaf)[rcs[d]];
+				if (leaf->is_init()) {
+					cand.push_back(it->first);
+					tb.push_back(leaf->v);
+				}
+			}
+			if (tb.empty())
+				throw "failed to draw a context length in phsmm::_minfer";
+			lnew = cand[best ? rd::best(tb) : rd::ln_draw(tb)];
+		}
+		vt *anode = &am[tn];
+		for (int d = 1; d < nw; ++d)
+			anode = &(*anode)[lam[d]];
+		if (nw >= 1)
+			anode = &(*anode)[lnew];
+		for (int d = 1; d < nc; ++d)
+			anode = &(*anode)[rcs[d]];
+		vector<double> tb;
+		vector<int> cand;
+		vector<int> rc(rcs.begin()+1, rcs.end());
+		for (auto it = anode->begin(); it != anode->end(); ++it) {
+			vt& child = *(it->second);
+			if (!child.is_init())
+				continue;
+			rc.push_back(it->first);
+			double tr = _mtr(P, rc, trm);
+			rc.pop_back();
+			cand.push_back(it->first);
+			tb.push_back(tr+child.v);
+		}
+		if (tb.empty())
+			throw "failed to draw a class in phsmm::_minfer";
+		int rnew = cand[best ? rd::best(tb) : rd::ln_draw(tb)];
+		for (int d = 0; d+1 < nw; ++d)
+			lam[d] = lam[d+1];
+		if (nw >= 1)
+			lam[nw-1] = lnew;
+		for (int d = 0; d+1 < nc; ++d)
+			rcs[d] = rcs[d+1];
+		rcs[nc-1] = rnew;
+		t = tn;
+	}
+	reverse(s.w.begin(), s.w.end());
+	s.n.resize(s.w.size(), 0);
+	return s;
+}
+
+void phsmm::_mfill(lattice& l, vt& dp, vt& am, vt& bos, vt& trm) {
+	int nw = _n-1;
+	for (int t = 0; t < (int)l.w.size(); ++t) {
+		for (int j = 0; j < l.size(t); ++j) {
+			word& w = l.wd(t, j+1);
+			int s = t-w.len;
+			vt& as = (s < 0) ? bos : am[s];
+			if (!as.is_init())
+				continue;
+			for (auto pt = l.sbegin(t, j); pt != l.send(t, j); ++pt) {
+				int p = *pt;
+				_mchain(l, s, nw, (*_word)[p]->h(), false, w, p, as,
+				        dp[t][w.len][p], (nw >= 1) ? am[t][w.len] : am[t], trm);
+			}
+		}
+	}
+}
+
+void phsmm::_mchain(lattice& l, int pos, int d, const context *c, bool unk, word& w, int p, vt& as, vt& dpn, vt& an, vt& trm) {
+	if (d <= 0) {
+		vector<int> rc;
+		_mcls(max(_l-1, 1), rc, as, dpn, an[p], trm, p, (*_word)[p]->lp(w, c));
+		return;
+	}
+	for (auto it = as.begin(); it != as.end(); ++it) {
+		int lam = it->first;
+		vt& child = *(it->second);
+		if (!child.is_init())
+			continue;
+		word& y = (lam > 0 && pos >= 0) ? l.wd(pos, lam) : l.wd(-1, 1);
+		const context *h = (!unk) ? c->find(y.id) : NULL;
+		_mchain(l, pos-y.len, d-1, h ? h : c, unk || !h, w, p, child,
+		        dpn[lam], (d > 1) ? an[lam] : an, trm);
+	}
+}
+
+void phsmm::_mcls(int e, vector<int>& rc, vt& as, vt& dpn, vt& an, vt& trm, int p, double base) {
+	if (e <= 1) {
+		double x = 0;
+		bool init = false;
+		for (auto it = as.begin(); it != as.end(); ++it) {
+			vt& child = *(it->second);
+			if (!child.is_init())
+				continue;
+			rc.push_back(it->first);
+			x = math::lse(x, _mtr(p, rc, trm)+child.v, !init);
+			rc.pop_back();
+			init = true;
+		}
+		if (!init)
+			return;
+		dpn.v = base+x;
+		dpn.set(true);
+		an.v = math::lse(an.v, dpn.v, !an.is_init());
+		an.set(true);
+		return;
+	}
+	for (auto it = as.begin(); it != as.end(); ++it) {
+		vt& child = *(it->second);
+		if (!child.is_init())
+			continue;
+		rc.push_back(it->first);
+		_mcls(e-1, rc, child, dpn[it->first], an[it->first], trm, p, base);
+		rc.pop_back();
+	}
+}
+
+double phsmm::_mtr(int p, vector<int>& rc, vt& trm) {
+	vt *node = &trm;
+	for (auto r = rc.begin(); r != rc.end(); ++r)
+		node = &(*node)[*r];
+	vt& leaf = (*node)[p];
+	if (!leaf.is_init()) {
+		const context *u = _pos->h();
+		int d = 0;
+		for (auto r = rc.begin(); r != rc.end() && d < _l-1; ++r, ++d) {
+			const context *next = u->find(*r);
+			if (!next)
+				break;
+			u = next;
+		}
+		leaf.v = _pos->lp(p, u);
+		leaf.set(true);
+	}
+	return leaf.v;
+}
+
+void phsmm::_mtable(lattice& l, int pos, int d, int e, const context *c, bool unk, word& w, vt& as, vt& trm, vector<int>& cl, vector<int>& cr, vector<double>& tbl, vector<vector<int> >& lpath, vector<vector<int> >& rpath) {
+	if (d > 0) {
+		for (auto it = as.begin(); it != as.end(); ++it) {
+			int lam = it->first;
+			vt& child = *(it->second);
+			if (!child.is_init())
+				continue;
+			word& y = (lam > 0 && pos >= 0) ? l.wd(pos, lam) : l.wd(-1, 1);
+			const context *h = (!unk) ? c->find(y.id) : NULL;
+			cl.push_back(lam);
+			_mtable(l, pos-y.len, d-1, e, h ? h : c, unk || !h, w, child, trm, cl, cr, tbl, lpath, rpath);
+			cl.pop_back();
+		}
+	} else if (e > 1) {
+		for (auto it = as.begin(); it != as.end(); ++it) {
+			vt& child = *(it->second);
+			if (!child.is_init())
+				continue;
+			cr.push_back(it->first);
+			_mtable(l, pos, 0, e-1, c, unk, w, child, trm, cl, cr, tbl, lpath, rpath);
+			cr.pop_back();
+		}
+	} else {
+		double em = (*_word)[w.pos]->lp(w, c);
+		for (auto it = as.begin(); it != as.end(); ++it) {
+			vt& child = *(it->second);
+			if (!child.is_init())
+				continue;
+			cr.push_back(it->first);
+			tbl.push_back(em+_mtr(w.pos, cr, trm)+child.v);
+			lpath.push_back(cl);
+			rpath.push_back(cr);
+			cr.pop_back();
+		}
 	}
 }
 

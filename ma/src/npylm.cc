@@ -7,7 +7,7 @@
 #include<omp.h>
 #endif
 
-#define C 5000
+#define C 1
 using namespace std;
 using namespace npbnlp;
 
@@ -27,8 +27,10 @@ npylm::~npylm() {
 }
 
 void npylm::set(int v) {
+	/*
 	if (v > 0)
 		_letter->set_v(v);
+		*/
 }
 
 int npylm::n() {

@@ -7,6 +7,7 @@
 #include"hpyp.h"
 #include"vpyp.h"
 #include<mutex>
+#include<vector>
 namespace npbnlp {
 	class phsmm {
 		public:
@@ -17,6 +18,7 @@ namespace npbnlp {
 			virtual void remove(sentence& s);
 			virtual void init(sentence& s);
 			virtual sentence sample(io& f, int i);
+			virtual sentence sample(io& f, int i, sentence *cur);
 			virtual sentence parse(io& f, int i);
 			virtual void set(int v, int k);
 			virtual int n();
@@ -43,7 +45,13 @@ namespace npbnlp {
 
 			void _forward(lattice& l, int i, const context *c, const context *t, word& w, int p, word& prev, int q, vt& a, vt& b, int n, int m, bool unk, bool not_exist);
 			void _backward(lattice& l, int i, const context *c, const context *t, word& w, int p, word& prev, int q, double& lpr, vt& b, int n, int m, bool unk, bool not_exist);
-			void _slice(lattice& l);
+			sentence _minfer(io& f, int i, bool best, sentence *cur);
+			void _mfill(lattice& l, vt& dp, vt& am, vt& bos, vt& trm);
+			void _mchain(lattice& l, int pos, int d, const context *c, bool unk, word& w, int p, vt& as, vt& dpn, vt& an, vt& trm);
+			void _mcls(int e, std::vector<int>& rc, vt& as, vt& dpn, vt& an, vt& trm, int p, double base);
+			double _mtr(int p, std::vector<int>& rc, vt& trm);
+			void _mtable(lattice& l, int pos, int d, int e, const context *c, bool unk, word& w, vt& as, vt& trm, std::vector<int>& cl, std::vector<int>& cr, std::vector<double>& tbl, std::vector<std::vector<int> >& lpath, std::vector<std::vector<int> >& rpath);
+			void _slice(lattice& l, sentence *cur);
 			void _resize();
 			void _shrink();
 	};

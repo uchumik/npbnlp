@@ -19,11 +19,11 @@ static int n = 1;
 static int m = 20;
 static int l = 2;
 static int k = 10;
-static int K = 50; // base measure for transition
+static int K = 50; // max pos size
 static int threads = 4;
 static int epoch = 500;
 static int dmp = 0;
-static int vocab = 5000;
+static int vocab = 1;
 static double a = 1;
 static double b = 5;
 static string train;
@@ -205,7 +205,7 @@ int mcmc(io& f, vector<sentence>& corpus) {
 				auto t = omp_get_thread_num();
 				if (j+t < (int)corpus.size()) {
 					try {
-						sentence s = lm.sample(f, rd[j+t]);
+						sentence s = lm.sample(f, rd[j+t], &corpus[rd[j+t]]);
 						corpus[rd[j+t]] = s;
 					} catch (const char *ex) {
 						cerr << ex << endl;
@@ -216,7 +216,7 @@ int mcmc(io& f, vector<sentence>& corpus) {
 			for (auto t = 0; t < threads; ++t) {
 				if (j+t < (int)corpus.size()) {
 					try {
-						sentence s = lm.sample(f, rd[j+t]);
+						sentence s = lm.sample(f, rd[j+t], &corpus[rd[j+t]]);
 						corpus[rd[j+t]] = s;
 					} catch (const char *ex) {
 						cerr << ex << endl;
@@ -259,7 +259,7 @@ int parse() {
 	phsmm lm(n, m, l, k);
 	try {
 		lm.load(model.c_str());
-		lm.set(vocab, K);
+		//lm.set(vocab, K);
 	} catch (const char *ex) {
 		throw ex;
 	}

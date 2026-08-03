@@ -20,7 +20,7 @@ static int m = 20;
 static int threads = 4;
 static int epoch = 500;
 static int dmp = 0;
-static int vocab = 5000;
+static int vocab = 1;
 static string train;
 static string test;
 static string model("npylm.model");
