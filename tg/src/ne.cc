@@ -1,6 +1,7 @@
 #include"nnpylm.h"
 #include"nphsmm.h"
 #include"npylm.h"
+#include"phsmm.h"
 #include"rd.h"
 #include"util.h"
 #include<getopt.h>
@@ -32,7 +33,7 @@ static string train;
 static string test;
 static string model("nphsmm.model");
 static string cdic("ne.dic");
-static string tokenizer("npylm.model");
+static string tokenizer("phsmm.model");
 static string wdic("word.dic");
 
 void progress(const char *s, int i, double pct) {
@@ -46,8 +47,8 @@ void progress(const char *s, int i, double pct) {
 void usage(int argc, char **argv) {
 	cout << "[Usage]" << *argv << " [options]\n";
 	cout << "[example]\n";
-	cout << *argv << " --train file --tokenizer npylm.model --wdic word.dic --model file_to_save --cdic chunk.dic\n";
-	cout << *argv << " --parse file --tokenizer npylm.model --wdic word.dic --model modelfile --cdic chunk.dic\n";
+	cout << *argv << " --train file --tokenizer phsmm.model --wdic word.dic --model file_to_save --cdic chunk.dic\n";
+	cout << *argv << " --parse file --tokenizer phsmm.model --wdic word.dic --model modelfile --cdic chunk.dic\n";
 	cout << "[options]\n";
 	cout << "-n, --chunk_order=int(default 2)\n";
 	cout << "-m, --word_order=int(default 3)\n";
@@ -188,7 +189,8 @@ void dump(nsentence& s) {
 int tokenize(io& f, vector<sentence>& c) {
 	shared_ptr<wid> d = wid::create();
 	d->load(wdic.c_str());
-	npylm lm;
+	// the tokenizer is a phsmm (ma) model, not a bare npylm
+	phsmm lm;
 	lm.load(tokenizer.c_str());
 	c.resize(f.head.size()-1);
 #ifdef _OPENMP
