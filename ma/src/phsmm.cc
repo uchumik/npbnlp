@@ -5,6 +5,7 @@
 #include"vtable.h"
 #include"lattice.h"
 #include"generator.h"
+#include"negative_binomial.h"
 #include<random>
 #include<cmath>
 #include<limits>
@@ -16,13 +17,17 @@
 #define K 1000
 #define ZERO 1e-36
 
+#define A 1.
+#define B 1.
+
 using namespace std;
 using namespace npbnlp;
 
 static unordered_map<int, int> wfreq;
 static unordered_map<int, int> pfreq;
+static negative_binomial nb;
 
-phsmm::phsmm():_n(1),_m(10),_l(2),_k(20),_v(C),_K(K),_a(1),_b(1),_pos(new hpyp(_l)),_word(new vector<shared_ptr<hpyp> >),_letter(new vector<shared_ptr<vpyp> >) {
+phsmm::phsmm():_n(1),_m(10),_l(2),_k(20),_v(C),_K(K),_a(1),_b(1),_pos(new hpyp(_l)),_word(new vector<shared_ptr<hpyp> >),_letter(new vector<shared_ptr<vpyp> >),_lprior(new vector<double>(chartype::n, 0)),_cprior(new vector<double>(chartype::n, 0)),_num(new vector<int>(chartype::n, 0)),_change(new vector<int>(chartype::n, 0)),_len(new vector<int>(chartype::n, 0)) {
 	//_pos->set_v(_K);
 	_pos->set_v(1);
 	for (auto i = 0; i < _k+1; ++i) {
@@ -31,9 +36,16 @@ phsmm::phsmm():_n(1),_m(10),_l(2),_k(20),_v(C),_K(K),_a(1),_b(1),_pos(new hpyp(_
 		(*_letter)[i]->set_v(_v);
 		(*_word)[i]->set_base((*_letter)[i].get());
 	}
+	beta_distribution be;
+	// duration prior
+	for (auto& p : *_lprior)
+		p = 1.-be(A, B);
+	// type change prior
+	for (auto& p : *_cprior)
+		p = 1.-be(A, B);
 }
 
-phsmm::phsmm(int n, int m, int l, int k):_n(n),_m(m),_l(l),_k(k),_v(C),_K(K),_a(1),_b(1),_pos(new hpyp(_l)),_word(new vector<shared_ptr<hpyp> >),_letter(new vector<shared_ptr<vpyp> >) {
+phsmm::phsmm(int n, int m, int l, int k):_n(n),_m(m),_l(l),_k(k),_v(C),_K(K),_a(1),_b(1),_pos(new hpyp(_l)),_word(new vector<shared_ptr<hpyp> >),_letter(new vector<shared_ptr<vpyp> >),_lprior(new vector<double>(chartype::n, 0)),_cprior(new vector<double>(chartype::n, 0)),_num(new vector<int>(chartype::n, 0)),_change(new vector<int>(chartype::n, 0)),_len(new vector<int>(chartype::n, 0)) {
 	//_pos->set_v(_K);
 	_pos->set_v(1);
 	for (auto i = 0; i < _k+1; ++i) {
@@ -42,6 +54,13 @@ phsmm::phsmm(int n, int m, int l, int k):_n(n),_m(m),_l(l),_k(k),_v(C),_K(K),_a(
 		(*_letter)[i]->set_v(_v);
 		(*_word)[i]->set_base((*_letter)[i].get());
 	}
+	beta_distribution be;
+	// duration prior
+	for (auto& p : *_lprior)
+		p = 1.-be(A, B);
+	// type change prior
+	for (auto& p : *_cprior)
+		p = 1.-be(A, B);
 }
 
 phsmm::~phsmm() {
@@ -101,6 +120,13 @@ void phsmm::save(const char *file) {
 			(*_word)[i]->save(fp);
 			(*_letter)[i]->save(fp);
 		}
+		int n = _cprior->size();
+		if (fwrite(&n, sizeof(int), 1, fp) != 1)
+			throw "failed to save prior class num in phsmm::save";
+		if (fwrite(_lprior->data(), sizeof(double), n, fp) != n)
+			throw "failed to save duration prior in phsmm::save";
+		if (fwrite(_cprior->data(), sizeof(double), n, fp) != n)
+			throw "failed to save type change prior in phsmm::save";
 	} catch (const char *ex) {
 		throw ex;
 	}
@@ -135,6 +161,15 @@ void phsmm::load(const char *file) {
 			(*_word)[i]->load(fp);
 			(*_letter)[i]->load(fp);
 		}
+		int n = 0;
+		if (fread(&n, sizeof(int), 1, fp) != 1)
+			throw "failed to read prior class num in phsmm::load";
+		_lprior->resize(n);
+		_cprior->resize(n);
+		if (fread(_lprior->data(), sizeof(double), n, fp) != n)
+			throw "failed to read duration prior in phsmm::load";
+		if (fread(_cprior->data(), sizeof(double), n, fp) != n)
+			throw "failed to read type change prior in phsmm::load";
 	} catch (const char *ex) {
 		throw ex;
 	}
@@ -223,6 +258,16 @@ void phsmm::init(sentence& s) {
 		(*_word)[pos]->add(x, h);
 		_pos->add(pos, p);
 		pfreq[pos]++;
+		type wt = wordtype::get(x);
+		type t = chartype::get(x[0]);
+		for (int j = 1; j < x.len; ++j) {
+			type u = chartype::get(x[j]);
+			if (t != u)
+				++(*_change)[wt];
+			t = u;
+		}
+		(*_len)[wt] += x.len;
+		(*_num)[wt] += x.len-1;
 	}
 	// eos
 	context *h = (*_word)[0]->make(s, s.size());
@@ -264,6 +309,18 @@ void phsmm::add(sentence& s) {
 		_pos->add(w.pos, p);
 		if (w.pos == _k)
 			_resize();
+		if (!w.id) // skip bos/eos
+			continue;
+		type wt = wordtype::get(w);
+		type t = chartype::get(w[0]);
+		for (int j = 1; j < w.len; ++j) {
+			type u = chartype::get(w[j]);
+			if (t != u)
+				++(*_change)[wt];
+			t = u;
+		}
+		(*_len)[wt] += w.len;
+		(*_num)[wt] += w.len-1;
 	}
 }
 
@@ -290,6 +347,18 @@ void phsmm::remove(sentence& s) {
 			p = p->find(x.pos);
 		}
 		_pos->remove(w.pos, p);
+		if (!w.id) // skip bos/eos
+			continue;
+		type wt = wordtype::get(w);
+		type t = chartype::get(w[0]);
+		for (int j = 1; j < w.len; ++j) {
+			type u = chartype::get(w[j]);
+			if (t != u)
+				--(*_change)[wt];
+			t = u;
+		}
+		(*_len)[wt] -= w.len;
+		(*_num)[wt] -= w.len-1;
 	}
 	for (int k = _k-1; pfreq[k] == 0; --k) {
 		_shrink();
@@ -303,6 +372,12 @@ void phsmm::estimate(int iter) {
 		(*_letter)[i]->estimate(iter);
 	}
 	_pos->estimate(iter);
+	// type change prior and duration prior
+	beta_distribution be;
+	for (auto t = 0; t < chartype::n; ++t) {
+		(*_lprior)[t] = 1.-be(A+(*_num)[t], B+(*_len)[t]);
+		(*_cprior)[t] = 1.-be(A+(*_change)[t], B+(*_len)[t]);
+	}
 }
 
 void phsmm::poisson_correction(int n) {
@@ -555,10 +630,31 @@ void phsmm::_slice(lattice& l, sentence *cur) {
 	}
 }
 
+void phsmm::_type_prior(lattice& l) {
+	l.prior.resize(l.w.size());
+	for (auto t = 0; t < (int)l.w.size(); ++t) {
+		l.prior[t].resize(l.size(t), 0);
+		for (auto j = 0; j < l.size(t); ++j) {
+			word& w = l.wd(t, j+1);
+			type wt = wordtype::get(w);
+			type tp = chartype::get(w[0]);
+			int change = 0;
+			for (auto k = 1; k < w.len; ++k) {
+				type u = chartype::get(w[k]);
+				if (tp != u)
+					++change;
+				tp = u;
+			}
+			l.prior[t][j] = log(nb.density((*_cprior)[wt], w.len-change, change))+log(nb.density((*_lprior)[wt], 1, w.len-1));
+		}
+	}
+}
+
 sentence phsmm::_minfer(io& f, int i, bool best, sentence *cur) {
 	lattice l(f, i);
 	vt dp, am, trm, bos;
 	_slice(l, cur);
+	_type_prior(l);
 	int nw = _n-1;
 	int nc = max(_l-1, 1);
 	vt *node = &bos;
@@ -679,17 +775,17 @@ void phsmm::_mfill(lattice& l, vt& dp, vt& am, vt& bos, vt& trm) {
 				continue;
 			for (auto pt = l.sbegin(t, j); pt != l.send(t, j); ++pt) {
 				int p = *pt;
-				_mchain(l, s, nw, (*_word)[p]->h(), false, w, p, as,
+				_mchain(l, s, nw, (*_word)[p]->h(), false, w, p, l.prior[t][j], as,
 				        dp[t][w.len][p], (nw >= 1) ? am[t][w.len] : am[t], trm);
 			}
 		}
 	}
 }
 
-void phsmm::_mchain(lattice& l, int pos, int d, const context *c, bool unk, word& w, int p, vt& as, vt& dpn, vt& an, vt& trm) {
+void phsmm::_mchain(lattice& l, int pos, int d, const context *c, bool unk, word& w, int p, double ln_prior, vt& as, vt& dpn, vt& an, vt& trm) {
 	if (d <= 0) {
 		vector<int> rc;
-		_mcls(max(_l-1, 1), rc, as, dpn, an[p], trm, p, (*_word)[p]->lp(w, c));
+		_mcls(max(_l-1, 1), rc, as, dpn, an[p], trm, p, ln_prior+(*_word)[p]->lp(w, c));
 		return;
 	}
 	for (auto it = as.begin(); it != as.end(); ++it) {
@@ -699,7 +795,7 @@ void phsmm::_mchain(lattice& l, int pos, int d, const context *c, bool unk, word
 			continue;
 		word& y = (lam > 0 && pos >= 0) ? l.wd(pos, lam) : l.wd(-1, 1);
 		const context *h = (!unk) ? c->find(y.id) : NULL;
-		_mchain(l, pos-y.len, d-1, h ? h : c, unk || !h, w, p, child,
+		_mchain(l, pos-y.len, d-1, h ? h : c, unk || !h, w, p, ln_prior, child,
 		        dpn[lam], (d > 1) ? an[lam] : an, trm);
 	}
 }
