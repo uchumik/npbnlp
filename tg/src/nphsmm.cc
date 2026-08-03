@@ -243,15 +243,22 @@ void nphsmm::remove(nsentence& s) {
 	for (int i = 0; i < s.size()+1; ++i) {
 		chunk& ch = s.ch(i);
 		context *h = (*_chunk)[ch.k]->find(s, i);
+		if (!h)
+			throw "emission context not found in nphsmm::remove";
 		(*_chunk)[ch.k]->remove(ch, h);
 		context *c = _class->h();
-		for (int j = 1; j < _n; ++j) {
+		for (int j = 1; j < _n && c; ++j) {
 			chunk& x = s.ch(i-j);
 			c = c->find(x.k);
 		}
+		if (!c)
+			throw "class context not found in nphsmm::remove";
 		_class->remove(ch.k, c);
 	}
-	for (int k = _k-1; kfreq[k] == 0; --k) {
+	// bound the shrink walk: kfreq[0] is structurally 0 (the EOS seat's class is
+	// never counted), so a full teardown would otherwise walk k negative and
+	// pop_back the per-class LM vectors past empty (UB). keep at least class 1.
+	for (int k = _k-1; k >= 1 && kfreq[k] == 0; --k) {
 		_shrink();
 	}
 }
@@ -288,7 +295,7 @@ nsentence nphsmm::parse(nio& f, int i) {
 				for (auto p = 0; p < l.size(t-ch.len); ++p) {
 					const context *h = NULL;
 					chunk& prev = l.ch(t-ch.len, p+1);
-					if (_n > 1)
+					if (_n > 1 && prev.id != 1)
 						h = c->find(prev.id);
 					for (auto q = l.begin(t-ch.len, p); q != l.end(t-ch.len, p); ++q) {
 						const context *u = NULL;
@@ -319,7 +326,7 @@ nsentence nphsmm::parse(nio& f, int i) {
 		for (int p = 0; p < l.size(t); ++p) {
 			const context *h = NULL;
 			chunk& prev = l.ch(t, p+1);
-			if (_n > 1)
+			if (_n > 1 && prev.id != 1)
 				h = c->find(prev.id);
 			for (auto q = l.begin(t, p); q != l.end(t, p); ++q) {
 				const context *u = NULL;
@@ -368,7 +375,7 @@ void nphsmm::_forward(clattice& l, int i, const context *c, const context *z, ch
 		for (auto j = 0; j < l.size(i); ++j) {
 			chunk& y = l.ch(i, j+1);
 			const context *h = NULL;
-			if (!unk && n > 1)
+			if (!unk && n > 1 && y.id != 1)
 				h = c->find(y.id);
 			for (auto r = l.begin(i, j); r != l.end(i, j); ++r) {
 				const context *u = NULL;
@@ -394,7 +401,7 @@ void nphsmm::_backward(clattice& l, int i, const context *c, const context *z, c
 		for (auto j = 0; j < l.size(i); ++j) {
 			chunk& y = l.ch(i, j+1);
 			const context *h = NULL;
-			if (!unk && n > 1)
+			if (!unk && n > 1 && y.id != 1)
 				h = c->find(y.id);
 			for (auto r = l.begin(i, j); r != l.end(i, j); ++r) {
 				const context *u = NULL;

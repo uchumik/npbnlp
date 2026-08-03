@@ -16,7 +16,7 @@
 using namespace std;
 using namespace npbnlp;
 
-static int n = 1;
+static int n = 2;
 static int m = 3;
 static int l = 20;
 static int k = 10;
@@ -49,7 +49,7 @@ void usage(int argc, char **argv) {
 	cout << *argv << " --train file --tokenizer npylm.model --wdic word.dic --model file_to_save --cdic chunk.dic\n";
 	cout << *argv << " --parse file --tokenizer npylm.model --wdic word.dic --model modelfile --cdic chunk.dic\n";
 	cout << "[options]\n";
-	cout << "-n, --chunk_order=int(default 1)\n";
+	cout << "-n, --chunk_order=int(default 2)\n";
 	cout << "-m, --word_order=int(default 3)\n";
 	cout << "-l, --letter_order=int(default 20)\n";
 	cout << "-k, --class=int(default 500)\n";
