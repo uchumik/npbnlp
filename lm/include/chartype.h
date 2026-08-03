@@ -25,11 +25,12 @@ namespace npbnlp {
 		U_MYANMAR,
 		U_THAI,
 		U_DIGIT,
+		U_PUNC,
 		U_SYNBOL
 	};
 	class chartype {
 		public:
-			const static int n = 18;
+			const static int n = 19;
 			static type get(unsigned int c);
 		protected:
 	};

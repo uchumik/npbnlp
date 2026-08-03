@@ -63,6 +63,7 @@ bool hdp_context::_crp_add(int k, lm *m) {
 	}
 	table[size] = m->alpha(_n)*m->pr(k, _parent);
 	z += table[size];
+	(*_restaurant)[k]->n++;
 	int id = rd::draw(z, table);
 	if (id == size) {
 		lock_guard<mutex> m(_mutex);
