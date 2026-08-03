@@ -431,7 +431,7 @@ double ipcfg::_marginalize(cyk& c, int i, int j) {
 				}
 				for (auto m = max(*l,*r); m > 0; --m) {
 					double lp =_nonterm->lp(m,s)+lp_l+lp_r;
-					math::lse(z,lp,(z==0.));
+					z = math::lse(z,lp,(z==0.));
 				}
 			}
 		}
@@ -627,7 +627,9 @@ void ipcfg::_slice_root(cyk& c) {
 		}
 	}
 	int id = rd::ln_draw(table);
-	double mu = log(be(_a, _b)+table[id]);
+	// table[id] is a log-domain score; log(be(_a,_b)+table[id]) takes the log of
+	// (0,1)+negative => NaN, which silenced root pruning entirely.
+	double mu = log(be(_a, _b))+table[id];
 	c.mu[0][size-1] = mu;
 	c.k[0][size-1].insert(0);
 	/*
