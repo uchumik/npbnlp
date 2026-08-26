@@ -87,10 +87,16 @@ int main(int argc, char **argv) {
 		//trie.insert(keys[id], values[id]);
 		++id;
 	}
-	trie.build(keys, values);
-	trie.save(file.c_str(), vv_writer, uint_writer);
 	if (skipped)
 		cerr << "skipped " << skipped << " entries with an empty key" << endl;
+	// da::build walks the first key to seed the root, so an empty set is not a
+	// degenerate index but an out-of-range read.
+	if (keys.empty()) {
+		cerr << "no usable entries in " << *(argv+1) << endl;
+		return 1;
+	}
+	trie.build(keys, values);
+	trie.save(file.c_str(), vv_writer, uint_writer);
 	cout << "build completed" << endl;
 	/*
 	cout << "input query" << endl;
