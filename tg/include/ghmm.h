@@ -33,7 +33,7 @@ namespace npbnlp {
 			// Register a corpus.  Builds the shadow sentences and the flat
 			// observation table; must be called before init/sample/add/remove.
 			void set_corpus(gio& f);
-			void init_prior(gio& f);
+			void init_prior(gio& f, double kappa0 = 0.1);
 			void set_prior(const std::vector<double>& mu0, double kappa0, double nu0, double lambda);
 			void set_sample_mode(bool f);
 			void seed_sample();

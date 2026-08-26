@@ -267,18 +267,21 @@ int vhmm::_draw_emission_n(sentence& s, int i, int k) {
 	context *c=(*_word)[k]->h();
 	word& w=s.wd(i);
 	int j=1;
+	// Depth j's weight is stop_j times the passes of the depths ABOVE it, so the
+	// candidate has to be recorded before this depth's own pass is accumulated.
 	do {
 		if (c) {
 			int st=c->stop(), ps=c->pass();
 			lp_cache=(*_word)[k]->lp(w,c);
 			ln_stop=log(st)-log(st+ps);
+			table.push_back(lp_cache+ln_stop+ln_pass);
 			ln_pass+=log(ps)-log(st+ps);
 			c=c->find(s[i-j]);
 		} else {
 			ln_stop=-log(2.);
+			table.push_back(lp_cache+ln_stop+ln_pass);
 			ln_pass+=-log(2.);
 		}
-		table.push_back(lp_cache+ln_stop+ln_pass);
 	} while (i-j >= -1 && j++ < _wn);
 	return 1+rd::ln_draw(table);
 }
@@ -507,7 +510,11 @@ int vhmm::_build_lattice(vlattice& l, bool best) {
 		// State _k exists and is trained.  When the model is unfixed, the second
 		// loop owns that boundary state and may grow the model; when fixed, the
 		// first loop must include it explicitly.
-		for (int k=1; k<=_K && (_fixed ? k<=_k : k<_k); ++k) {
+		// One snapshot of _k per position: another thread may be growing the state
+		// space in the block below, and the two loops have to agree on the bound.
+		int kcur;
+		{ lock_guard<mutex> lk(_grow); kcur=_k; }
+		for (int k=1; k<=_K && (_fixed ? k<=kcur : k<kcur); ++k) {
 			if (_pos->max_lp(k,n-1)>=l.u(i) &&
 			    find(l.k[i].begin(),l.k[i].end(),k)==l.k[i].end())
 				l.k[i].push_back(k);
@@ -522,10 +529,13 @@ int vhmm::_build_lattice(vlattice& l, bool best) {
 			fprintf(stderr,"[ctx] order=%d reached=%d\n",n,d+1);
 		}
 		if (!_fixed) {
+			// Admission and growth are one operation: two threads that both read the
+			// same _k would each create a state and leave one of them unused.
+			lock_guard<mutex> lk(_grow);
 			for (int k=_k; k<=_K && _pos->lp(k,cx)>=l.u(i); ++k) {
 				if (find(l.k[i].begin(),l.k[i].end(),k)==l.k[i].end())
 					l.k[i].push_back(k);
-				_resize();
+				_resize_locked();
 			}
 		}
 		if (l.k[i].empty())
@@ -854,10 +864,16 @@ double vhmm::_backward(context *c, vlattice& l, double u, double ln_pr_tr, int i
 }
 
 void vhmm::_resize() {
+	lock_guard<mutex> lk(_grow);
+	_resize_locked();
+}
+
+// For callers that already hold _grow; taking it again on a non-recursive mutex
+// would deadlock.
+void vhmm::_resize_locked() {
 	// _build_lattice may grow the restaurants while other threads read them.
 	// Reserve _K+2 entries before parallel sampling so push_back cannot invalidate
 	// those reads; _grow serializes writers.
-	lock_guard<mutex> lk(_grow);
 	if ((int)_word->capacity() < _K+2) {
 		_word->reserve(_K+2);
 		_letter->reserve(_K+2);

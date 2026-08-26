@@ -64,7 +64,7 @@ namespace npbnlp {
 		set_prior(mu0, kappa0, nu0, lambda0);
 	}
 
-	void niw::init_prior_from_data(gio& f) {
+	void niw::init_prior_from_data(gio& f, double kappa0) {
 		if (f.dim() != _d || f.dim() == 0) {
 			throw "niw: invalid training data dimension";
 		}
@@ -99,7 +99,7 @@ namespace npbnlp {
 		}
 		average_variance /= _d;
 		double nu0 = _d + 2.0;
-		set_prior(mean, 0.1, nu0, average_variance * (nu0 - _d - 1.0));
+		set_prior(mean, kappa0, nu0, average_variance * (nu0 - _d - 1.0));
 	}
 
 	void niw::resize(int k) {

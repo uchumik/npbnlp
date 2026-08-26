@@ -102,7 +102,8 @@ static void configure(ghmm& h, gio& f) {
 		double lambda = niw_lambda > 0. ? niw_lambda : 1.;
 		h.set_prior(mu0, niw_kappa0, nu0, lambda);
 	} else {
-		h.init_prior(f); // mean and scale from the data
+		// mean and scale from the data, but the requested kappa either way
+		h.init_prior(f, niw_kappa0);
 	}
 	h.set_corpus(f);
 	if (sample_mode) h.seed_sample();
@@ -110,10 +111,6 @@ static void configure(ghmm& h, gio& f) {
 
 static int train() {
 	gio f(train_file.c_str());
-#ifdef _OPENMP
-	omp_set_num_threads(threads<1?1:threads);
-	omp_set_dynamic(0);
-#endif
 	ghmm h(max_order, min_order, states, f.dim());
 	configure(h, f);
 	int size=f.size();
@@ -148,12 +145,11 @@ static int train() {
 
 static int parse() {
 	gio f(parse_file.c_str());
-#ifdef _OPENMP
-	omp_set_num_threads(threads<1?1:threads);
-	omp_set_dynamic(0);
-#endif
 	ghmm h(max_order, min_order, states, f.dim());
 	h.load(model_file.c_str());
+	// Inference must not invent states: load() replaces _k without rebuilding the
+	// containers the constructor sized, so an unfixed model could grow past them.
+	h.set_fixed();
 	h.set_corpus(f);
 	h.refresh_cache();
 	int size=f.size();
@@ -171,11 +167,18 @@ static int parse() {
 int main(int argc, char **argv) {
 	read_param(argc, argv);
 	try {
+#ifdef _OPENMP
+		// Before reseeding: generator::reseed() sizes its per-thread state from
+		// omp_get_max_threads(), and the workers index it by thread number.
+		omp_set_num_threads(threads<1?1:threads);
+		omp_set_dynamic(0);
+#endif
 		if (have_seed) { seed::create()->set(seed_value); generator::reseed(); }
 		if (dump_model) {
 			// Load and print the model's own state, for checking a round trip.
 			ghmm h(max_order, min_order, states, 1);
 			h.load(model_file.c_str());
+			h.set_fixed();
 			h.dump_posterior(stdout);
 			return 0;
 		}

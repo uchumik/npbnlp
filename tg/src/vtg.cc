@@ -87,11 +87,6 @@ static void dump(sentence& s) {
 }
 
 static int train(io& f, vector<sentence>& corpus) {
-#ifdef _OPENMP
-	// Bound the worker count for the block sampler and the model's parallel regions.
-	omp_set_num_threads(threads<1?1:threads);
-	omp_set_dynamic(0);
-#endif
 	vhmm hmm(max_order,min_order,letter_order,states); hmm.set_word_ngram(word_ngram); hmm.set_alpha(alpha); hmm.set(vocab,max_states); hmm.slice(slice_a,slice_b);
 	for (int i=0;i<(int)corpus.size();++i) hmm.init(corpus[i],i);
 	hmm.refresh_cache();
@@ -221,6 +216,12 @@ static int parse() {
 int main(int argc,char **argv) {
 	try {
 		params(argc,argv);
+#ifdef _OPENMP
+		// Before set_seed(): generator::reseed() sizes its per-thread state from
+		// omp_get_max_threads(), and the workers index it by thread number.
+		omp_set_num_threads(threads<1?1:threads);
+		omp_set_dynamic(0);
+#endif
 		set_seed();
 		if (!train_file.empty()) {
 			io f(train_file.c_str());

@@ -29,7 +29,7 @@ void ghmm::set_sample_mode(bool f) { if (_obs) _obs->set_sample_mode(f); }
 // Draw (mu_k, Sigma_k) once so sample mode is in force from the first sweep
 // rather than after the first estimate().  Requires the prior to be set.
 void ghmm::seed_sample() { if (_obs) _obs->estimate(); }
-void ghmm::init_prior(gio& f) { if (_obs) _obs->init_prior_from_data(f); }
+void ghmm::init_prior(gio& f, double kappa0) { if (_obs) _obs->init_prior_from_data(f, kappa0); }
 void ghmm::set_prior(const vector<double>& mu0, double kappa0, double nu0, double lambda) {
 	if (_obs) _obs->set_prior(mu0, kappa0, nu0, lambda);
 }

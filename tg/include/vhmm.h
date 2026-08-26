@@ -95,6 +95,7 @@ namespace npbnlp {
 			double _marginalize(vt& node);
 			void _scale(vt& node, double z);
 			virtual void _resize();
+			void _resize_locked();
 			void _shrink();
 			sentence _sample(sentence& s, bool best);
 	};
