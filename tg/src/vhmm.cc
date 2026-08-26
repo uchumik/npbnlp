@@ -189,6 +189,13 @@ void vhmm::set(int v, int k) {
 		(*it)->set_v(_v);
 }
 
+void vhmm::set_k(int k) {
+	if (k <= 0)
+		return;
+	_K=k;
+	_k=min(_k,_K);
+}
+
 void vhmm::slice(double a, double b) {
 	if (a > 0 && b > 0) {
 		_a=a;
@@ -507,18 +514,6 @@ int vhmm::_build_lattice(vlattice& l, bool best) {
 	for (int i=0; i<size-1; ++i) {
 		int n=l.order(i);
 		context *root=_pos->h();
-		// State _k exists and is trained.  When the model is unfixed, the second
-		// loop owns that boundary state and may grow the model; when fixed, the
-		// first loop must include it explicitly.
-		// One snapshot of _k per position: another thread may be growing the state
-		// space in the block below, and the two loops have to agree on the bound.
-		int kcur;
-		{ lock_guard<mutex> lk(_grow); kcur=_k; }
-		for (int k=1; k<=_K && (_fixed ? k<=kcur : k<kcur); ++k) {
-			if (_pos->max_lp(k,n-1)>=l.u(i) &&
-			    find(l.k[i].begin(),l.k[i].end(),k)==l.k[i].end())
-				l.k[i].push_back(k);
-		}
 		// Test the boundary state in the context used for the slice variable:
 		// u_i is based on lp(z_i, find_exist(i,n_i)), not the root.  Since lp is
 		// decreasing in k at a fixed context, the loop stops after the valid states.
@@ -528,15 +523,32 @@ int vhmm::_build_lattice(vlattice& l, bool best) {
 			for (int m=1; m<n; ++m) { context *nx=static_cast<vhdp_context*>(probe)->find(l.s.wd(i-m).pos); if (!nx) break; probe=nx; ++d; }
 			fprintf(stderr,"[ctx] order=%d reached=%d\n",n,d+1);
 		}
-		if (!_fixed) {
-			// Admission and growth are one operation: two threads that both read the
-			// same _k would each create a state and leave one of them unused.
-			lock_guard<mutex> lk(_grow);
+		// State _k exists and is trained.  When the model is unfixed the second loop
+		// owns that boundary state and may grow the model; when fixed the first loop
+		// must include it explicitly.
+		//
+		// Unfixed, both loops run under _grow: they share the bound _k, and another
+		// worker growing the model between them would otherwise leave the states it
+		// added untested here.  Fixed, _k cannot move, so no lock is needed.
+		auto admit=[&](int i,int n,context *cx) {
+			for (int k=1; k<=_K && (_fixed ? k<=_k : k<_k); ++k) {
+				if (_pos->max_lp(k,n-1)>=l.u(i) &&
+				    find(l.k[i].begin(),l.k[i].end(),k)==l.k[i].end())
+					l.k[i].push_back(k);
+			}
+			if (_fixed)
+				return;
 			for (int k=_k; k<=_K && _pos->lp(k,cx)>=l.u(i); ++k) {
 				if (find(l.k[i].begin(),l.k[i].end(),k)==l.k[i].end())
 					l.k[i].push_back(k);
 				_resize_locked();
 			}
+		};
+		if (_fixed) {
+			admit(i,n,cx);
+		} else {
+			lock_guard<mutex> lk(_grow);
+			admit(i,n,cx);
 		}
 		if (l.k[i].empty())
 			return 1;

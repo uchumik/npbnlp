@@ -70,11 +70,11 @@ double ghmm::_emission_lp(vlattice& l, int i, int k) {
 	return _obs->lp(k, _x[id]);
 }
 
-void ghmm::_resize() {
+void ghmm::_resize_locked() {
 	// Let the base grow _k and keep _word/_letter consistent -- base-class code
 	// still indexes them -- then add the NIW component for the new state.
 	int before = _k;
-	vhmm::_resize();
+	vhmm::_resize_locked();
 	if (_obs && _k != before)
 		_obs->resize(_k+1);
 }

@@ -61,7 +61,7 @@ namespace npbnlp {
 
 		protected:
 			virtual double _emission_lp(vlattice& l, int i, int k);
-			virtual void _resize();
+			virtual void _resize_locked();
 
 			int _d;
 			std::shared_ptr<niw> _obs;

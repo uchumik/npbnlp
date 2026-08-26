@@ -31,6 +31,9 @@ namespace npbnlp {
 			virtual void estimate(int iter);
 			virtual void poisson_correction(int n = 3000);
 			virtual void set(int v, int k);
+			// Ceiling only: _v is a count the letter models learn, and ghmm has no
+			// letter models to seed at all.
+			void set_k(int k);
 			virtual void slice(double a, double b);
 			virtual void set_alpha(double value);
 			// Emission n-gram order over preceding observed words; order 1 uses the
@@ -94,8 +97,10 @@ namespace npbnlp {
 			double _backward(context *c, vlattice& l, double u, double ln_pr_tr, int i, int k, int m, int n, vt *b, bool& cutoff);
 			double _marginalize(vt& node);
 			void _scale(vt& node, double z);
-			virtual void _resize();
-			void _resize_locked();
+			void _resize();
+			// The growth hook: subclasses extend this, not _resize(), because the
+			// lattice grows the model with _grow already held.
+			virtual void _resize_locked();
 			void _shrink();
 			sentence _sample(sentence& s, bool best);
 	};

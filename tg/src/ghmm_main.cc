@@ -92,7 +92,7 @@ static void dump(gsentence& g) {
 
 static void configure(ghmm& h, gio& f) {
 	h.set_alpha(alpha);
-	h.set(0, max_states);
+	h.set_k(max_states);
 	h.slice(slice_a, slice_b);
 	h.set_sample_mode(sample_mode!=0);
 	if (niw_lambda > 0. || niw_nu0 > 0.) {
