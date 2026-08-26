@@ -239,6 +239,16 @@ void dump_word(io& f, vector<int>& head) {
 	int id = 0;
 	for (int i = 0; i < (int)head.size()-1; ++i) {
 		int t = head[i+1];
+		// the inter-word delimiter space between the last word of the PREVIOUS proposed sentence
+		// and the first word of this one is never emitted by the loop below (it only prints a
+		// trailing space when the NEXT word stays inside the SAME segment), so without this it is
+		// silently dropped whenever a sentence boundary is proposed here -- shrinking this
+		// segment's output by exactly one character relative to dump_letter's behavior (which
+		// slices raw characters directly and never loses anything at a cut). Restore it as a
+		// leading space on every continuation segment, mirroring how gold-standard cio files
+		// already represent inter-sentence boundaries (leading space on the continuation sentence).
+		if (i > 0 && id < s.size())
+			cout << " ";
 		for (; id < s.size() && s.wd(id).head < t; ++id) {
 			word& w = s.wd(id);
 			for (int j = 0; j < w.len; ++j) {
