@@ -20,12 +20,8 @@ namespace { long long N_retry=0, N_sent=0; double T_ord=0,T_slice=0,T_lat=0,T_fw
 using namespace std;
 using namespace npbnlp;
 
-// Keep each dictionary entry while at least one sentence still uses its id; the
-// emission models use these ids as their word keys.
 static unordered_map<int,int> wfreq;
 
-// The letter VPYP vocabulary is learned from the data.  With V=1 its deficient
-// base measure has log p=0, so the seating counts carry the letter distribution.
 #define VOCAB 1
 #define STATES 50
 #define _MIN_SLICE_ 0.01
@@ -53,8 +49,6 @@ void vhmm::set_alpha(double value) {
 	for (int i=0; i<_pos->n(); ++i) _pos->set_alpha(i, value);
 }
 
-// Inference uses a frozen state space: _fixed prevents _build_lattice from
-// admitting k >= _k and calling _resize() to create new restaurants.
 void vhmm::set_fixed() {
 	_fixed = true;
 }
@@ -90,8 +84,6 @@ long long vhmm::clamp_hits() const {
 	return _clamp_hits;
 }
 
-// Count the context tree used by the order posterior; each node represents a
-// stop/pass decision at one history depth.
 static void count_nodes(context *c, int depth, std::vector<long long>& n) {
 	if ((int)n.size() <= depth) n.resize(depth+1, 0);
 	++n[depth];
@@ -179,18 +171,6 @@ double vhmm::log_probability(sentence& s) {
 	return x;
 }
 
-// Set the vocabulary size used by every letter base measure; the state base
-// measure is configured independently by the transition model.
-/* _v is a count the letter models maintain themselves, so there is nothing to
-   seed; set_k() carries the state ceiling that this also used to set.
-void vhmm::set(int v, int k) {
-	_v=v;
-	_K=k;
-	_k=min(_k,_K);
-	for (auto it = _letter->begin(); it != _letter->end(); ++it)
-		(*it)->set_v(_v);
-}
-*/
 
 void vhmm::set_k(int k) {
 	if (k <= 0)
@@ -221,16 +201,14 @@ void vhmm::_draw_order(sentence& s) {
 	}
 }
 
-// vlattice owns the orders consumed by slice, lattice construction, and FFBS.
-// Updating the sentence and the lattice together keeps the sampled (state,
-// order) pair consistent and preserves the order used for seating.
 void vhmm::_draw_order(vlattice& l) {
 	for (int i=0; i<=l.s.size(); ++i)
 		l.set_order(i, _draw_order(l.s, i));
 }
 
-// Prune a context subtree when its upper bound on log p(z_t=k|c) is below the
-// slice threshold; every deeper context then fails the same threshold.
+// The slice admits state k at a context only while log p(k|c) >= u.  subtree_max
+// bounds log p(k|.) over every descendant of c, so a subtree that fails the
+// bound cannot contain an admissible context and the walk stops there.
 static bool ctx_prune(context *c, int k, double u) {
 	return c && static_cast<vhdp_context*>(c)->subtree_max(k) < u;
 }
@@ -239,24 +217,16 @@ static context* ctx_find(context *c, int k) {
 	return c ? static_cast<vhdp_context*>(c)->find(k) : NULL;
 }
 
-// The emission n-gram conditions on preceding observed words, never on latent
-// states, and stops at the deepest existing context.  Order 1 uses the root.
 context* vhmm::_emission_ctx(sentence& s, int i, int k) const {
 	return (*_word)[k]->find(s,i,_wn);
 }
 
-// Draw the emission depth from the VPYLM stop/pass posterior using the node-local
-// hpyp::lp(word&, context*) probability.  The emission probability marginalizes
-// over depths by summing the stop probability at each context times the word
-// probability after passing through its ancestors.  _word remains hpyp because
-// virtual lp() dispatch changes the base distribution used by the recursion.
 double vhmm::_emission_word_lp(sentence& s, int i, int k) {
 	word& w=s.wd(i);
 	context *c=_emission_ctx(s,i,k);
 	if (_wn <= 1)
 		return (*_word)[k]->lp(w,c);
-	// Products are accumulated in logs: log(a/d)=log(a)-log(d), and lse sums
-	// alternative depths without converting back to ordinary probabilities.
+	// Products use log(a/d)=log(a)-log(d); lse sums alternative depths on the log axis.
 	double ln_pr=0., z=0.;
 	while (c) {
 		int st=c->stop(), ps=c->pass();
@@ -318,8 +288,6 @@ void vhmm::set_word_ngram(int n) {
 	if (n == _wn)
 		return;
 	_wn=n;
-	// hpyp has no setter for its context depth, so rebuild the restaurants.  This
-	// is valid only before any customer has been seated.
 	int target=_k;
 	_word->clear(); _letter->clear(); _k=0;
 	while (_k<target || _word->empty()) _resize();
@@ -343,8 +311,6 @@ void vhmm::init(sentence& s, int idx) {
 	s.n[s.size()]=_mn;
 	s.wd(s.size()).pos=0;
 	s.wd(s.size()).n=s.n[s.size()];
-	// Draw the state and its order jointly so the initial assignment follows the
-	// same generative factors as later sampling.
 	for (int i=0; i<s.size(); ++i) {
 		word& w=s.wd(i);
 		vector<double> table;
@@ -386,9 +352,6 @@ void vhmm::inference_init(sentence& s) {
 	for (int i=0; i<s.size(); ++i)
 		s.wd(i).id=(*d)[s.wd(i)] == 1 ? d->index(s.wd(i)) : (*d)[s.wd(i)];
 	s.wd(s.size()).pos=0;
-	// Draw each initial state and order jointly from the generative process.  No
-	// customers are seated here.  _k is the highest existing state and _word has
-	// _k+1 restaurants including state 0, so all states 1.._k are candidates.
 	int top=_k;
 	for (int i=0; i<s.size(); ++i) {
 		word& w=s.wd(i);
@@ -410,7 +373,6 @@ void vhmm::inference_init(sentence& s) {
 		s.n[i]=max(_mn,min(min(i+2,_n),table_n[id]));
 		w.n=s.n[i];
 	}
-	// Sample the EOS order as part of the sentence's latent order sequence.
 	s.n[s.size()]=_draw_order(s,s.size());
 	s.wd(s.size()).n=s.n[s.size()];
 }
@@ -450,7 +412,6 @@ void vhmm::remove(sentence& s, int idx) {
 	lock_guard<mutex> l(_mutex);
 	shared_ptr<wid> d=wid::create();
 	for (int i=0; i<=s.size(); ++i) {
-		// Remove the customer from the same context depth recorded at seating time.
 		context *h=(*_word)[s.wd(i).pos]->find(s,i,_get_ed(idx,i));
 		(*_word)[s.wd(i).pos]->remove(s.wd(i),h);
 	}
@@ -475,8 +436,6 @@ void vhmm::estimate(int iter) {
 	int keep=omp_get_max_threads();
 	omp_set_num_threads(1);
 #endif
-	// Resample emission hyperparameters once per epoch; iter controls transition
-	// estimation and the restaurant Gibbs updates.
 	for (int i=0; i<=_k; ++i) {
 		(*_word)[i]->gibbs(iter);
 		(*_word)[i]->estimate(1);
@@ -510,29 +469,17 @@ void vhmm::_slice(vlattice& l) {
 }
 
 int vhmm::_build_lattice(vlattice& l, bool best) {
-	// Keep the union of states admitted by successive (order,u) draws.  A vector
-	// therefore needs an explicit membership check before insertion.
 	int size=l.s.size()+1;
 	l.k[size-1].push_back(0); // EOS state (id 0)
 	for (int i=0; i<size-1; ++i) {
 		int n=l.order(i);
 		context *root=_pos->h();
-		// Test the boundary state in the context used for the slice variable:
-		// u_i is based on lp(z_i, find_exist(i,n_i)), not the root.  Since lp is
-		// decreasing in k at a fixed context, the loop stops after the valid states.
 		context *cx=_pos->find_exist(l.s,i,n);
 		if (getenv("VHMM_CTXDEPTH")) {
 			int d=0; context *probe=_pos->h();
 			for (int m=1; m<n; ++m) { context *nx=static_cast<vhdp_context*>(probe)->find(l.s.wd(i-m).pos); if (!nx) break; probe=nx; ++d; }
 			fprintf(stderr,"[ctx] order=%d reached=%d\n",n,d+1);
 		}
-		// State _k exists and is trained.  When the model is unfixed the second loop
-		// owns that boundary state and may grow the model; when fixed the first loop
-		// must include it explicitly.
-		//
-		// Unfixed, both loops run under _grow: they share the bound _k, and another
-		// worker growing the model between them would otherwise leave the states it
-		// added untested here.  Fixed, _k cannot move, so no lock is needed.
 		auto admit=[&](int i,int n,context *cx) {
 			for (int k=1; k<=_K && (_fixed ? k<=_k : k<_k); ++k) {
 				if (_pos->max_lp(k,n-1)>=l.u(i) &&
@@ -617,16 +564,11 @@ sentence vhmm::_sample(sentence& s, bool best) {
 }
 
 sentence vhmm::parse(sentence& s) {
-	// Inference alternates MCMC draws of the order and states.  Their transition
-	// factors depend on each other, so the lattice must retain all slice-admitted
-	// states rather than collapse each column to a Viterbi argmax.
 	return _sample(s,false);
 }
 
-// Log density of the slice variable under Beta(a,b).  Since
-// mu_t=p(z_t|c) r with r~Beta(a,b), the transition factor cancels and the
-// remaining density is Beta_pdf(mu_t/p(z_t|c);a,b) under mu_t<p(z_t|c).
-// The cutoff makes the ratio lie in (0,1), so the density is evaluated in logs.
+// u=p(z|c)r, r~Beta(a,b); cancellation of p(z|c) leaves
+// Beta_pdf(u/p(z|c);a,b) for u<p(z|c), evaluated in log space.
 double vhmm::_ln_slice_density(double u, double ln_pr_tr) const {
 	if (_a == 1. && _b == 1.)
 		return 0.;
@@ -639,18 +581,7 @@ double vhmm::_ln_slice_density(double u, double ln_pr_tr) const {
 	return (_a-1.)*ln_ratio + (_b-1.)*ln_1m - (lgamma(_a)+lgamma(_b)-lgamma(_a+_b));
 }
 
-// Sum a forward-probability subtree into its parents, then rescale.
-// alpha is stored as a tree indexed by the path of previous states, because the
-// order at t may need to condition on several of them.  When t is LOWER order
-// than t-1, the forward at t reads a shallower node, which must already hold the
-// sum over the deeper paths below it -- that is this marginalisation.  (The other
-// direction, t higher than t-1, is covered by _prior_lp: the states the shorter
-// history never conditioned on get their generation probability multiplied in at
-// the leaf.)  This is the sum over latent histories required by the marginal
-// probability at the shallower context; math::lse performs that sum on the log
-// axis.
-// A node with no initialised children is a leaf and keeps the value the forward
-// accumulated into it.
+// Sum deeper alpha paths into a shallower prefix with logsumexp.
 double vhmm::_marginalize(vt& node) {
 	bool init=false;
 	double z=0.;
@@ -668,7 +599,6 @@ double vhmm::_marginalize(vt& node) {
 	return node.v;
 }
 
-// Divide the whole subtree by z (subtract in logs) so alpha stays bounded.
 void vhmm::_scale(vt& node, double z) {
 	if (node.is_init())
 		node.v-=z;
@@ -680,12 +610,7 @@ void vhmm::_scale(vt& node, double z) {
 
 
 
-// Forward/backward recursion for FFBS over the slice lattice.  The alpha tree
-// follows the history needed by the current order.
 
-// vt::operator[] creates on miss; the recursion needs a lookup that does not.
-// context::find is non-virtual and vhdp_context stores children in its own map;
-// an unqualified call through context* would use the wrong prediction context.
 
 static vt* vt_find(vt& node, int i) {
 	for (auto it=node.begin(); it!=node.end(); ++it)
@@ -698,10 +623,14 @@ double vhmm::_emission_lp(vlattice& l, int i, int k) {
 	return _emission_word_lp(l.s,i,k);
 }
 
+// Forward pass of FFBS.  The order varies by position, so alpha is not a vector
+// over states but a tree indexed by the path of preceding states: a position of
+// order n conditions on n-1 of them, and a shallower position reads an inner
+// node whose value must already hold the sum over the deeper paths beneath it
+// (_marginalize does that).  The recursion descends the transition context tree
+// and the alpha tree together, one predecessor per level.
 void vhmm::_forward(vlattice& l, double u, int i, int k, int m, int n, vector<vt>& a) {
 	context *c=_pos->h();
-	// The lattice has already selected candidates using the slice context; do not
-	// repeat the boundary test at the root, which could reject an admitted state.
 	if (n > 1) {
 		if (i == 0) {
 			context *_c=ctx_find(c,0);
@@ -768,9 +697,14 @@ void vhmm::_forward(context *c, vlattice& l, double u, double ln_pr_em, double l
 	} else { // n == 1, end of the recursion
 		if (ln_pr_tr<u)
 			return;
-		// Generate states omitted by the shorter history and add their transition
-		// probabilities; this marginalizes the missing transitions with the proper
-		// normalization.
+		// Base of the recursion.  The states pushed onto prefix are the ones this
+		// position's order was too short to condition on, but they were still
+		// generated, so their probability belongs in the joint:
+		//
+		//   alpha += p(x_i|k) * beta * prod_h p(prefix[h] | context so far)
+		//
+		// Without it the orders are scored against different sets of variables and
+		// the posterior over n is not comparable across depths.
 		double prior=0.;
 		context *p=_pos->h();
 		bool fixed=false;
@@ -883,19 +817,11 @@ void vhmm::_resize() {
 	_resize_locked();
 }
 
-// For callers that already hold _grow; taking it again on a non-recursive mutex
-// would deadlock.
 void vhmm::_resize_locked() {
-	// _build_lattice may grow the restaurants while other threads read them.
-	// Reserve _K+2 entries before parallel sampling so push_back cannot invalidate
-	// those reads; _grow serializes writers.
 	if ((int)_word->capacity() < _K+2) {
 		_word->reserve(_K+2);
 		_letter->reserve(_K+2);
 	}
-	// _v stays at the hpyp default of 1 and the models count it up as characters
-	// reach the root.  With _v=1 the character base is deficient (log p=0), so
-	// seating counts alone determine the letter distribution.
 	int cv = _v;
 	if (_word->empty()) {
 		_word->push_back(shared_ptr<hpyp>(new hpyp(_wn)));
@@ -915,7 +841,6 @@ void vhmm::save(const char *file) {
 	FILE *fp=fopen(file,"wb"); if (!fp) throw "failed to open save file in vhmm::save";
 	if (fwrite(&_n,sizeof(int),1,fp)!=1 || fwrite(&_mn,sizeof(int),1,fp)!=1 || fwrite(&_m,sizeof(int),1,fp)!=1 || fwrite(&_v,sizeof(int),1,fp)!=1 || fwrite(&_k,sizeof(int),1,fp)!=1 || fwrite(&_K,sizeof(int),1,fp)!=1) throw "failed to write vhmm parameters";
 	_pos->save(fp); for (int i=0;i<=_k;++i) { (*_word)[i]->save(fp); (*_letter)[i]->save(fp); }
-	// Store the emission order after the restaurants with a format marker.
 	int marker=1;
 	if (fwrite(&marker,sizeof(int),1,fp)!=1 || fwrite(&_wn,sizeof(int),1,fp)!=1) throw "failed to write vhmm word ngram order";
 	fclose(fp);
@@ -928,11 +853,8 @@ void vhmm::load(const char *file) {
 	for (int i=0;i<=_k;++i) {
 		_word->push_back(shared_ptr<hpyp>(new hpyp(_wn))); _letter->push_back(shared_ptr<vpyp>(new vpyp(_m)));
 		(*_word)[i]->load(fp); (*_letter)[i]->load(fp);
-		// _v is learned and restored by hpyp::load; do not overwrite it here.
 		(*_word)[i]->set_base((*_letter)[i].get());
 	}
-	// Restaurants require _wn at construction time, so the trailer verifies the
-	// caller's order; a missing trailer denotes order 1.
 	int marker=0, wn=1;
 	if (fread(&marker,sizeof(int),1,fp)==1 && marker==1) {
 		if (fread(&wn,sizeof(int),1,fp)!=1) throw "failed to read vhmm word ngram order";

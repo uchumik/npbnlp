@@ -11,7 +11,6 @@
 
 #define C 50000
 #define K 1000
-// _v is learned from the data, so no vocabulary seed is applied.
 
 using namespace std;
 using namespace npbnlp;
@@ -101,18 +100,16 @@ tree ipcfg::sample(io& f, int i) {
 	}
 	vt dp;
 	_slice(c);
-	// inside
+	// Inside recurrence sums P(B)P(C|B)P(A|B,C) over split points.
 	int size = c.s.size();
 	for (auto j = 0; j < size; ++j) {
 		_calc_preterm(c, j, dp[j][j]);
 	}
 	for (auto l = 1; l < size; ++l) {
 		for (auto j = 0; j < size-l; ++j) {
-			//double mu = c.mu[j][j+l];
 			_calc_nonterm(c, j, j+l, dp);
 		}
 	}
-	// tree sampling
 	tree t(c.s);
 	int k = 0; // root
 	int id = t.s.size()-1; // root id
@@ -135,18 +132,16 @@ tree ipcfg::parse(io& f, int i) {
 	}
 	vt dp;
 	_slice(c);
-	// inside
+	// Inside recurrence sums P(B)P(C|B)P(A|B,C) over split points.
 	int size = c.s.size();
 	for (auto j = 0; j < size; ++j) {
 		_calc_preterm(c, j, dp[j][j]);
 	}
 	for (auto l = 1; l < size; ++l) {
 		for (auto j = 0; j < size-l; ++j) {
-			//double mu = c.mu[j][j+l];
 			_calc_nonterm(c, j, j+l, dp);
 		}
 	}
-	// tree sampling
 	tree t(c.s);
 	int k = 0; // root
 	int id = t.s.size()-1; // root id
@@ -369,7 +364,6 @@ void ipcfg::_calc_nonterm(cyk& c, int i, int j, vt& a) {
 }
 
 void ipcfg::_slice(cyk& l) {
-	// terminal
 	for (auto i = 0; i < l.s.size(); ++i) {
 		_slice_preterm(l, i);
 	}
@@ -378,18 +372,8 @@ void ipcfg::_slice(cyk& l) {
 		table.push_back(_marginalize(l,i,i+1));
 	}
 	int p = rd::ln_draw(table);
-	//shared_ptr<generator> g = generator::create();
-	//uniform_int_distribution<> u(0, l.s.size()-2);
-	//int p = u((*g)());
-	//non terminal
 	for (auto m = 1; m < l.s.size()-1; ++m) {
-		//int len = l.s.size()-m;
-		//uniform_int_distribution<> v(0, len-1);
-		//int p = v((*g)());
-		// draw nu for slice non-terminal
-		//double nu = _draw(l, p, p+m);
 		double nu = _draw(l, p, p+m);
-		// slice non-terminals
 		for (auto i = 0; i < l.s.size()-m; ++i) {
 			if (i == p)
 				continue;
@@ -411,7 +395,6 @@ void ipcfg::_slice(cyk& l) {
 			p -= 1;
 		}
 	}
-	// root
 	_slice_root(l);
 }
 

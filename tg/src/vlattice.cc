@@ -9,6 +9,7 @@ using namespace npbnlp;
 static word eos;
 static vector<int> bos(1, 0);
 
+// Each position stores its admitted state set k[i], slice level mu[i], and order n[i].
 vlattice::vlattice(sentence& x):s(x) {
 	mu.resize(s.size()+1, 0);
 	k.resize(s.size()+1);
@@ -75,7 +76,7 @@ void vlattice::set_order(int i, int x) {
 	if (i < 0 || i >= (int)n.size())
 		return;
 	n[i] = x;
-	// The sentence carries the sampled order out of _sample, including EOS.
+	// Keep the sentence and lattice orders equal so seating and removal use the same context.
 	if (i <= s.size()) {
 		s.n[i] = x;
 		s.wd(i).n = x;

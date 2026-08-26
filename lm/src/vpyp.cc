@@ -24,42 +24,28 @@ double vpyp::pr_component(int k, const context *h) {
 
 double vpyp::pr(int k, const context *h) {
 	return exp(lp(k,h));
-	/*
-	if (!h)
-		return 1./_v;
-	*/
-	//
-	//if (!h && _h->cu(k) == 0 && _h->v() < _v)
-	//	return 1./_v*(_v-_h->v());
-	//else if (!h)
-	//	return 1./_v;
-	//	
-	//return exp(max(-log(_v),lp(k, h)));
 }
 
 double vpyp::pr(word& w, const context *h) {
 	return exp(lp(w,h));
-	/*
-	if (!h)
-		return _prb(w);
-	return exp(lp(w, h));
-	*/
 }
 
 double vpyp::pr(chunk& c, const context *h) {
 	return exp(lp(c, h));
 }
 
+// VPYLM predictive: the depth is latent, so the probability is the mixture
+//
+//   p(w) = sum_d stop_d * prod_{j<d} pass_j * p_d(w)
+//
+// with p_d the plain HPYP probability at depth d.  Accumulated in logs, so the
+// sum is a logsumexp and the normaliser z is the same mixture without p_d.
+// hpyp::lp is called explicitly: the parent recursion inside it must stay in
+// the HPYP chain rather than re-entering this mixture.
 double vpyp::lp(int k, const context *h) {
 	if (!h)
 		return -log(_v);
-	/*
-	if (!h && _h->cu(k) == 0 && _h->v() < _v)
-		return log(_v-_h->v())-log(_v);
-	else if (!h)
-		return -log(_v);
-		*/
-	//bool chk = false;
+	// Sum stop_j p(k|context_j) times the passes above j over all depths.
 	double ln_pr = 0;
 	/*
 	double ln_pr = _cache.get(k, h, chk);
@@ -87,12 +73,6 @@ double vpyp::lp(word& w, const context *h) {
 		return _lpb(w);
 	bool chk = false;
 	double ln_pr = 0;
-	/*
-	double ln_pr = _cache.get(w, h, chk);
-	if (chk)
-		return ln_pr;
-	ln_pr = 0;
-	*/
 	double z = 0;
 	const context *c = h;
 	while (c) {
@@ -112,13 +92,6 @@ double vpyp::lp(chunk& b, const context *h) {
 	if (!h)
 		return _lpb(b);
 	double ln_pr = 0;
-	/*
-	bool chk = false;
-	double ln_pr = _cache.get(b, h, chk);
-	if (chk)
-		return ln_pr;
-	ln_pr = 0;
-	*/
 	double z = 0;
 	const context *c = h;
 	while (c) {
@@ -131,18 +104,11 @@ double vpyp::lp(chunk& b, const context *h) {
 		c = c->parent();
 	}
 	return max(_lpb(b), ln_pr-z);
-	//return _cache.set(b, h, ln_pr-z);
 }
 
 double vpyp::_lpb(word& w) const {
 	if (!_base)
 		return -log(_v);
-	/*
-	if (!_base && _h->cu(w.id) == 0 && _h->v() < _v)
-		return log(_v-_h->v())-log(_v);
-	else if (!_base)
-		return -log(_v);
-		*/
 	double lp = 0;
 	for (int i = 0; i < w.len+1; ++i) {
 		int n = w.m[i];
@@ -176,13 +142,11 @@ double vpyp::_lpb(chunk& b) const {
 			else
 				h = c;
 		}
-		//lp += _base->lp(b[i], h);
 		lp += _base->lp(b.wd(i), h);
 		if (lp < _H_)
 			break;
 	}
 	return max(_H_,lp);
-	//return lp;
 }
 
 double vpyp::_prb(chunk& c) const {
