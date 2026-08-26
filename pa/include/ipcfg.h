@@ -22,7 +22,8 @@ namespace npbnlp {
 			virtual void remove(tree& t);
 			virtual void estimate(int iter);
 			virtual void poisson_correction(int n = 100);
-			virtual void set(int v, int k);
+			/* virtual void set(int v, int k); */
+			virtual void set_k(int k);
 			virtual void slice(double a, double b);
 			virtual void save(const char *file);
 			virtual void load(const char *file);

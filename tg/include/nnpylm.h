@@ -20,7 +20,7 @@ namespace npbnlp {
 			virtual void remove(nsentence& s);
 			virtual void estimate(int iter);
 			virtual void poisson_correction(int n = 100);
-			virtual void set(int v);
+			/* virtual void set(int v); */
 			virtual int n();
 			virtual int m();
 			virtual int l();

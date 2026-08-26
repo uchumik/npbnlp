@@ -9,6 +9,7 @@
 #endif
 
 #define C 1
+// _v is learned from the data, so no vocabulary seed is applied.
 using namespace std;
 using namespace npbnlp;
 
@@ -17,7 +18,6 @@ static negative_binomial nb;
 
 npylm::npylm():_n(2),_word(new hpyp(_n)),_letter(new vpyp(10))/*, _prior(0), _change(1), _len(1)*/ {
 	_word->set_base(_letter.get());
-	//_letter->set_v(C);
 	// type change prior
 	/*
 	beta_distribution be;
@@ -27,7 +27,6 @@ npylm::npylm():_n(2),_word(new hpyp(_n)),_letter(new vpyp(10))/*, _prior(0), _ch
 
 npylm::npylm(int n, int m): _n(n),_word(new hpyp(n)),_letter(new vpyp(m))/*, _prior(0), _change(1), _len(1)*/ {
 	_word->set_base(_letter.get());
-	//_letter->set_v(C);
 	// type change prior
 	/*
 	beta_distribution be;
@@ -38,10 +37,12 @@ npylm::npylm(int n, int m): _n(n),_word(new hpyp(n)),_letter(new vpyp(m))/*, _pr
 npylm::~npylm() {
 }
 
+/*
 void npylm::set(int v) {
 	if (v > 0)
 		_letter->set_v(v);
 }
+*/
 
 int npylm::n() {
 	return _n;

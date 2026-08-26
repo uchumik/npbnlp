@@ -21,7 +21,6 @@ static int k = 50;
 static int threads = 4;
 static int epoch = 100;
 static int dmp = 0;
-static int vocab = 5000;
 static string supervised;
 static string train;
 static string test;
@@ -51,7 +50,6 @@ void usage(int argc, char **argv) {
 	cout << "-m, --phonetic_order=int(default 3)\n";
 	cout << "-e, --epoch=int(default 100)\n";
 	cout << "-t, --threads=int(default 4)\n";
-	cout << "-v, --vocab=int(means letter variations. default 5000)\n";
 	cout << "-s, --supervised=file(labeled_data in kkci format)\n";
 	exit(1);
 }
@@ -81,8 +79,6 @@ int read_long_param(const char *opt, const char *arg) {
 		threads = atoi(arg);
 	else if (check(opt, "dump"))
 		dmp = atoi(arg);
-	else if (check(opt, "vocab"))
-		vocab = atoi(arg);
 	else
 		return 1;
 	return 0;
@@ -109,11 +105,10 @@ int read_param(int argc, char **argv) {
 			{"epoch", required_argument, 0, 0},
 			{"threads", required_argument, 0, 0},
 			{"dump", required_argument, 0, 0},
-			{"vocab", required_argument, 0, 0},
 			{0, 0, 0, 0}
 		};
 		int option_index = 0;
-		c = getopt_long(argc, argv, "n:m:e:t:v:s:", long_options, &option_index);
+		c = getopt_long(argc, argv, "n:m:e:t:s:", long_options, &option_index);
 		if (c == -1)
 			break;
 		switch (c) {
@@ -133,9 +128,6 @@ int read_param(int argc, char **argv) {
 				break;
 			case 't':
 				threads = atoi(optarg);
-				break;
-			case 'v':
-				vocab = atoi(optarg);
 				break;
 			case 's':
 				supervised = optarg;
@@ -229,7 +221,6 @@ int mcmc() {
 	vector<vector<pair<word, vector<unsigned int> > > > corpus;
 	hsmm lm(n, m, k, triedic.c_str(), (unitdic.empty()?NULL:unitdic.c_str()));
 	//hsmm lm(n, m, triedic.c_str(), (unkdic.empty()? NULL: unkdic.c_str()));
-	lm.set(vocab);
 	io *g = NULL;
 	if (!supervised.empty()) {
 		g = new io(supervised.c_str());
@@ -350,4 +341,3 @@ int main(int argc, char **argv) {
 	}
 	return 0;
 }
-

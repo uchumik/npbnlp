@@ -13,6 +13,7 @@
 
 #define C 1
 #define K 1000
+// _v is learned from the data, so no vocabulary seed is applied.
 #define ZERO 1e-36
 
 #define A 1.
@@ -26,11 +27,9 @@ static unordered_map<int, int> pfreq;
 static negative_binomial nb;
 
 phsmm::phsmm():_n(1),_m(10),_l(2),_k(20),_v(C),_K(K),_a(1),_b(1),_pos(new hpyp(_l)),_word(new vector<shared_ptr<hpyp> >),_letter(new vector<shared_ptr<vpyp> >),_lprior(new vector<double>(chartype::n, 0)),_cprior(new vector<double>(chartype::n, 0)),_num(new vector<int>(chartype::n, 0)),_change(new vector<int>(chartype::n, 0)),_len(new vector<int>(chartype::n, 0)) {
-	//_pos->set_v(_K);
 	for (auto i = 0; i < _k+1; ++i) {
 		_word->push_back(shared_ptr<hpyp>(new hpyp(_n)));
 		_letter->push_back(shared_ptr<vpyp>(new vpyp(_m)));
-		//(*_letter)[i]->set_v(_v);
 		(*_word)[i]->set_base((*_letter)[i].get());
 	}
 	beta_distribution be;
@@ -45,11 +44,9 @@ phsmm::phsmm():_n(1),_m(10),_l(2),_k(20),_v(C),_K(K),_a(1),_b(1),_pos(new hpyp(_
 }
 
 phsmm::phsmm(int n, int m, int l, int k):_n(n),_m(m),_l(l),_k(k),_v(C),_K(K),_a(1),_b(1),_pos(new hpyp(_l)),_word(new vector<shared_ptr<hpyp> >),_letter(new vector<shared_ptr<vpyp> >),_lprior(new vector<double>(chartype::n,0)),_cprior(new vector<double>(chartype::n, 0)),_num(new vector<int>(chartype::n,0)),_change(new vector<int>(chartype::n, 0)),_len(new vector<int>(chartype::n, 0)) {
-	//_pos->set_v(_K);
 	for (auto i = 0; i < _k+1; ++i) {
 		_word->push_back(shared_ptr<hpyp>(new hpyp(_n)));
 		_letter->push_back(shared_ptr<vpyp>(new vpyp(_m)));
-		//(*_letter)[i]->set_v(_v);
 		(*_word)[i]->set_base((*_letter)[i].get());
 	}
 	beta_distribution be;
@@ -71,6 +68,7 @@ void phsmm::set_k(int k) {
 		_K = k;
 }
 
+/*
 void phsmm::set(int v, int k) {
 	_v = v;
 	_K = k;
@@ -80,6 +78,7 @@ void phsmm::set(int v, int k) {
 	}
 	_pos->set_v(k);
 }
+*/
 
 int phsmm::n() {
 	return _n;
@@ -158,7 +157,6 @@ void phsmm::load(const char *file) {
 			_word->push_back(shared_ptr<hpyp>(new hpyp(_n)));
 			_letter->push_back(shared_ptr<vpyp>(new vpyp(_m)));
 			(*_word)[_word->size()-1]->set_base((*_letter)[_word->size()-1].get());
-			//(*_letter)[_word->size()-1]->set_v(_v);
 		}
 		for (auto i = 0; i < _k+1; ++i) {
 			(*_word)[i]->load(fp);
@@ -709,7 +707,6 @@ void phsmm::_resize() {
 	_word->resize(_k+1, shared_ptr<hpyp>(new hpyp(_n)));
 	_letter->resize(_k+1, shared_ptr<vpyp>(new vpyp(_m)));
 	(*_word)[_k]->set_base((*_letter)[_k].get());
-	//(*_letter)[_k]->set_v(_v);
 }
 
 void phsmm::_shrink() {

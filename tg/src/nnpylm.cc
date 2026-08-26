@@ -10,6 +10,7 @@
 #endif
 
 #define C 1
+// _v is learned from the data, so no vocabulary seed is applied.
 #define A 1.
 #define B 1.
 #define CHUNK_CDF_TH 0.999
@@ -27,7 +28,6 @@ static negative_binomial nb;
 nnpylm::nnpylm(int n, int m, int l): _n(n),  _chunk(new hpyp(_n)), _word(new hpyp(m)), _letter(new vpyp(l)), _num(new vector<int>(chunktype2::n, 0)), _change(new vector<int>(chunktype2::n, 0)), _len(new vector<int>(chunktype2::n, 0)), _lprior(new vector<double>(chunktype2::n, 0)), _cprior(new vector<double>(chunktype2::n, 0)), _chsize(new vector<int>(chunktype2::n, 0)) {
 	_chunk->set_base(_word.get());
 	_word->set_base(_letter.get());
-	//_letter->set_v(C);
 	beta_distribution be;
 	for (auto& p : *_lprior) {
 		p = 1.-be(A, B);
@@ -49,7 +49,6 @@ nnpylm::nnpylm(int n, int m, int l): _n(n),  _chunk(new hpyp(_n)), _word(new hpy
 nnpylm::nnpylm():_n(1), _chunk(new hpyp(_n)), _word(new hpyp(2)), _letter(new vpyp(10)), _num(new vector<int>(chunktype2::n, 0)), _change(new vector<int>(chunktype2::n, 0)), _len(new vector<int>(chunktype2::n, 0)), _lprior(new vector<double>(chunktype2::n, 0)), _cprior(new vector<double>(chunktype2::n, 0)), _chsize(new vector<int>(chunktype2::n, 0)) {
 	_chunk->set_base(_word.get());
 	_word->set_base(_letter.get());
-	//_letter->set_v(C);
 	beta_distribution be;
 	for (auto& p : *_lprior) {
 		p = 1.-be(A, B);
@@ -152,10 +151,12 @@ void nnpylm::poisson_correction(int n) {
 	_word->poisson_correction(n);
 }
 
+/*
 void nnpylm::set(int v) {
 	if (v > 0)
 		_letter->set_v(v);
 }
+*/
 
 int nnpylm::n() {
 	return _n;

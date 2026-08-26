@@ -11,6 +11,7 @@
 
 #define C 50000
 #define K 1000
+// _v is learned from the data, so no vocabulary seed is applied.
 
 using namespace std;
 using namespace npbnlp;
@@ -18,21 +19,17 @@ using namespace npbnlp;
 static unordered_map<int, int> tfreq;
 
 ipcfg::ipcfg():_m(20), _k(20),_K(K), _v(C), _a(1), _b(1), _nonterm(new hpyp(3)),_word(new vector<shared_ptr<hpyp> >),_letter(new vector<shared_ptr<vpyp> >) {
-	_nonterm->set_v(_K);
 	for (auto i = 0; i < _k+1; ++i) {
 		_word->push_back(shared_ptr<hpyp>(new hpyp(1)));
 		_letter->push_back(shared_ptr<vpyp>(new vpyp(_m)));
-		(*_letter)[i]->set_v(_v);
 		(*_word)[i]->set_base((*_letter)[i].get());
 	}
 }
 
 ipcfg::ipcfg(int m):_m(m), _k(20), _K(K), _v(C), _a(1), _b(1), _nonterm(new hpyp(3)), _word(new vector<shared_ptr<hpyp> >), _letter(new vector<shared_ptr<vpyp> >) {
-	_nonterm->set_v(_K);
 	for (auto i = 0; i < _k+1; ++i) {
 		_word->push_back(shared_ptr<hpyp>(new hpyp(1)));
 		_letter->push_back(shared_ptr<vpyp>(new vpyp(_m)));
-		(*_letter)[i]->set_v(_v);
 		(*_word)[i]->set_base((*_letter)[i].get());
 	}
 }
@@ -82,7 +79,6 @@ void ipcfg::load(const char *f) {
 			_word->push_back(shared_ptr<hpyp>(new hpyp(1)));
 			_letter->push_back(shared_ptr<vpyp>(new vpyp(_m)));
 			(*_word)[_word->size()-1]->set_base((*_letter)[_word->size()-1].get());
-			(*_letter)[_word->size()-1]->set_v(_v);
 		}
 		for (auto i = 0; i < _k+1; ++i) {
 			(*_word)[i]->load(fp);
@@ -240,6 +236,7 @@ void ipcfg::poisson_correction(int n) {
 	}
 }
 
+/*
 void ipcfg::set(int v, int k) {
 	_v = v;
 	_K = k;
@@ -248,6 +245,14 @@ void ipcfg::set(int v, int k) {
 		(*it)->set_v(_v);
 	}
 	_nonterm->set_v(k);
+}
+*/
+
+void ipcfg::set_k(int k) {
+	if (k <= 0)
+		return;
+	_K = k;
+	_k = min(_k, _K);
 }
 
 void ipcfg::slice(double a, double b) {
@@ -645,7 +650,6 @@ void ipcfg::_resize() {
 	_word->resize(_k+1, shared_ptr<hpyp>(new hpyp(1)));
 	_letter->resize(_k+1, shared_ptr<vpyp>(new vpyp(_m)));
 	(*_word)[_k]->set_base((*_letter)[_k].get());
-	(*_letter)[_k]->set_v(_v);
 }
 
 void ipcfg::_shrink() {

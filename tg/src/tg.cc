@@ -22,7 +22,6 @@ static int K = 50;
 static int threads = 4;
 static int epoch = 500;
 static int dmp = 0;
-static int vocab = 50000;
 static double a = 1;
 static double b = 1;
 static string train;
@@ -49,7 +48,6 @@ void usage(int argc, char **argv) {
 	cout << "-k, --pos=int(default 50)\n";
 	cout << "-e, --epoch=int(default 500)\n";
 	cout << "-t, --threads=int(default 4)\n";
-	cout << "-v, --vocab=int(means letter variations. default 5000)\n";
 	exit(1);
 }
 
@@ -75,8 +73,6 @@ int read_long_param(const char *opt, const char *arg) {
 		threads = atoi(arg);
 	} else if (check(opt, "dump")) {
 		dmp = atoi(arg);
-	} else if (check(opt, "vocab")) {
-		vocab = atoi(arg);
 	} else {
 		return 1;
 	}
@@ -102,11 +98,10 @@ int read_param(int argc, char **argv) {
 			{"epoch", required_argument, 0, 0},
 			{"threads", required_argument, 0, 0},
 			{"dump", required_argument, 0, 0},
-			{"vocab", required_argument, 0, 0},
 			{0, 0, 0, 0}
 		};
 		int option_index = 0;
-		c = getopt_long(argc, argv, "n:m:k:e:t:v:", long_options, &option_index);
+		c = getopt_long(argc, argv, "n:m:k:e:t:", long_options, &option_index);
 		if (c == -1)
 			break;
 		switch (c) {
@@ -130,9 +125,6 @@ int read_param(int argc, char **argv) {
 				break;
 			case 't':
 				threads = atoi(optarg);
-				break;
-			case 'v':
-				vocab = atoi(optarg);
 				break;
 			case '?':
 			default:
@@ -159,7 +151,6 @@ void dump(sentence& s) {
 
 int mcmc(io& f, vector<sentence>& corpus) {
 	ihmm hmm(n, m, k);
-	//hmm.set(vocab, K);
 	hmm.set_k(K);
 	hmm.slice(a, b);
 #ifdef _OPENMP
@@ -246,7 +237,9 @@ int parse() {
 	ihmm hmm(n, m, k);
 	try {
 		hmm.load(model.c_str());
-		hmm.set(vocab, K);
+		// load() restores the learned _n/_m/_v/_k/_K values.  The letter model
+		// counts _v as symbols reach the root, so resetting the initial vocabulary here
+		// would change the base measure used for scoring.
 	} catch (const char *ex) {
 		throw ex;
 	}

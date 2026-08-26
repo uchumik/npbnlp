@@ -19,7 +19,7 @@ namespace npbnlp {
 			virtual void add(nsentence& s);
 			virtual void remove(nsentence& s);
 			virtual void init(nsentence& s);
-			virtual void set(int v, int k);
+			/* virtual void set(int v, int k); */
 			virtual void set_k(int k);
 			virtual int n();
 			virtual int m();

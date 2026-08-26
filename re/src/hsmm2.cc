@@ -6,6 +6,7 @@
 #define C 5000
 #define P 5000
 #define K 100
+// _v is learned from the data, so no vocabulary seed is applied.
 
 using namespace std;
 using namespace npbnlp;
@@ -123,14 +124,11 @@ double hmm::lattice::lpr(word& w, vector<unsigned int>& r, hpyp& wd, hpyp& phn) 
 }
 
 hmm::hmm(int n, int m, int k):_n(n),_m(m),_k(k),_word(new vector<shared_ptr<hpyp> >), _letter(new vector<shared_ptr<vpyp> >), _phonetic(new vector<shared_ptr<hpyp> >), _pos(new hpyp(2)) {
-	_pos->set_v(K);
 	for (auto i = 0; i < _k; ++i) {
 		_word->emplace_back(shared_ptr<hpyp>(new hpyp(1)));
 		_letter->emplace_back(shared_ptr<vpyp>(new vpyp(_n)));
-		(*_letter)[i]->set_v(C);
 		(*_word)[i]->set_base((*_letter)[i].get());
 		_phonetic->emplace_back(shared_ptr<hpyp>(new hpyp(_m)));
-		(*_phonetic)[i]->set_v(P);
 	}
 }
 
@@ -251,14 +249,11 @@ void hmm::remove(vector<pair<word, vector<unsigned int> > >& s) {
 
 hsmm::hsmm(const char *dic, const char *unit):_n(10),_m(3),_k(50),_word(new vector<shared_ptr<hpyp> >),_letter(new vector<shared_ptr<vpyp> >),_phonetic(new vector<shared_ptr<hpyp> >), _pos(new hpyp(2)),_dic(new trie(3)),_unit(nullptr) {
 	_dic->load(dic, hsmm::vv_reader, hsmm::uint_reader);
-	_pos->set_v(K);
 	for (auto k = 0; k < _k; ++k) {
 		_word->emplace_back(shared_ptr<hpyp>(new hpyp(1)));
 		_letter->emplace_back(shared_ptr<vpyp>(new vpyp(_n)));
-		(*_letter)[k]->set_v(C);
 		(*_word)[k]->set_base((*_letter)[k].get());
 		_phonetic->emplace_back(shared_ptr<hpyp>(new hpyp(_m)));
-		(*_phonetic)[k]->set_v(P);
 	}
 	if (unit) {
 		_unit = shared_ptr<trie>(new trie(3));
@@ -268,14 +263,11 @@ hsmm::hsmm(const char *dic, const char *unit):_n(10),_m(3),_k(50),_word(new vect
 
 hsmm::hsmm(int n, int m, int k, const char *dic, const char *unit):_n(n),_m(m),_k(k),_word(new vector<shared_ptr<hpyp> >),_letter(new vector<shared_ptr<vpyp> >),_phonetic(new vector<shared_ptr<hpyp> >), _pos(new hpyp(2)),_dic(new trie(3)),_unit(nullptr) {
 	_dic->load(dic, hsmm::vv_reader, hsmm::uint_reader);
-	_pos->set_v(K);
 	for (auto k = 0; k < _k; ++k) {
 		_word->emplace_back(shared_ptr<hpyp>(new hpyp(1)));
 		_letter->emplace_back(shared_ptr<vpyp>(new vpyp(_n)));
-		(*_letter)[k]->set_v(C);
 		(*_word)[k]->set_base((*_letter)[k].get());
 		_phonetic->emplace_back(shared_ptr<hpyp>(new hpyp(_m)));
-		(*_phonetic)[k]->set_v(P);
 	}
 	if (unit) {
 		_unit = shared_ptr<trie>(new trie(3));
@@ -294,11 +286,12 @@ int hsmm::m() {
 	return _m;
 }
 
+/*
 void hsmm::set(int v) {
 	_v = v;
 	for (auto k = 1; k < _k; ++k)
-		(*_letter)[k]->set_v(_v);
 }
+*/
 
 void hsmm::estimate(int iter) {
 	for (auto k = 1; k < _k; ++k) {
@@ -427,7 +420,6 @@ void hsmm::load(const char *file) {
 		if (fread(&_v, sizeof(int), 1, fp) != 1)
 			throw "failed to write _v in hsmm::load";
 		_pos->load(fp);
-		_pos->set_v(K);
 		for (auto i = 0; i < _k; ++i) {
 			if ((int)_word->size() <= i) {
 				_word->emplace_back(shared_ptr<hpyp>(new hpyp(1)));
@@ -437,7 +429,6 @@ void hsmm::load(const char *file) {
 			(*_word)[i]->load(fp);
 			(*_letter)[i]->load(fp);
 			(*_phonetic)[i]->load(fp);
-			(*_letter)[i]->set_v(_v);
 			(*_word)[i]->set_base((*_letter)[i].get());
 		}
 	} catch (const char *ex) {

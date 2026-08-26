@@ -81,7 +81,7 @@ namespace npbnlp {
 			virtual void pretrain(int iter, std::vector<std::vector<std::pair<word, std::vector<unsigned int> > > >& corpus);
 			virtual std::vector<std::pair<word, std::vector<unsigned int> > > sample(io& f, int i);
 			virtual std::vector<std::pair<word, std::vector<unsigned int> > > parse(io& f, int i);
-			virtual void set(int v);
+			/* virtual void set(int v); */
 			virtual int n();
 			virtual int m();
 			virtual void estimate(int iter);

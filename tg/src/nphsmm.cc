@@ -13,6 +13,7 @@
 //#define K 1000
 #define C 1
 #define K 20
+// _v is learned from the data, so no vocabulary seed is applied.
 #define A 1.
 #define B 2.
 #define L 50
@@ -26,12 +27,10 @@ static unordered_map<int, int> kfreq;
 static negative_binomial nb;
 
 nphsmm::nphsmm(): _n(1), _m(2), _l(10), _k(20), _v(C), _K(K), _a(1), _b(1), _class(new hpyp(_n)), _chunk(new vector<shared_ptr<hpyp> >), _word(new vector<shared_ptr<hpyp> >), _letter(new vector<shared_ptr<vpyp> >), _prior(new vector<double>(chunktype2::n, 0)), _length(new vector<int>(chunktype2::n, 0)), _num(new vector<int>(chunktype2::n, 0)), _change(new vector<int>(chunktype2::n, 0)), _clength(new vector<int>(chunktype2::n, 0)), _cprior(new vector<double>(chunktype2::n, 1)) {
-	//_class->set_v(K);
 	for (auto i = 0; i < _k+1; ++i) {
 		_chunk->push_back(shared_ptr<hpyp>(new hpyp(_n)));
 		_word->push_back(shared_ptr<hpyp>(new hpyp(_m)));
 		_letter->push_back(shared_ptr<vpyp>(new vpyp(_l)));
-		//(*_letter)[i]->set_v(_v);
 		(*_word)[i]->set_base((*_letter)[i].get());
 		(*_chunk)[i]->set_base((*_word)[i].get());
 	}
@@ -54,12 +53,10 @@ nphsmm::nphsmm(): _n(1), _m(2), _l(10), _k(20), _v(C), _K(K), _a(1), _b(1), _cla
 }
 
 nphsmm::nphsmm(int n, int m, int l, int k): _n(n), _m(m), _l(l), _k(k), _v(C), _K(K), _a(1), _b(1), _class(new hpyp(_n)), _chunk(new vector<shared_ptr<hpyp> >), _word(new vector<shared_ptr<hpyp> >), _letter(new vector<shared_ptr<vpyp> >), _prior(new vector<double>(chunktype2::n, 0)), _length(new vector<int>(chunktype2::n, 0)), _num(new vector<int>(chunktype2::n, 0)), _change(new vector<int>(chunktype2::n, 0)), _clength(new vector<int>(chunktype2::n, 0)), _cprior(new vector<double>(chunktype2::n, 1)) {
-	//_class->set_v(K);
 	for (auto i = 0; i < _k+1; ++i) {
 		_chunk->push_back(shared_ptr<hpyp>(new hpyp(_n)));
 		_word->push_back(shared_ptr<hpyp>(new hpyp(_m)));
 		_letter->push_back(shared_ptr<vpyp>(new vpyp(_l)));
-		//(*_letter)[i]->set_v(_v);
 		(*_word)[i]->set_base((*_letter)[i].get());
 		(*_chunk)[i]->set_base((*_word)[i].get());
 	}
@@ -89,6 +86,7 @@ void nphsmm::set_k(int k) {
 		_K = k;
 }
 
+/*
 void nphsmm::set(int v, int k) {
 	_v = v;
 	_K = k;
@@ -98,6 +96,7 @@ void nphsmm::set(int v, int k) {
 	}
 	_class->set_v(_K);
 }
+*/
 
 int nphsmm::n() {
 	return _n;
@@ -205,7 +204,6 @@ void nphsmm::load(const char *file) {
 			_letter->push_back(shared_ptr<vpyp>(new vpyp(_l)));
 			(*_chunk)[k]->set_base((*_word)[k].get());
 			(*_word)[k]->set_base((*_letter)[k].get());
-			//(*_letter)[k]->set_v(_v);
 		}
 		for (auto i = 0; i < _k+1; ++i) {
 			(*_chunk)[i]->load(fp);
@@ -677,7 +675,6 @@ void nphsmm::_resize() {
 	_letter->resize(_k+1, shared_ptr<vpyp>(new vpyp(_l)));
 	(*_chunk)[_k]->set_base((*_word)[_k].get());
 	(*_word)[_k]->set_base((*_letter)[_k].get());
-	//(*_letter)[_k]->set_v(_v);
 }
 
 void nphsmm::_shrink() {
