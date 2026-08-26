@@ -13,11 +13,23 @@ shared_ptr<seed> seed::create() {
 }
 
 seed::seed() {
+	_is_set = false;
 }
 
 seed::~seed() {
 }
 
 unsigned int seed::operator()() {
+	if (_is_set)
+		return _generator();
 	return _seed();
+}
+
+void seed::set(unsigned int s) {
+	_generator.seed(s);
+	_is_set = true;
+}
+
+bool seed::is_set() const {
+	return _is_set;
 }

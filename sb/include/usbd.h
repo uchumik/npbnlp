@@ -7,8 +7,7 @@
 namespace npbnlp {
 	enum class sequence_type {
 		letter,
-		word,
-		lstm
+		word
 	};
 	enum class smoothing {
 		kn,

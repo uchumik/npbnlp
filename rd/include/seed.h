@@ -13,12 +13,16 @@ namespace npbnlp {
 			seed& operator=(const seed&) = delete;
 			seed& operator=(seed&&) = delete;
 			unsigned int operator()();
+			void set(unsigned int s);
+			bool is_set() const;
 			virtual ~seed();
 		private:
 			seed();
 			static std::shared_ptr<seed> _sd;
 			static std::mutex _mutex;
 			std::random_device _seed;
+			std::mt19937 _generator;
+			bool _is_set;
 
 	};
 }

@@ -31,7 +31,6 @@ static int pre_epoch = 20;
 static int snap = 5;
 static int dmp = 0;
 //static int tokenized = 0;
-static int vocab = 0;
 static double a = 1;
 static double b = 5;
 static string prefix("nphsmm");
@@ -68,7 +67,6 @@ void usage(int argc, char **argv) {
 	cout << "-k, --class=int(default 50)\n";
 	cout << "-e, --epoch=int(default 500)\n";
 	cout << "-t, --threads=int(default 4)\n";
-	cout << "-v, --vocab=int(means letter variations. default 0: train from data)\n";
 	//cout << "--tokenized=bool(default 0)\n";
 	cout << "-a double(default 1), parameter of beta distribution for slice\n";
 	cout << "-b double(default 5), parameter of beta distribution for slice\n";
@@ -109,8 +107,6 @@ int read_long_param(const char *opt, const char *arg) {
 		threads = atoi(arg);
 	} else if (check(opt, "dump")) {
 		dmp = atoi(arg);
-	} else if (check(opt, "vocab")) {
-		vocab = atoi(arg);
 	} else {
 		return 1;
 	}
@@ -141,12 +137,11 @@ int read_param(int argc, char **argv) {
 			{"epoch", required_argument, 0, 0},
 			{"threads", required_argument, 0, 0},
 			{"dump", required_argument, 0, 0},
-			{"vocab", required_argument, 0, 0},
 			//{"tokenized", no_argument, &tokenized, 1},
 			{0, 0, 0, 0}
 		};
 		int option_index = 0;
-		c = getopt_long(argc, argv, "n:m:l:k:e:t:v:a:b:", long_options, &option_index);
+		c = getopt_long(argc, argv, "n:m:l:k:e:t:a:b:", long_options, &option_index);
 		if (c == -1)
 			break;
 		switch (c) {
@@ -173,9 +168,6 @@ int read_param(int argc, char **argv) {
 				break;
 			case 't':
 				threads = atoi(optarg);
-				break;
-			case 'v':
-				vocab = atoi(optarg);
 				break;
 			case 'a':
 				a = atof(optarg);
@@ -369,7 +361,6 @@ int snapshot(nphsmm& model, int iter) {
 
 int mcmc(nio& f, vector<nsentence>& corpus, vector<nsentence>& supervised) {
 	nphsmm lm(n, m, l, k);
-	//lm.set(vocab, K);
 	if (!pretrain.empty()) {
 		if (K < label_id) {
 			K = label_id;
@@ -464,7 +455,6 @@ int parse(nio& f) {
 	nphsmm lm;
 	try {
 		lm.load(model.c_str());
-		//lm.set(vocab, K);
 		lm.slice(a, b);
 	} catch (const char *ex) {
 		throw ex;

@@ -6,6 +6,7 @@
 
 #define DISCOUNT 0.5
 #define STRENGTH 1
+#define _H_ log(1e-4)
 
 using namespace std;
 using namespace npbnlp;
@@ -91,7 +92,7 @@ hpy& hpy::operator=(const hpy& lm) {
 hpy::~hpy() {
 }
 
-void hpy::set_base(hpy *b) {
+void hpy::set_base(dalm *b) {
 	if (b)
 		_base = b;
 }
@@ -447,6 +448,8 @@ void hpy::estimate(int iter) {
 			(*_strength)[j] = gm((*g)());
 		}
 	}
+	if (_base)
+		_base->estimate(iter);
 }
 
 void hpy::_estimate_d(vector<double>& a, vector<double>& b) {
@@ -602,7 +605,8 @@ int hpy::load(const char *file) {
 double hpy::_lp(sentence& s, int i, int n) {
 	double lp = -log(_v); // base measure
 	if (n == 0 && _base) 
-		return _base->lp(s.wd(i));
+		//return _base->lp(s.wd(i));
+		return max(_H_,_base->lp(s.wd(i)));
 	else if (n == 0)
 		return lp;
 	//auto c = _nc->cs_search(s, i, n);

@@ -17,6 +17,7 @@ namespace npbnlp {
 			using sp = gen_t;
 #endif
 			static std::shared_ptr<generator> create();
+			static void reseed();
 			generator(const generator&) = delete;
 			generator(generator&&) = delete;
 			generator& operator=(const generator&) = delete;

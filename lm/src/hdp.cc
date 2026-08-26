@@ -5,6 +5,7 @@
 
 #define VOCAB 100000
 #define ALPHA 0.001
+#define _H_ log(1e-4)
 
 using namespace std;
 using namespace npbnlp;
@@ -151,11 +152,11 @@ void hdp::estimate(int iter) {
 }
 
 double hdp::pr(chunk& c, const context *h) {
-	return exp(lp(c,h));
+	return exp(hdp::lp(c,h));
 }
 
 double hdp::pr(word& w, const context *h) {
-	return exp(lp(w,h));
+	return exp(hdp::lp(w,h));
 	/*
 	   if (!h) {
 	   return _prb(w);
@@ -168,7 +169,7 @@ double hdp::pr(word& w, const context *h) {
 }
 
 double hdp::pr(int k, const context *h) {
-	return exp(lp(k,h));
+	return exp(hdp::lp(k,h));
 	/*
 	   if (!h) {
 	   return 1./_v;
@@ -200,9 +201,9 @@ double hdp::lp(chunk& b, const context *h) {
 	double cu = h->cu(b.id);
 	int n = h->n();
 	if (cu == 0.)
-		lpr = log((*_alpha)[n])+lp(b, h->parent())-log(c+(*_alpha)[n]);
+		lpr = log((*_alpha)[n])+hdp::lp(b, h->parent())-log(c+(*_alpha)[n]);
 	else
-		lpr = math::lse(log(cu)-log(c+(*_alpha)[n]), log((*_alpha)[n])+lp(b, h->parent())-log(c+(*_alpha)[n]));
+		lpr = math::lse(log(cu)-log(c+(*_alpha)[n]), log((*_alpha)[n])+hdp::lp(b, h->parent())-log(c+(*_alpha)[n]));
 	return lpr;
 	//return _cache.set(b, h, lpr);
 }
@@ -232,9 +233,9 @@ double hdp::lp(word& w, const context *h) {
 	// = logsumexp(log cu - log(c+a) + log(a*pr)- log(c+a))
 	// = logsumexp(log cu - log(c+a) + log(a)+log(pr)-log(c+a))
 	if (cu == 0.)
-		lpr = log((*_alpha)[n])+lp(w, h->parent())-log(c+(*_alpha)[n]);
+		lpr = log((*_alpha)[n])+hdp::lp(w, h->parent())-log(c+(*_alpha)[n]);
 	else
-		lpr = math::lse(log(cu)-log(c+(*_alpha)[n]), log((*_alpha)[n])+lp(w, h->parent())-log(c+(*_alpha)[n]));
+		lpr = math::lse(log(cu)-log(c+(*_alpha)[n]), log((*_alpha)[n])+hdp::lp(w, h->parent())-log(c+(*_alpha)[n]));
 	return lpr;
 	//return _cache.set(w, h, lpr);
 }
@@ -260,9 +261,9 @@ double hdp::lp(int k, const context *h) {
 	double cu = h->cu(k);
 	int n = h->n();
 	if (cu == 0.)
-		lpr = log((*_alpha)[n])+lp(k, h->parent())-log(c+(*_alpha)[n]);
+		lpr = log((*_alpha)[n])+hdp::lp(k, h->parent())-log(c+(*_alpha)[n]);
 	else
-		lpr = math::lse(log(cu)-log(c+(*_alpha)[n]), log((*_alpha)[n])+lp(k, h->parent())-log(c+(*_alpha)[n]));
+		lpr = math::lse(log(cu)-log(c+(*_alpha)[n]), log((*_alpha)[n])+hdp::lp(k, h->parent())-log(c+(*_alpha)[n]));
 	return lpr;
 	//return _cache.set(k, h, lpr);
 }
@@ -330,9 +331,11 @@ double hdp::_lpb(word& w) const {
 				h = c;
 		}
 		lp += _base->lp(w[i], h);
+		if (lp < _H_)
+			break;
 	}
-	//return max(-log(_v), lp);
-	return lp;
+	return max(_H_, lp);
+	//return lp;
 }
 
 double hdp::_lpb(chunk& b) const {
@@ -351,8 +354,11 @@ double hdp::_lpb(chunk& b) const {
 		}
 		//lp += _base->lp(b[i], h);
 		lp += _base->lp(b.wd(i), h);
+		if (lp < _H_)
+			break;
 	}
-	return lp;
+	return max(_H_, lp);
+	//return lp;
 }
 
 bool hdp::add(int k, context *h) { 

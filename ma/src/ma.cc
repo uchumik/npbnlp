@@ -26,7 +26,6 @@ static int threads = 4;
 static int pre_epoch = 20;
 static int epoch = 500;
 static int dmp = 0;
-static int vocab = 5000;
 static double a = 1;
 static double b = 5;
 static string pretrain;
@@ -58,7 +57,6 @@ void usage(int argc, char **argv) {
 	cout << "-k, --pos=int(default 50)\n";
 	cout << "-e, --epoch=int(default 500)\n";
 	cout << "-t, --threads=int(default 4)\n";
-	cout << "-v, --vocab=int(means letter variations. default 5000)\n";
 	cout << "-a double(default 1), parameter of beta distribution for slice" << endl;
 	cout << "-b double(default 5), parameter of beta distribution for slice" << endl;
 	cout << "--pretrain =file(use as pretraining dataset in training\n";
@@ -91,8 +89,6 @@ int read_long_param(const char *opt, const char *arg) {
 		threads = atoi(arg);
 	} else if (check(opt, "dump")) {
 		dmp = atoi(arg);
-	} else if (check(opt, "vocab")) {
-		vocab = atoi(arg);
 	} else {
 		return 1;
 	}
@@ -120,11 +116,10 @@ int read_param(int argc, char **argv) {
 			{"epoch", required_argument, 0, 0},
 			{"threads", required_argument, 0, 0},
 			{"dump", required_argument, 0, 0},
-			{"vocab", required_argument, 0, 0},
 			{0, 0, 0, 0}
 		};
 		int option_index = 0;
-		c = getopt_long(argc, argv, "n:m:l:k:e:t:v:a:b:", long_options, &option_index);
+		c = getopt_long(argc, argv, "n:m:l:k:e:t:a:b:", long_options, &option_index);
 		if (c == -1)
 			break;
 		switch (c) {
@@ -151,9 +146,6 @@ int read_param(int argc, char **argv) {
 				break;
 			case 't':
 				threads = atoi(optarg);
-				break;
-			case 'v':
-				vocab = atoi(optarg);
 				break;
 			case 'a':
 				a = atof(optarg);
@@ -213,7 +205,6 @@ int mcmc(io& f, vector<sentence>& corpus, vector<sentence>& labels) {
 	}
 	lm.set_k(K);
 	phsmm_pretrain(lm, labels);
-	//lm.set(vocab, K);
 	lm.slice(a, b);
 #ifdef _OPENMP
 	threads = min(omp_get_max_threads(), threads);
@@ -300,7 +291,6 @@ int parse() {
 	phsmm lm(n, m, l, k);
 	try {
 		lm.load(model.c_str());
-		//lm.set(vocab, K);
 	} catch (const char *ex) {
 		throw ex;
 	}
@@ -338,7 +328,6 @@ int npy_pretrain(npylm& lm, vector<sentence>& corpus) {
 
 int init(io& f, vector<sentence>& corpus, vector<sentence>& labels) {
 	npylm lm(n, m);
-	//lm.set(vocab);
 	npy_pretrain(lm, labels);
 #ifdef _OPENMP
 	omp_set_num_threads(threads);

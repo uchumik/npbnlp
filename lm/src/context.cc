@@ -204,7 +204,7 @@ bool context::_crp_add(int k, lm *m) {
 		table[i] = r[i] - m->discount(_n);
 		z += table[i];
 	}
-	table[size] = (m->strength(_n) + _table * m->discount(_n))*m->pr(k, _parent); 
+	table[size] = (m->strength(_n) + _table * m->discount(_n))*m->pr_component(k, _parent);
 	z += table[size];
 	int id = rd::draw(z, table);
 	(*_restaurant)[k]->n++;
@@ -408,4 +408,3 @@ void context::estimate_d(vector<double>& a, vector<double>& b, lm *m) {
 			(*_child)[key] = p;
 		}
 	}
-

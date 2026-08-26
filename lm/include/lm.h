@@ -17,6 +17,10 @@ namespace npbnlp {
 			virtual double pr(word& w, const context *h) = 0;
 			virtual double pr(chunk& c, const context *h) = 0;
 			virtual double pr(int k, const context *h) = 0;
+			// 混合の成分および CRP の新卓重みに使う予測分布。階層モデルでは pr() そのもの。
+			// vpyp だけが override して自分の深さ混合への再入を防ぐ（旧 hpy_context.cc:137 が
+			// lm->HPYP::prob(k,_parent) とクラス修飾しているのと同じ意図）。
+			virtual double pr_component(int k, const context *h) { return pr(k, h); }
 			virtual double lp(int k, const context *h) = 0;
 			virtual double lp(word& w, const context *h) = 0;
 			virtual double lp(chunk& c, const context *h) = 0;

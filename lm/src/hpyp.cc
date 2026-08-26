@@ -20,6 +20,7 @@ using gamma_dist = gamma_distribution<>;
 #define POISSON_A 0.2
 #define POISSON_B 0.1
 #define MAXLEN 100
+#define _H_ log(1e-4)
 
 hpyp::hpyp():_n(1),_a(1),_b(1),_base(NULL),_v(VOCAB),_h(new context),_discount(new vector<double>(_n, DISCOUNT)),_strength(new vector<double>(_n, STRENGTH)),_bc(nullptr),_cbc(nullptr),/*_poisson(nullptr),*/_lambda(nullptr),/*_w(nullptr),*/_f(0)/*_f(nullptr)*/,_length(nullptr)/*,_lambda(nullptr)*/  {
 }
@@ -269,15 +270,15 @@ int hpyp::v() const {
 }
 
 double hpyp::pr(chunk& c, const context *h) {
-	return exp(lp(c, h));
+	return exp(hpyp::lp(c, h));
 }
 
 double hpyp::pr(word& w, const context *h) {
-	return exp(lp(w, h));
+	return exp(hpyp::lp(w, h));
 }
 
 double hpyp::pr(int k, const context *h) {
-	return exp(lp(k, h));
+	return exp(hpyp::lp(k, h));
 }
 
 double hpyp::lp(chunk& ch, const context *h) {
@@ -300,9 +301,9 @@ double hpyp::lp(chunk& ch, const context *h) {
 	double b = (*_strength)[n]+(*_discount)[n]*t;
 	double d = (*_strength)[n]+c;
 	if (a == 0.)
-		lpr = log(b)+lp(ch,h->parent())-log(d);
+		lpr = log(b)+hpyp::lp(ch,h->parent())-log(d);
 	else
-		lpr = math::lse(log(a)-log(d), log(b)+lp(ch, h->parent())-log(d));
+		lpr = math::lse(log(a)-log(d), log(b)+hpyp::lp(ch, h->parent())-log(d));
 	return lpr;
 	//return _cache.set(ch, h, lpr);
 
@@ -328,9 +329,9 @@ double hpyp::lp(word& w, const context *h) {
 	double b = (*_strength)[n]+(*_discount)[n]*t;
 	double d = (*_strength)[n]+c;
 	if (a == 0.)
-		lpr = log(b)+lp(w,h->parent())-log(d);
+		lpr = log(b)+hpyp::lp(w,h->parent())-log(d);
 	else
-		lpr = math::lse(log(a)-log(d), log(b)+lp(w, h->parent())-log(d));
+		lpr = math::lse(log(a)-log(d), log(b)+hpyp::lp(w, h->parent())-log(d));
 	//cout << "c:" << c << " t:" << t << " cu:" << cu << " tu:" << tu << " n:" << n << " stlength:" << (*_strength)[n] << " discount:" << (*_discount)[n] << " v:" << _v << " lp:" << lpr << endl;
 	return lpr;
 	//return _cache.set(w, h, lpr);
@@ -370,10 +371,12 @@ double hpyp::lp(int k, const context *h) {
 	// log(a/d + b*pr/d)
 	// = logsumexp(log(a/d) + log(b*pr/d))
 	// = logsumexp(log a - log d + log b + log pr - log d)
+	// 親は純粋な HPYP 予測に固定する。ここを lp(...) にすると vpyp::lp へ再入する。
+	// _lpb は非仮想なので、ここからは静的に hpyp::_lpb が選ばれる（旧実装と同じ）。
 	if (a == 0.)
-		lpr = log(b)+lp(k,h->parent())-log(d);
+		lpr = log(b)+hpyp::lp(k,h->parent())-log(d);
 	else
-		lpr = math::lse(log(a)-log(d), log(b)+lp(k, h->parent())-log(d));
+		lpr = math::lse(log(a)-log(d), log(b)+hpyp::lp(k, h->parent())-log(d));
 	//cout << "c:" << c << " t:" << t << " cu:" << cu << " tu:" << tu << " n:" << n << " stlength:" << (*_strength)[n] << " discount:" << (*_discount)[n] << " v:" << _v << " lp:" << lpr << endl;
 	return lpr;
 	//return _cache.set(k, h, lpr);
@@ -407,8 +410,11 @@ double hpyp::_lpb(chunk& b) const {
 		}
 		//lp += _base->lp(b[i], h);
 		lp += _base->lp(b.wd(i), h);
+		if (lp < _H_)
+			break;
 	}
-	return lp;
+	return max(_H_,lp);
+	//return lp;
 }
 
 double hpyp::_lpb(word& w) const {
@@ -422,7 +428,11 @@ double hpyp::_lpb(word& w) const {
 	//return log(_v-_h->v())-log(_v);
 	}
 	   */
-	double lp = 0;
+	double correct = 0;
+	// poisson correction
+	if (_lambda != nullptr)
+		correct = _correct(w);
+	double lp = correct;
 	for (int i = 0; i < w.len+1; ++i) {
 		int n = _base->n();
 		const context *h = _base->h();
@@ -434,12 +444,17 @@ double hpyp::_lpb(word& w) const {
 				h = c;
 		}
 		lp += _base->lp(w[i], h);
+		if (lp < _H_)
+			break;
 	}
+	/*
 	// poisson correction
 	if (_lambda != nullptr) {
 		lp += _correct(w);
 	}
-	return lp;
+	*/
+	return max(_H_,lp);
+	//return lp;
 }
 
 double hpyp::_correct(word& w) const {
@@ -677,15 +692,16 @@ int hpyp::draw_n(word& w, int i) {
 		if (c) {
 			int s = c->stop();
 			int p = c->pass();
-			lp_cache = lp(w[i], c);
+			lp_cache = hpyp::lp(w[i], c);
 			ln_pr_stop = log(s) - log(s+p);
+			table.push_back(lp_cache+ln_pr_stop+ln_pr_pass);
 			ln_pr_pass += log(p) - log(s+p);
 			c = c->find(w[i-j]);
 		} else {
 			ln_pr_stop = -log(2);
+			table.push_back(lp_cache+ln_pr_stop+ln_pr_pass);
 			ln_pr_pass += -log(2);
 		}
-		table.push_back(lp_cache+ln_pr_stop+ln_pr_pass);
 	} while (i-j >= -1 && j++ < _n);
 	return 1+rd::ln_draw(table);
 }
@@ -701,15 +717,16 @@ int hpyp::draw_n(chunk& b, int i) {
 		if (c) {
 			int s = c->stop();
 			int p = c->pass();
-			lp_cache = lp(b[i], c);
+			lp_cache = hpyp::lp(b[i], c);
 			ln_pr_stop = log(s) - log(s+p);
+			table.push_back(lp_cache+ln_pr_stop+ln_pr_pass);
 			ln_pr_pass += log(p) - log(s+p);
 			c = c->find(b[i-j]);
 		} else {
 			ln_pr_stop = -log(2);
+			table.push_back(lp_cache+ln_pr_stop+ln_pr_pass);
 			ln_pr_pass += -log(2);
 		}
-		table.push_back(lp_cache+ln_pr_stop+ln_pr_pass);
 	} while (i-j >= -1 && j++ < _n);
 	return 1+rd::ln_draw(table);
 }
@@ -725,15 +742,16 @@ int hpyp::draw_n(sentence& sq, int i) {
 		if (c) {
 			int s = c->stop();
 			int p = c->pass();
-			lp_cache = lp(sq[i], c);
+			lp_cache = hpyp::lp(sq[i], c);
 			ln_pr_stop = log(s) - log(s+p);
+			table.push_back(lp_cache+ln_pr_stop+ln_pr_pass);
 			ln_pr_pass += log(p) - log(s+p);
 			c = c->find(sq[i-j]);
 		} else {
 			ln_pr_stop = -log(2);
+			table.push_back(lp_cache+ln_pr_stop+ln_pr_pass);
 			ln_pr_pass += -log(2);
 		}
-		table.push_back(lp_cache+ln_pr_stop+ln_pr_pass);
 	} while (i-j >= -1 && j++ < _n);
 	return 1+rd::ln_draw(table);
 }
@@ -749,15 +767,16 @@ int hpyp::draw_n(nsentence& sq, int i) {
 		if (c) {
 			int s = c->stop();
 			int p = c->pass();
-			lp_cache = lp(sq[i], c);
+			lp_cache = hpyp::lp(sq[i], c);
 			ln_pr_stop = log(s) - log(s+p);
+			table.push_back(lp_cache+ln_pr_stop+ln_pr_pass);
 			ln_pr_pass += log(p) - log(s+p);
 			c = c->find(sq[i-j]);
 		} else {
 			ln_pr_stop = -log(2);
+			table.push_back(lp_cache+ln_pr_stop+ln_pr_pass);
 			ln_pr_pass += -log(2);
 		}
-		table.push_back(lp_cache+ln_pr_stop+ln_pr_pass);
 	} while (i-j >= -1 && j++ < _n);
 	return 1+rd::ln_draw(table);
 }

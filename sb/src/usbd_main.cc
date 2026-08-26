@@ -109,8 +109,6 @@ int read_long_param(const char *opt, const char *arg) {
 			type = sequence_type::letter;
 		} else if (check(arg, "word")) {
 			type = sequence_type::word;
-		} else if (check(arg, "lstm")) {
-			type = sequence_type::lstm;
 		} else {
 			return 1;
 		}
@@ -301,8 +299,6 @@ void mcmc() {
 		bd.set_cr_prior(cr_prior);
 	if (f_set_punc_prior)
 		bd.set_punc_prior(pnc_prior);
-	if (type == sequence_type::lstm)
-		bd.init(file, 100);
 	io *pre = NULL;
 	if (!pretrain.empty()) {
 		pre = new io(pretrain.c_str());

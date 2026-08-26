@@ -16,7 +16,7 @@ namespace npbnlp {
 			virtual ~npylm();
 			virtual sentence sample(io& f, int i);
 			virtual sentence parse(io& f, int i);
-			virtual void set(int v);
+			/* virtual void set(int v); */
 			virtual int n();
 			virtual int m();
 			virtual void add(sentence& s);

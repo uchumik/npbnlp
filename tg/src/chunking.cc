@@ -24,7 +24,6 @@ static int epoch = 100;
 static int pre_epoch = 20;
 static int dmp = 0;
 //static int tokenized = 0;
-static int vocab = 0;
 static string pretrain;
 static string train;
 static string test;
@@ -57,7 +56,6 @@ void usage(int argc, char **argv) {
 	cout << "-l, --letter_order=int(default 20)\n";
 	cout << "-e, --epoch=int(default 500)\n";
 	cout << "-t, --threads=int(default 4)\n";
-	cout << "-v, --vocab=int(means letter variations. default 0: train from data)\n";
 	cout << "--pretrain =file(use as pretraining dataset in training\n";
 	//cout << "--tokenized=bool(default 0)\n";
 	exit(1);
@@ -266,10 +264,6 @@ int mcmc(vector<nsentence>& supervised) {
 	nnpylm chunker(n, m, l);
 	if (!pretrain.empty())
 		nnpy_pretrain(chunker, supervised);
-	/*
-	if (vocab)
-		chunker.set(vocab);
-		*/
 #ifdef _OPENMP
 	omp_set_num_threads(threads);
 #endif

@@ -5,14 +5,13 @@
 
 #define C 5000
 #define P 5000
+// _v is learned from the data, so no vocabulary seed is applied.
 
 using namespace std;
 using namespace npbnlp;
 
 hsmm::hsmm(const char *dic, const char *unit):_n(10),_m(3),_word(new hpyp(1)),_letter(new vpyp(_n)),_phonetic(new hpyp(_m)),_dic(new trie(3)),_unit(nullptr) {
 	_dic->load(dic, hsmm::vv_reader, hsmm::uint_reader);
-	_letter->set_v(C);
-	_phonetic->set_v(P);
 	_word->set_base(_letter.get());
 	if (unit) {
 		_unit = shared_ptr<trie>(new trie(3));
@@ -22,8 +21,6 @@ hsmm::hsmm(const char *dic, const char *unit):_n(10),_m(3),_word(new hpyp(1)),_l
 
 hsmm::hsmm(int n, int m, const char *dic, const char *unit):_n(n),_m(m),_word(new hpyp(1)),_letter(new vpyp(_n)),_phonetic(new hpyp(_m)),_dic(new trie(3)),_unit(nullptr) {
 	_dic->load(dic, hsmm::vv_reader, hsmm::uint_reader);
-	_letter->set_v(C);
-	_phonetic->set_v(P);
 	_word->set_base(_letter.get());
 	if (unit) {
 		_unit = shared_ptr<trie>(new trie(3));
@@ -42,10 +39,12 @@ int hsmm::m() {
 	return _m;
 }
 
+/*
 void hsmm::set(int v) {
 	_v = v;
 	_letter->set_v(_v);
 }
+*/
 
 void hsmm::estimate(int iter) {
 	_word->gibbs(iter);
@@ -187,7 +186,6 @@ void hsmm::load(const char *file) {
 		_word->load(fp);
 		_letter->load(fp);
 		_phonetic->load(fp);
-		_letter->set_v(_v);
 	} catch (const char *ex) {
 		throw ex;
 	}

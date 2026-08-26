@@ -15,6 +15,23 @@ shared_ptr<generator> generator::create() {
 	return _gn;
 }
 
+void generator::reseed() {
+	lock_guard<mutex> lock(_mutex);
+	if (_gn == nullptr)
+		_gn = shared_ptr<generator>(new generator);
+	else {
+		shared_ptr<seed> s = seed::create();
+#ifdef _OPENMP
+		int t = omp_get_max_threads();
+		_gn->_g = shared_ptr<sp>(new sp(t));
+		for (int i = 0; i < t; ++i)
+			(*_gn->_g)[i] = mt19937((*s)());
+#else
+		_gn->_g = shared_ptr<sp>(new mt19937((*s)()));
+#endif
+	}
+}
+
 
 generator::generator() {
 	shared_ptr<seed> s = seed::create();

@@ -20,7 +20,6 @@ static int m = 20;
 static int threads = 4;
 static int epoch = 500;
 static int dmp = 0;
-static int vocab = 5000;
 static string train;
 static string test;
 static string model("npylm.model");
@@ -44,7 +43,6 @@ void usage(int argc, char **argv) {
 	cout << "-m, --letter_order=int(default 20)\n";
 	cout << "-e, --epoch=int(default 500)\n";
 	cout << "-t, --threads=int(default 4)\n";
-	cout << "-v, --vocab=int(means letter variations. default 5000)\n";
 	exit(1);
 }
 
@@ -67,8 +65,6 @@ int read_long_param(const char *opt, const char *arg) {
 		threads = atoi(arg);
 	} else if (check(opt, "dump")) {
 		dmp = atoi(arg);
-	} else if (check(opt, "vocab")) {
-		vocab = atoi(arg);
 	} else {
 		return 1;
 	}
@@ -93,11 +89,10 @@ int read_param(int argc, char **argv) {
 			{"epoch", required_argument, 0, 0},
 			{"threads", required_argument, 0, 0},
 			{"dump", required_argument, 0, 0},
-			{"vocab", required_argument, 0, 0},
 			{0, 0, 0, 0}
 		};
 		int option_index = 0;
-		c = getopt_long(argc, argv, "n:m:e:t:v:", long_options, &option_index);
+		c = getopt_long(argc, argv, "n:m:e:t:", long_options, &option_index);
 		if (c == -1)
 			break;
 		switch (c) {
@@ -117,9 +112,6 @@ int read_param(int argc, char **argv) {
 				break;
 			case 't':
 				threads = atoi(optarg);
-				break;
-			case 'v':
-				vocab = atoi(optarg);
 				break;
 			case '?':
 			default:
@@ -149,7 +141,6 @@ int mcmc() {
 	vector<sentence> corpus;
 	util::store_sentences(f, corpus);
 	npylm lm(n, m);
-	//lm.set(vocab);
 #ifdef _OPENMP
 	threads = min(omp_get_max_threads(), threads);
 	omp_set_num_threads(threads);

@@ -4,6 +4,7 @@
 #include"convinience.h"
 #include<random>
 
+#define _H_ log(1e-4)
 
 using namespace std;
 using namespace npbnlp;
@@ -15,6 +16,10 @@ vpyp::vpyp(int n, double a, double b):hpyp(n,a,b) {
 }
 
 vpyp::~vpyp() {
+}
+
+double vpyp::pr_component(int k, const context *h) {
+	return hpyp::pr(k, h);
 }
 
 double vpyp::pr(int k, const context *h) {
@@ -73,7 +78,7 @@ double vpyp::lp(int k, const context *h) {
 		ln_pr = math::lse(ln_pr+ln_pr_pass,ln_pr_stop+hpyp::lp(k,c),(ln_pr==0));
 		c = c->parent();
 	}
-	return ln_pr-z;
+	return max(-log(_v), ln_pr-z);
 	//return _cache.set(k, h, ln_pr-z);
 }
 
@@ -99,7 +104,7 @@ double vpyp::lp(word& w, const context *h) {
 		ln_pr = math::lse(ln_pr+ln_pr_pass, ln_pr_stop+hpyp::lp(w,c),(ln_pr == 0));
 		c = c->parent();
 	}
-	return ln_pr-z;
+	return max(_lpb(w), ln_pr-z);
 	//return _cache.set(w, h, ln_pr-z);
 }
 
@@ -125,7 +130,7 @@ double vpyp::lp(chunk& b, const context *h) {
 		ln_pr = math::lse(ln_pr+ln_pr_pass, ln_pr_stop+hpyp::lp(b,c),(ln_pr == 0));
 		c = c->parent();
 	}
-	return ln_pr-z;
+	return max(_lpb(b), ln_pr-z);
 	//return _cache.set(b, h, ln_pr-z);
 }
 
@@ -150,9 +155,11 @@ double vpyp::_lpb(word& w) const {
 				h = c;
 		}
 		lp += _base->lp(w[i], h);
+		if (lp < _H_)
+			break;
 	}
-	//return max(-log(_v),lp);
-	return lp;
+	return max(_H_,lp);
+	//return lp;
 }
 
 double vpyp::_lpb(chunk& b) const {
@@ -171,8 +178,11 @@ double vpyp::_lpb(chunk& b) const {
 		}
 		//lp += _base->lp(b[i], h);
 		lp += _base->lp(b.wd(i), h);
+		if (lp < _H_)
+			break;
 	}
-	return lp;
+	return max(_H_,lp);
+	//return lp;
 }
 
 double vpyp::_prb(chunk& c) const {

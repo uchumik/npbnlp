@@ -18,7 +18,7 @@ namespace npbnlp {
 			virtual void init(sentence& s);
 			virtual sentence sample(io& f, int i);
 			virtual sentence parse(io& f, int i);
-			virtual void set(int v, int k);
+			/* virtual void set(int v, int k); */
 			virtual void set_k(int k);
 			virtual int n();
 			virtual int m();

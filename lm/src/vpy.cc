@@ -2,8 +2,11 @@
 #include"math.h"
 #include"rd.h"
 
+#define _H_ log(1e-4)
+
 using namespace npbnlp;
 using namespace std;
+
 
 vpy::vpy():hpy() {
 }
@@ -107,7 +110,8 @@ double vpy::_lp(word& w, int i, int n) {
 
 double vpy::_lp(sentence& s, int i, int n) {
 	if (n == 0 && _base)
-		return _base->lp(s.wd(i));
+		//return _base->lp(s.wd(i));
+		return max(_H_,_base->lp(s.wd(i)));
 	else if (n ==0)
 		return -log(_v);
 	double lp = 0;

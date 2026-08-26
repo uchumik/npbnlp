@@ -30,3 +30,15 @@ void vt::set(bool f) {
 	if (_parent)
 		_parent->set(f);
 }
+
+vt* vt::get_parent() {
+	return _parent;
+}
+
+vtable::iterator vt::begin() {
+	return _t->begin();
+}
+
+vtable::iterator vt::end() {
+	return _t->end();
+}
