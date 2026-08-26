@@ -100,7 +100,7 @@ namespace npbnlp {
 			double lp(sentence& s);
 			double lp(std::vector<int>& p, int i);
 			double lp(std::vector<int>& p);
-			void set_base(hpy *b);
+			void set_base(dalm *b);
 			bool add(word& w);
 			bool remove(word& w);
 			bool add(sentence& s);
@@ -115,7 +115,7 @@ namespace npbnlp {
 			using base_corpus = std::unordered_map<int, std::vector<word> >;
 			int _n;
 			int _v;
-			hpy *_base;
+			dalm *_base;
 			std::shared_ptr<std::vector<double> > _discount;
 			std::shared_ptr<std::vector<double> > _strength;
 			//std::shared_ptr<sda<arrangement> > _nc;

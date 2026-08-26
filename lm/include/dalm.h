@@ -18,6 +18,7 @@ namespace npbnlp {
 			virtual void estimate(int iter) = 0;
 			virtual int save(const char *file) = 0;
 			virtual int load(const char *file) = 0;
+			virtual void set_base(dalm *base) = 0;
 	};
 }
 

@@ -140,6 +140,7 @@ namespace npbnlp {
 			void set_discount(double d);
 			int save(const char *file);
 			int load(const char *file);
+			void set_base(dalm *b);
 		protected:
 			int _n;
 			double _d;

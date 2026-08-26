@@ -20,6 +20,7 @@ using gamma_dist = gamma_distribution<>;
 #define POISSON_A 0.2
 #define POISSON_B 0.1
 #define MAXLEN 100
+#define _H_ log(1e-4)
 
 hpyp::hpyp():_n(1),_a(1),_b(1),_base(NULL),_v(VOCAB),_h(new context),_discount(new vector<double>(_n, DISCOUNT)),_strength(new vector<double>(_n, STRENGTH)),_bc(nullptr),_cbc(nullptr),/*_poisson(nullptr),*/_lambda(nullptr),/*_w(nullptr),*/_f(0)/*_f(nullptr)*/,_length(nullptr)/*,_lambda(nullptr)*/  {
 }
@@ -409,8 +410,11 @@ double hpyp::_lpb(chunk& b) const {
 		}
 		//lp += _base->lp(b[i], h);
 		lp += _base->lp(b.wd(i), h);
+		if (lp < _H_)
+			break;
 	}
-	return lp;
+	return max(_H_,lp);
+	//return lp;
 }
 
 double hpyp::_lpb(word& w) const {
@@ -424,7 +428,11 @@ double hpyp::_lpb(word& w) const {
 	//return log(_v-_h->v())-log(_v);
 	}
 	   */
-	double lp = 0;
+	double correct = 0;
+	// poisson correction
+	if (_lambda != nullptr)
+		correct = _correct(w);
+	double lp = correct;
 	for (int i = 0; i < w.len+1; ++i) {
 		int n = _base->n();
 		const context *h = _base->h();
@@ -436,12 +444,17 @@ double hpyp::_lpb(word& w) const {
 				h = c;
 		}
 		lp += _base->lp(w[i], h);
+		if (lp < _H_)
+			break;
 	}
+	/*
 	// poisson correction
 	if (_lambda != nullptr) {
 		lp += _correct(w);
 	}
-	return lp;
+	*/
+	return max(_H_,lp);
+	//return lp;
 }
 
 double hpyp::_correct(word& w) const {

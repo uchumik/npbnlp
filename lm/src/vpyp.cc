@@ -4,6 +4,7 @@
 #include"convinience.h"
 #include<random>
 
+#define _H_ log(1e-4)
 
 using namespace std;
 using namespace npbnlp;
@@ -154,9 +155,11 @@ double vpyp::_lpb(word& w) const {
 				h = c;
 		}
 		lp += _base->lp(w[i], h);
+		if (lp < _H_)
+			break;
 	}
-	//return max(-log(_v),lp);
-	return lp;
+	return max(_H_,lp);
+	//return lp;
 }
 
 double vpyp::_lpb(chunk& b) const {
@@ -175,8 +178,11 @@ double vpyp::_lpb(chunk& b) const {
 		}
 		//lp += _base->lp(b[i], h);
 		lp += _base->lp(b.wd(i), h);
+		if (lp < _H_)
+			break;
 	}
-	return lp;
+	return max(_H_,lp);
+	//return lp;
 }
 
 double vpyp::_prb(chunk& c) const {

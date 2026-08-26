@@ -36,6 +36,9 @@ void kn::set_discount(double d) {
 		_d = d;
 }
 
+void kn::set_base(dalm *b) {
+}
+
 bool kn::_add(word& w, int i, int n) {
 	if (n == 0)
 		return true;
