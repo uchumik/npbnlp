@@ -30,7 +30,7 @@ namespace npbnlp {
 			void init(sentence& s, int idx);
 			virtual void estimate(int iter);
 			virtual void poisson_correction(int n = 3000);
-			virtual void set(int v, int k);
+			/* virtual void set(int v, int k); */
 			// Ceiling only: _v is a count the letter models learn, and ghmm has no
 			// letter models to seed at all.
 			void set_k(int k);

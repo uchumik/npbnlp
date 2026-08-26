@@ -181,6 +181,8 @@ double vhmm::log_probability(sentence& s) {
 
 // Set the vocabulary size used by every letter base measure; the state base
 // measure is configured independently by the transition model.
+/* _v is a count the letter models maintain themselves, so there is nothing to
+   seed; set_k() carries the state ceiling that this also used to set.
 void vhmm::set(int v, int k) {
 	_v=v;
 	_K=k;
@@ -188,6 +190,7 @@ void vhmm::set(int v, int k) {
 	for (auto it = _letter->begin(); it != _letter->end(); ++it)
 		(*it)->set_v(_v);
 }
+*/
 
 void vhmm::set_k(int k) {
 	if (k <= 0)
@@ -890,8 +893,9 @@ void vhmm::_resize_locked() {
 		_word->reserve(_K+2);
 		_letter->reserve(_K+2);
 	}
-	// With _v=1 the character base is deficient (log p=0), so seating counts
-	// determine the letter distribution without adding a flat per-character cost.
+	// _v stays at the hpyp default of 1 and the models count it up as characters
+	// reach the root.  With _v=1 the character base is deficient (log p=0), so
+	// seating counts alone determine the letter distribution.
 	int cv = _v;
 	if (_word->empty()) {
 		_word->push_back(shared_ptr<hpyp>(new hpyp(_wn)));
