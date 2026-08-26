@@ -11,6 +11,7 @@ namespace npbnlp {
 			double pr(int k, const context *h);
 			double pr(word& w, const context *h);
 			double pr(chunk& c, const context *h);
+			double pr_component(int k, const context *h) override;
 			double lp(int k, const context *h);
 			double lp(word& w, const context *h);
 			double lp(chunk& c, const context *h);

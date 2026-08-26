@@ -269,15 +269,15 @@ int hpyp::v() const {
 }
 
 double hpyp::pr(chunk& c, const context *h) {
-	return exp(lp(c, h));
+	return exp(hpyp::lp(c, h));
 }
 
 double hpyp::pr(word& w, const context *h) {
-	return exp(lp(w, h));
+	return exp(hpyp::lp(w, h));
 }
 
 double hpyp::pr(int k, const context *h) {
-	return exp(lp(k, h));
+	return exp(hpyp::lp(k, h));
 }
 
 double hpyp::lp(chunk& ch, const context *h) {
@@ -300,9 +300,9 @@ double hpyp::lp(chunk& ch, const context *h) {
 	double b = (*_strength)[n]+(*_discount)[n]*t;
 	double d = (*_strength)[n]+c;
 	if (a == 0.)
-		lpr = log(b)+lp(ch,h->parent())-log(d);
+		lpr = log(b)+hpyp::lp(ch,h->parent())-log(d);
 	else
-		lpr = math::lse(log(a)-log(d), log(b)+lp(ch, h->parent())-log(d));
+		lpr = math::lse(log(a)-log(d), log(b)+hpyp::lp(ch, h->parent())-log(d));
 	return lpr;
 	//return _cache.set(ch, h, lpr);
 
@@ -328,9 +328,9 @@ double hpyp::lp(word& w, const context *h) {
 	double b = (*_strength)[n]+(*_discount)[n]*t;
 	double d = (*_strength)[n]+c;
 	if (a == 0.)
-		lpr = log(b)+lp(w,h->parent())-log(d);
+		lpr = log(b)+hpyp::lp(w,h->parent())-log(d);
 	else
-		lpr = math::lse(log(a)-log(d), log(b)+lp(w, h->parent())-log(d));
+		lpr = math::lse(log(a)-log(d), log(b)+hpyp::lp(w, h->parent())-log(d));
 	//cout << "c:" << c << " t:" << t << " cu:" << cu << " tu:" << tu << " n:" << n << " stlength:" << (*_strength)[n] << " discount:" << (*_discount)[n] << " v:" << _v << " lp:" << lpr << endl;
 	return lpr;
 	//return _cache.set(w, h, lpr);
@@ -370,10 +370,12 @@ double hpyp::lp(int k, const context *h) {
 	// log(a/d + b*pr/d)
 	// = logsumexp(log(a/d) + log(b*pr/d))
 	// = logsumexp(log a - log d + log b + log pr - log d)
+	// 親は純粋な HPYP 予測に固定する。ここを lp(...) にすると vpyp::lp へ再入する。
+	// _lpb は非仮想なので、ここからは静的に hpyp::_lpb が選ばれる（旧実装と同じ）。
 	if (a == 0.)
-		lpr = log(b)+lp(k,h->parent())-log(d);
+		lpr = log(b)+hpyp::lp(k,h->parent())-log(d);
 	else
-		lpr = math::lse(log(a)-log(d), log(b)+lp(k, h->parent())-log(d));
+		lpr = math::lse(log(a)-log(d), log(b)+hpyp::lp(k, h->parent())-log(d));
 	//cout << "c:" << c << " t:" << t << " cu:" << cu << " tu:" << tu << " n:" << n << " stlength:" << (*_strength)[n] << " discount:" << (*_discount)[n] << " v:" << _v << " lp:" << lpr << endl;
 	return lpr;
 	//return _cache.set(k, h, lpr);
@@ -677,15 +679,16 @@ int hpyp::draw_n(word& w, int i) {
 		if (c) {
 			int s = c->stop();
 			int p = c->pass();
-			lp_cache = lp(w[i], c);
+			lp_cache = hpyp::lp(w[i], c);
 			ln_pr_stop = log(s) - log(s+p);
+			table.push_back(lp_cache+ln_pr_stop+ln_pr_pass);
 			ln_pr_pass += log(p) - log(s+p);
 			c = c->find(w[i-j]);
 		} else {
 			ln_pr_stop = -log(2);
+			table.push_back(lp_cache+ln_pr_stop+ln_pr_pass);
 			ln_pr_pass += -log(2);
 		}
-		table.push_back(lp_cache+ln_pr_stop+ln_pr_pass);
 	} while (i-j >= -1 && j++ < _n);
 	return 1+rd::ln_draw(table);
 }
@@ -701,15 +704,16 @@ int hpyp::draw_n(chunk& b, int i) {
 		if (c) {
 			int s = c->stop();
 			int p = c->pass();
-			lp_cache = lp(b[i], c);
+			lp_cache = hpyp::lp(b[i], c);
 			ln_pr_stop = log(s) - log(s+p);
+			table.push_back(lp_cache+ln_pr_stop+ln_pr_pass);
 			ln_pr_pass += log(p) - log(s+p);
 			c = c->find(b[i-j]);
 		} else {
 			ln_pr_stop = -log(2);
+			table.push_back(lp_cache+ln_pr_stop+ln_pr_pass);
 			ln_pr_pass += -log(2);
 		}
-		table.push_back(lp_cache+ln_pr_stop+ln_pr_pass);
 	} while (i-j >= -1 && j++ < _n);
 	return 1+rd::ln_draw(table);
 }
@@ -725,15 +729,16 @@ int hpyp::draw_n(sentence& sq, int i) {
 		if (c) {
 			int s = c->stop();
 			int p = c->pass();
-			lp_cache = lp(sq[i], c);
+			lp_cache = hpyp::lp(sq[i], c);
 			ln_pr_stop = log(s) - log(s+p);
+			table.push_back(lp_cache+ln_pr_stop+ln_pr_pass);
 			ln_pr_pass += log(p) - log(s+p);
 			c = c->find(sq[i-j]);
 		} else {
 			ln_pr_stop = -log(2);
+			table.push_back(lp_cache+ln_pr_stop+ln_pr_pass);
 			ln_pr_pass += -log(2);
 		}
-		table.push_back(lp_cache+ln_pr_stop+ln_pr_pass);
 	} while (i-j >= -1 && j++ < _n);
 	return 1+rd::ln_draw(table);
 }
@@ -749,15 +754,16 @@ int hpyp::draw_n(nsentence& sq, int i) {
 		if (c) {
 			int s = c->stop();
 			int p = c->pass();
-			lp_cache = lp(sq[i], c);
+			lp_cache = hpyp::lp(sq[i], c);
 			ln_pr_stop = log(s) - log(s+p);
+			table.push_back(lp_cache+ln_pr_stop+ln_pr_pass);
 			ln_pr_pass += log(p) - log(s+p);
 			c = c->find(sq[i-j]);
 		} else {
 			ln_pr_stop = -log(2);
+			table.push_back(lp_cache+ln_pr_stop+ln_pr_pass);
 			ln_pr_pass += -log(2);
 		}
-		table.push_back(lp_cache+ln_pr_stop+ln_pr_pass);
 	} while (i-j >= -1 && j++ < _n);
 	return 1+rd::ln_draw(table);
 }
