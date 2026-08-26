@@ -35,6 +35,7 @@ namespace npbnlp {
 		protected:
 			int _n;
 			std::shared_ptr<dalm> _lm;
+			std::shared_ptr<dalm> _lm_base;
 			double _A;
 			double _B;
 			double _C;

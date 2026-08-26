@@ -1,10 +1,12 @@
 #include"usbd_w.h"
 #include"kn.h"
 #include"hpy.h"
+#include"vpy.h"
 #include"beta.h"
 #include"rd.h"
 #include<random>
 #define BUFSIZE 256
+#define LETTER_ORDER 10
 
 using namespace std;
 using namespace npbnlp;
@@ -12,13 +14,15 @@ using namespace npbnlp;
 usbd_w::usbd_w():usbd_w(3, smoothing::hpy) {
 }
 
-usbd_w::usbd_w(int n, smoothing s):_n(n),_lm(nullptr),_A(1),_B(1),_C(9),_D(1),_E(9),_F(1) {
+usbd_w::usbd_w(int n, smoothing s):_n(n),_lm(nullptr),_lm_base(nullptr),_A(1),_B(1),_C(9),_D(1),_E(9),_F(1) {
 	switch (s) {
 		case smoothing::kn:
 			_lm = shared_ptr<dalm>(new kn(_n));
 			break;
 		case smoothing::hpy:
 			_lm = shared_ptr<dalm>(new hpy(_n));
+			_lm_base = shared_ptr<dalm>(new vpy(LETTER_ORDER));
+			_lm->set_base(_lm_base.get());
 			break;
 		default:
 			break;
@@ -35,6 +39,7 @@ usbd_w::~usbd_w() {
 usbd_w::usbd_w(const usbd_w& d) {
 	_n = d._n;
 	_lm = d._lm;
+	_lm_base = d._lm_base;
 	_A = d._A;
 	_B = d._B;
 	_C = d._C;
@@ -53,6 +58,7 @@ usbd_w::usbd_w(const usbd_w& d) {
 usbd_w& usbd_w::operator=(const usbd_w& d) {
 	_n = d._n;
 	_lm = d._lm;
+	_lm_base = d._lm_base;
 	_A = d._A;
 	_B = d._B;
 	_C = d._C;
@@ -649,6 +655,12 @@ void usbd_w::save(const char *file) {
 		string lm(file);
 		lm += ".lm";
 		_lm->save(lm.c_str());
+		// kn does not nest a letter model; there is no base to write
+		if (_lm_base) {
+			string lm_base(file);
+			lm_base += "_base.lm";
+			_lm_base->save(lm_base.c_str());
+		}
 	} catch (const char *ex) {
 		throw ex;
 	}
@@ -689,6 +701,12 @@ void usbd_w::load(const char *file) {
 		string lm(file);
 		lm += ".lm";
 		_lm->load(lm.c_str());
+		// kn does not nest a letter model; there is no base to read
+		if (_lm_base) {
+			string lm_base(file);
+			lm_base += "_base.lm";
+			_lm_base->load(lm_base.c_str());
+		}
 	} catch (const char *ex) {
 		throw ex;
 	}
