@@ -13,11 +13,14 @@ namespace npbnlp {
 			vt(int n, int id, vt *p);
 			virtual ~vt();
 			vt& operator[](int i);
+			vt* get_parent();
 			double v;
 			int n;
 			int id;
 			bool is_init();
 			void set(bool f);
+			vtable::iterator begin();
+			vtable::iterator end();
 		protected:
 			vt *_parent;
 			bool _init;
