@@ -256,7 +256,7 @@ vector<pair<word, vector<unsigned int> > > hsmm::parse(io& f, int i) {
 			ynode& cur = l.get(t, j);
 			_precalc(cur);
 			//double lp_w = _word->lp(cur.w, _word->h());
-			double lp_w = _word->lp(cur.w, _word->h())+(cur.bos+cur.prod+cur.eos)/cur.phonetic.size();
+			double lp_w = _word->lp(cur.w, _word->h());
 			for (auto k = 0; k < l.size(t-cur.w.len); ++k) {
 				ynode& prev = l.get(t-cur.w.len, k);
 				dp[t][j].v = math::lse(dp[t][j].v, dp[t-cur.w.len][k].v+lp_w+_transition(prev, cur), !dp[t][j].is_init());
@@ -288,7 +288,7 @@ double hsmm::_transition(ynode& prev, ynode& cur) {
 	double diff = 0;
 	for (auto i = 0; i < min(_m-1, (int)cur.phonetic.size()); ++i) {
 		context *c = _phonetic->h();
-		for (auto j = i-1; i > i-_m; --j) {
+		for (auto j = i-1; j > i-_m; --j) {
 			int p = 0;
 			if (j >= 0) {
 				p = cur.phonetic[j];
@@ -309,7 +309,7 @@ double hsmm::_transition(ynode& prev, ynode& cur) {
 		int size = cur.phonetic.size();
 		for (auto i = _m-1; i < size; ++i) {
 			context *c = _phonetic->h();
-			for (auto j = i-1; i > i-_m; --j) {
+			for (auto j = i-1; j > i-_m; --j) {
 				int p = 0;
 				if (j >= 0) {
 					p = cur.phonetic[j];
@@ -340,7 +340,7 @@ double hsmm::_transition(ynode& prev, ynode& cur) {
 		lp += _phonetic->lp(0, e);
 		*/
 	}
-	return lp/(prev.phonetic.size()+cur.phonetic.size());
+	return lp;
 }
 
 
