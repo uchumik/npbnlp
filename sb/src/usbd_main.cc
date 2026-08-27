@@ -239,17 +239,10 @@ void dump_word(io& f, vector<int>& head) {
 	int id = 0;
 	for (int i = 0; i < (int)head.size()-1; ++i) {
 		int t = head[i+1];
-		// The loop below prints a delimiter only when the NEXT word stays inside the
-		// SAME segment, so the space between the last word of the previous proposed
-		// sentence and the first word of this one is never emitted: every proposed
-		// boundary lost one character against dump_letter, which slices raw
-		// characters and loses nothing at a cut.  Restore it as a leading space on
-		// each continuation segment, which is how the gold cio files represent an
-		// inter-sentence boundary.
-		//
-		// Except where the raw text already carries that space: store_word cuts at
-		// the space, so a segment starting on one begins with a zero-length word and
-		// the loop emits the delimiter itself.  Prefixing there would print two.
+		// The inner loop emits a delimiter only between two words of the same
+		// segment, so the space separating this segment from the previous one has
+		// no emitter.  It is supplied here, except where store_word already cut on
+		// that space and left a zero-length word for the inner loop to print.
 		if (i > 0 && id < s.size() && s.wd(id).len > 0)
 			cout << " ";
 		for (; id < s.size() && s.wd(id).head < t; ++id) {
