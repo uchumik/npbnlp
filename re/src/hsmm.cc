@@ -292,7 +292,7 @@ double hsmm::_transition(ynode& prev, ynode& cur) {
 			int p = 0;
 			if (j >= 0) {
 				p = cur.phonetic[j];
-			} else if (prev.phonetic.size()+j >= 0) {
+			} else if ((int)prev.phonetic.size()+j >= 0) {
 				p = prev.phonetic[prev.phonetic.size()+j];
 			}
 			context *h = c->find(p);
@@ -302,7 +302,7 @@ double hsmm::_transition(ynode& prev, ynode& cur) {
 		}
 		diff += _phonetic->lp(cur.phonetic[i],c);
 	}
-	double lp = /*prev.bos +*/ prev.prod + diff;
+	double lp = diff;
 	if ((int)cur.phonetic.size() >= _m) {
 		lp += cur.prod /*+ cur.eos*/;
 	} else {
@@ -313,7 +313,7 @@ double hsmm::_transition(ynode& prev, ynode& cur) {
 				int p = 0;
 				if (j >= 0) {
 					p = cur.phonetic[j];
-				} else if (prev.phonetic.size()+j >= 0) {
+				} else if ((int)prev.phonetic.size()+j >= 0) {
 					p = prev.phonetic[prev.phonetic.size()+j];
 				}
 				context *h = c->find(p);
@@ -329,7 +329,7 @@ double hsmm::_transition(ynode& prev, ynode& cur) {
 			int p = 0;
 			if (j >= 0) {
 				p = cur.phonetic[j];
-			} else if (prev.phonetic.size()+j >= 0) {
+			} else if ((int)prev.phonetic.size()+j >= 0) {
 				p = prev.phonetic[prev.phonetic.size()+j];
 			}
 			context *h = e->find(p);
