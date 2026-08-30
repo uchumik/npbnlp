@@ -5,7 +5,6 @@
 
 #define C 5000
 #define P 5000
-// _v is learned from the data, so no vocabulary seed is applied.
 
 using namespace std;
 using namespace npbnlp;

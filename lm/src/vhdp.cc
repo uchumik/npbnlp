@@ -14,19 +14,8 @@ namespace npbnlp { double ORD_score[8]={0},ORD_lpk[8]={0}; long long ORD_n[8]={0
 namespace npbnlp { long long VHDP_N_cmax_d[8]={0,0,0,0,0,0,0,0}; long long VHDP_N_cmax=0, VHDP_N_lp=0, VHDP_N_pr=0, VHDP_N_pr_hit=0, VHDP_N_gamma=0, VHDP_N_gamma_hit=0, VHDP_N_pass=0, VHDP_N_pass_hit=0, VHDP_N_binf=0, VHDP_N_binf_hit=0; }
 
 #define VHDP_ALPHA 5.
-// There is no vocabulary to acquire on the transition side: the base over states
-// IS the stick-breaking construction (_gamma_base with alpha(0)), which is what
-// makes the state space infinite.  So there is no _v here and no analogue of
-// hpyp/vpyp's set_v(1) plus _h->v().
-//
-// This constant is only what pr(k, NULL) returns, i.e. the value for a context
-// node that does not exist, and 1.0 is not a probability any caller may use:
-// log(1) = 0 is the largest a log probability can be, so a missing depth-2
-// context would outscore a real depth-1 one.  That is not the same thing as a
-// deficient base measure -- set_v(1) leaves an existing symbol space to the CRP
-// counts above it, whereas here there are no counts to correct the value.
-// lp_order used to substitute it whenever the tree ran out; it now carries the
-// last real context forward, as HDP::log_prob_order does, so nothing reaches it.
+// The transition base is the stick-breaking distribution over an unbounded state set.
+// pr(k,NULL) is only the missing-context sentinel; it is not a state probability.
 #define VHDP_BASE 1.
 #define VHDP_ZERO 1e-300
 #define VHDP_LZERO -1e300
@@ -41,19 +30,7 @@ vhdp::vhdp(int n, double a, double b): _n(n), _a(a), _b(b), _c(1), _d(1), _h(new
 
 vhdp::~vhdp() {}
 
-// The base measure at the top of the hierarchy: the H in alpha * H(k) that
-// _crp_add uses to open a new table at the root.  This is the one place a base
-// over states is genuinely needed, and VHDP_BASE=1 made opening a new root table
-// certain up to alpha -- the prototype uses a fixed 1e-4 (hdp.cc's _H_), so this
-// was off by four orders of magnitude and it showed: the order posterior sat at
-// 4086 order-1 tokens against the prototype's 7815.
-//
-// Acquire it from the data instead, npbnlp's convention: the root restaurant's
-// key count is the number of distinct states seated so far, which is what
-// hpyp/vpyp read as _h->v().  Measured against the fixed 1e-4 over three seeds,
-// the two agree on the mean (m-1 .626 both, V .334 vs .332) and both reproduce
-// the prototype's order histogram, but the learned one is far steadier
-// (V spread .016 against .056).
+// The root base is uniform over the distinct states already present: H(k)=1/v.
 double vhdp::_pr_base() const {
 	const char *m=getenv("VHDP_BASE_MODE");
 	if (m && m[0]=='p') return 1e-4;  // the prototype's _H_
@@ -78,6 +55,15 @@ double vhdp::discount(int) const { return 0.; }
 double vhdp::strength(int n) const { return alpha(n); }
 context* vhdp::h() const { return _h.get(); }
 
+// Stick-breaking weights for the transition.  A context c gives state k the
+// break gamma_k(c), and the predictive is the product of the sticks not taken:
+//
+//   p(k | c) = gamma_k(c) * prod_{j<k} (1 - gamma_j(c))
+//
+// which is what lets the state set stay unbounded -- there is no normalisation
+// over a fixed K.  gamma is the CRP posterior of the break at c, backing off to
+// the parent, and _beta_inf is the mass the parent leaves to states at or above
+// k, floored so a deep context can never claim more than its parent allows.
 double vhdp::_gamma_base(int k, const context *c) {
 	vhdp_context *v = const_cast<vhdp_context*>(static_cast<const vhdp_context*>(c));
 	++VHDP_N_gamma;
@@ -194,15 +180,13 @@ context* vhdp::make(nsentence&, int) { throw "unsupported in vhdp"; }
 
 double vhdp::lp_order(int k, const context *c, double& ln_pass, double& ln_pr) {
 	int s=(int)_a, p=(int)_b;
-	// ln_pr carries across the walk, as HDP::log_prob_order's by-reference
-	// argument does.  Once the context tree runs out the prototype keeps scoring
-	// the deeper orders with the last context that existed; substituting a base
-	// measure instead makes the missing deep contexts look better than they are,
-	// so the order posterior runs deep and the tree saturates on the first pass.
-	// Measured at epoch 1: order 3 1480 against the prototype's 240, and 2426
-	// depth-2 contexts against 261.
-	// context::stop()/pass() fold the Beta(a,b) prior in, and so does the
-	// prototype: Context::get_stop_count() returns _a + _stop_current_context.
+	// Order posterior, as in VPYLM: depth d is weighted by its stop probability
+	// times the passes of the depths above it, times the transition probability
+	// at that depth.  The walk stops at the deepest context that exists; deeper
+	// orders keep scoring against it rather than a base measure, so a missing
+	// context cannot look better than the real one above it.
+	// ln_pr and ln_pass carry the accumulated transition probability across depths.
+	// stop() and pass() include the Beta(a,b) prior in the stop/pass masses.
 	if (c) { ln_pr=lp(k,c); s=c->stop(); p=c->pass(); }
 	double r=log(s)-log(s+p)+ln_pr+ln_pass;
 	ln_pass += log(p)-log(s+p);
@@ -210,11 +194,6 @@ double vhdp::lp_order(int k, const context *c, double& ln_pass, double& ln_pr) {
 }
 
 int vhdp::draw_n(sentence& s, int i) {
-	// The symbol whose transition probability the order posterior is built from is
-	// the STATE at i, not the order.  Using s.wd(i).n evaluates p(k = n_i | c) -- a
-	// different symbol entirely -- so the order was drawn from noise.  Harmless at
-	// max_order 1, where the table has a single entry, which is why that case alone
-	// matched the prototype.
 	int k=s.wd(i).pos; const context *c=h(); double lp=0., ln_pr=log(_pr_base()); vector<double> table;
 	static bool probe = getenv("VHDP_ORDPROBE")!=NULL;
 	for (int j=1; j<=_n && i-j>=-2; ++j) {
@@ -235,11 +214,6 @@ int vhdp::draw_n(nsentence&, int) { throw "unsupported in vhdp"; }
 int vhdp::draw_k(context *c) { return c->sample(this); }
 
 void vhdp::_estimate_gamma() {
-	// Escobar-West's shape is a + k with k the number of CLUSTERS.  At the top of
-	// this hierarchy the clusters are the distinct states, which is what the
-	// prototype passes (Context::get_k returns _cdp->size()); using the table
-	// count instead is a much larger number and leaves alpha(0) far too big --
-	// 41.5 against the prototype's 5.5 after six epochs.
 	int m=_h->c(), tables=static_cast<vhdp_context*>(_h.get())->stick_size();
 	if (m <= 0) return;
 	double value=alpha(0); beta_distribution be; gamma_distribution<> gd(1.,1.); shared_ptr<generator> g=generator::create();
@@ -269,21 +243,12 @@ void vhdp::estimate(int iter) {
 
 double vhdp::_cache_max(int order, context *c, int k) {
 	++VHDP_N_cmax; if(order<8) ++VHDP_N_cmax_d[order];
-	// Propagate THIS node's value to the deeper indices, not the running maximum
-	// at this depth.  Carrying the accumulated maximum lets a value from a sibling
-	// subtree raise the bound for depths it does not actually reach, which keeps
-	// the bound valid but loosens it enough that the beam stops pruning.
+	// Store the node bound at its depth and propagate it through missing descendants.
 	double ln_pr_tr=lp(k,c);
 	(*_max)[k][order]=max((*_max)[k][order],ln_pr_tr);
 	vhdp_context *v=static_cast<vhdp_context*>(c);
-	// Also record the maximum over this node's whole subtree, which is what the
-	// forward recursion can prune on: it only ever evaluates transitions here or
-	// deeper, so a subtree bound below the slice threshold rules the branch out.
 	double smax=ln_pr_tr;
 	if(order<_n-1) {
-		// A missing child means find_exist can stop here, so this node's value has
-		// to bound the deeper orders too.  max is idempotent, so one pass covers
-		// every missing child (the prototype propagates once per missing child).
 		if ((int)v->child().size() < _cache_kmax+1)
 			for(int m=order;m<_n;++m) (*_max)[k][m]=max((*_max)[k][m],ln_pr_tr);
 		for(auto& x : v->child()) smax=max(smax,_cache_max(order+1,x.second.get(),k));

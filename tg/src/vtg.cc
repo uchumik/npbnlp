@@ -17,9 +17,7 @@ using namespace std;
 using namespace npbnlp;
 
 static int poisson=0, estimate_iter=20;
-// --vocab sets the initial letter vocabulary; hpyp then updates it as symbols
-// reach the root restaurant.
-static int max_order=3, min_order=1, letter_order=20, states=10, max_states=50, epochs=500, threads=4, vocab=1;
+static int max_order=3, min_order=1, letter_order=20, states=10, max_states=50, epochs=500, threads=4;
 static int parse_iter=20;
 // Order 1 makes the emission depend only on the root; larger orders condition on
 // preceding observed words.
@@ -43,7 +41,7 @@ static void set_seed() {
 }
 
 static int params(int argc,char **argv) {
-	static option opts[]={{"train",1,0,0},{"parse",1,0,0},{"model",1,0,0},{"dic",1,0,0},{"max_order",1,0,0},{"min_order",1,0,0},{"letter_order",1,0,0},{"pos",1,0,0},{"epoch",1,0,0},{"threads",1,0,0},{"vocab",1,0,0},{"slice_a",1,0,0},{"slice_b",1,0,0},{"alpha",1,0,0},{"seed",1,0,0},{"dump_tsv",0,0,0},{"poisson",1,0,0},{"estimate_iter",1,0,0},{"parse_iter",1,0,0},{"word_ngram",1,0,0},{0,0,0,0}};
+	static option opts[]={{"train",1,0,0},{"parse",1,0,0},{"model",1,0,0},{"dic",1,0,0},{"max_order",1,0,0},{"min_order",1,0,0},{"letter_order",1,0,0},{"pos",1,0,0},{"epoch",1,0,0},{"threads",1,0,0},{"slice_a",1,0,0},{"slice_b",1,0,0},{"alpha",1,0,0},{"seed",1,0,0},{"dump_tsv",0,0,0},{"poisson",1,0,0},{"estimate_iter",1,0,0},{"parse_iter",1,0,0},{"word_ngram",1,0,0},{0,0,0,0}};
 	int index=0;
 	int c;
 	while ((c=getopt_long(argc,argv,"",opts,&index))!=-1) {
@@ -59,7 +57,6 @@ static int params(int argc,char **argv) {
 			else if (o=="pos") { states=atoi(optarg); max_states=states; }
 			else if (o=="epoch") epochs=atoi(optarg);
 			else if (o=="threads") threads=atoi(optarg);
-			else if (o=="vocab") vocab=atoi(optarg);
 			else if (o=="poisson") poisson=atoi(optarg);
 			else if (o=="estimate_iter") estimate_iter=atoi(optarg);
 			else if (o=="slice_a") slice_a=atof(optarg);
@@ -87,12 +84,7 @@ static void dump(sentence& s) {
 }
 
 static int train(io& f, vector<sentence>& corpus) {
-#ifdef _OPENMP
-	// Bound the worker count for the block sampler and the model's parallel regions.
-	omp_set_num_threads(threads<1?1:threads);
-	omp_set_dynamic(0);
-#endif
-	vhmm hmm(max_order,min_order,letter_order,states); hmm.set_word_ngram(word_ngram); hmm.set_alpha(alpha); hmm.set(vocab,max_states); hmm.slice(slice_a,slice_b);
+	vhmm hmm(max_order,min_order,letter_order,states); hmm.set_word_ngram(word_ngram); hmm.set_alpha(alpha); hmm.set_k(max_states); hmm.slice(slice_a,slice_b);
 	for (int i=0;i<(int)corpus.size();++i) hmm.init(corpus[i],i);
 	hmm.refresh_cache();
 	for (int e=0;e<epochs;++e) {
@@ -221,6 +213,12 @@ static int parse() {
 int main(int argc,char **argv) {
 	try {
 		params(argc,argv);
+#ifdef _OPENMP
+		// Before set_seed(): generator::reseed() sizes its per-thread state from
+		// omp_get_max_threads(), and the workers index it by thread number.
+		omp_set_num_threads(threads<1?1:threads);
+		omp_set_dynamic(0);
+#endif
 		set_seed();
 		if (!train_file.empty()) {
 			io f(train_file.c_str());

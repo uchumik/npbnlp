@@ -11,7 +11,7 @@ namespace npbnlp {
 		void set_prior(const std::vector<double>& mu0, double kappa0, double nu0,
 		               const std::vector<double>& lambda0);
 		void set_prior(const std::vector<double>& mu0, double kappa0, double nu0, double lambda);
-		void init_prior_from_data(gio& f);
+		void init_prior_from_data(gio& f, double kappa0 = 0.1);
 		double lp(int k, const fvector& x);
 		void add(int k, const fvector& x); void remove(int k, const fvector& x);
 		void estimate(); void set_sample_mode(bool f); void resize(int k);

@@ -64,7 +64,7 @@ namespace npbnlp {
 		set_prior(mu0, kappa0, nu0, lambda0);
 	}
 
-	void niw::init_prior_from_data(gio& f) {
+	void niw::init_prior_from_data(gio& f, double kappa0) {
 		if (f.dim() != _d || f.dim() == 0) {
 			throw "niw: invalid training data dimension";
 		}
@@ -99,7 +99,7 @@ namespace npbnlp {
 		}
 		average_variance /= _d;
 		double nu0 = _d + 2.0;
-		set_prior(mean, 0.1, nu0, average_variance * (nu0 - _d - 1.0));
+		set_prior(mean, kappa0, nu0, average_variance * (nu0 - _d - 1.0));
 	}
 
 	void niw::resize(int k) {
@@ -122,6 +122,7 @@ namespace npbnlp {
 	}
 
 	void niw::add(int k, const fvector& x) {
+		// Maintain n_k, s_k = sum x, and S_k = sum x x^T.
 		std::lock_guard<std::mutex> guard(_mutex);
 		_check_k(k);
 		_check_x(x);
@@ -134,6 +135,7 @@ namespace npbnlp {
 	}
 
 	void niw::remove(int k, const fvector& x) {
+		// Maintain n_k, s_k = sum x, and S_k = sum x x^T.
 		std::lock_guard<std::mutex> guard(_mutex);
 		_check_k(k);
 		_check_x(x);
@@ -149,10 +151,14 @@ namespace npbnlp {
 	}
 
 	void niw::_refresh(int k) {
+		// xbar = s_k/n_k and C_k = S_k - n_k xbar xbar^T; n_k=0 leaves the prior unchanged.
 		std::vector<double> lambda = _lambda0;
 		std::vector<double> mean(_d, 0.0);
 		double kappa = _kappa0 + _n[k];
 		double nu = _nu0 + _n[k];
+		// Posterior: kappa_n=kappa_0+n, nu_n=nu_0+n,
+		// mu_n=(kappa_0 mu_0+n xbar)/kappa_n,
+		// Lambda_n=Lambda_0+C_k+(kappa_0 n/kappa_n)(xbar-mu_0)(xbar-mu_0)^T.
 		if (kappa <= 0.0 || _nu0 <= _d + 1.0) {
 			throw "niw: prior is not initialized";
 		}
@@ -174,9 +180,6 @@ namespace npbnlp {
 				}
 			}
 		}
-		// Ablation: drop the off-diagonal of Lambda_n, which is what a model with
-		// independent dimensions would estimate.  For measuring whether the full
-		// covariance earns its keep on correlated data.
 		if (getenv("NIW_DIAG")) {
 			for (int i = 0; i < _d; ++i)
 				for (int j = 0; j < _d; ++j)
@@ -187,6 +190,8 @@ namespace npbnlp {
 		for (double& value : psi) {
 			value *= scale;
 		}
+		// Recompute Lambda_n from sufficient statistics after removals; rank-one
+		// downdates can accumulate rounding error and lose positive definiteness.
 		std::vector<double> target = _sample_mode ? lambda : psi;
 		std::vector<double> cholesky;
 		if (!dense::chol(target, _d, cholesky)) {
@@ -214,19 +219,13 @@ namespace npbnlp {
 		std::lock_guard<std::mutex> guard(_mutex);
 		_check_k(k);
 		_check_x(x);
-		// Sample mode only applies once estimate() has drawn (mu_k, Sigma_k);
-		// before that _mu_k[k] is empty, and a caller that scores a point during
-		// initialisation -- ghmm::init builds its (state, order) table that way --
-		// would read past the end.  Fall back to the marginal until then.
 		bool sampled = _sample_mode && !_mu_k[k].empty();
 		if (!sampled && _dirty[k]) {
 			_refresh(k);
 		}
-		// When the parameters have been drawn, _chol and _logdet belong to the
-		// sampled Sigma, which estimate() set.  _refresh would overwrite them with
-		// the marginalised posterior's and leave the sampled mean paired with the
-		// wrong covariance, so it is not called here; the draw stays fixed between
-		// estimates, which is what explicit sampling means.
+		// The marginal predictive is t_{nu_n-d+1}(mu_n,
+		// Lambda_n(kappa_n+1)/(kappa_n(nu_n-d+1))).  Cholesky gives log|Psi|
+		// and the quadratic form without explicitly forming an inverse or determinant.
 		std::vector<double> difference(_d, 0.0);
 		for (int i = 0; i < _d; ++i) {
 			difference[i] = x[i] - (sampled ? _mu_k[k][i] : _mu_n[k][i]);
@@ -275,6 +274,9 @@ namespace npbnlp {
 			}
 
 			std::vector<double> bartlett(_d * _d, 0.0);
+			// With Lambda_n=L L^T, Bartlett has A_ii=sqrt(chi^2_{nu_n-i+1}),
+			// A_ij~N(0,1) for j<i;
+			// solving X A^T=L gives Sigma=X X^T ~ IW(Lambda_n,nu_n).
 			for (int i = 0; i < _d; ++i) {
 				for (int j = 0; j <= i; ++j) {
 					if (i == j) {
@@ -287,9 +289,6 @@ namespace npbnlp {
 				}
 			}
 
-			// A A^T ~ Wishart(I, nu), and Lambda_n = L L^T.
-			// W = L^{-T} A A^T L^{-1} ~ Wishart(Lambda_n^{-1}, nu).
-			// Therefore Sigma = W^{-1} = (L A^{-T})(L A^{-T})^T ~ IW(Lambda_n, nu).
 			std::vector<double> factor;
 			dense::solve_rtri(lower, bartlett, _d, factor);
 			dense::xxt(factor, _d, _sigma_k[k]);

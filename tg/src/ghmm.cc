@@ -14,8 +14,6 @@ ghmm::ghmm(): vhmm(), _d(0), _obs(nullptr) {
 ghmm::ghmm(int n, int min_n, int k, int d): vhmm(n, min_n, 1, k), _d(d), _obs(new niw(d)) {
 	if (d < 1)
 		throw "invalid ghmm dimension";
-	// niw::resize(k) means k components, valid indices 0..k-1, while vhmm uses
-	// 0.._k inclusive.
 	_obs->resize(_k+1);
 }
 
@@ -26,18 +24,12 @@ int ghmm::dim() const { return _d; }
 int ghmm::seq_count() const { return (int)_shadow.size(); }
 
 void ghmm::set_sample_mode(bool f) { if (_obs) _obs->set_sample_mode(f); }
-// Draw (mu_k, Sigma_k) once so sample mode is in force from the first sweep
-// rather than after the first estimate().  Requires the prior to be set.
 void ghmm::seed_sample() { if (_obs) _obs->estimate(); }
-void ghmm::init_prior(gio& f) { if (_obs) _obs->init_prior_from_data(f); }
+void ghmm::init_prior(gio& f, double kappa0) { if (_obs) _obs->init_prior_from_data(f, kappa0); }
 void ghmm::set_prior(const vector<double>& mu0, double kappa0, double nu0, double lambda) {
 	if (_obs) _obs->set_prior(mu0, kappa0, nu0, lambda);
 }
 
-// vhmm reaches observations through vlattice, which wraps a sentence, so give
-// every gsentence a shadow sentence of the same length and put the index into the
-// flat observation table in each word's id.  The shadow never changes after this,
-// which is what lets the parallel block read it without synchronisation.
 void ghmm::_build_shadow(gio& f) {
 	_x.clear();
 	_shadow.clear();
@@ -70,11 +62,9 @@ double ghmm::_emission_lp(vlattice& l, int i, int k) {
 	return _obs->lp(k, _x[id]);
 }
 
-void ghmm::_resize() {
-	// Let the base grow _k and keep _word/_letter consistent -- base-class code
-	// still indexes them -- then add the NIW component for the new state.
+void ghmm::_resize_locked() {
 	int before = _k;
-	vhmm::_resize();
+	vhmm::_resize_locked();
 	if (_obs && _k != before)
 		_obs->resize(_k+1);
 }
@@ -87,7 +77,6 @@ void ghmm::init(int seq) {
 	s.n[s.size()] = _mn;
 	s.wd(s.size()).pos = 0;
 	s.wd(s.size()).n = s.n[s.size()];
-	// Draw the state and the order jointly, as vhmm::init does.
 	for (int i = 0; i < s.size(); ++i) {
 		word& w = s.wd(i);
 		vector<double> table;
@@ -178,8 +167,6 @@ void ghmm::store(int seq, gsentence& g) const {
 }
 
 void ghmm::estimate(int iter) {
-	// Same reasoning as vhmm::estimate: lm's parallel regions are a loss at this
-	// size and spin between themselves under GOMP's default wait policy.
 #ifdef _OPENMP
 	int keep = omp_get_max_threads();
 	omp_set_num_threads(1);
@@ -243,7 +230,6 @@ void ghmm::dump_posterior(FILE *fp) const {
 			fprintf(fp, " %.17g", sigma[i]);
 		fprintf(fp, "\n");
 	}
-	// The transition side too, so a save/load round trip can be checked whole.
 	context *r = _pos->h();
 	for (int k = 0; k <= _k; ++k)
 		fprintf(fp, "trans %d %.17g\n", k, _pos->lp(k, r));

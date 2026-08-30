@@ -13,7 +13,6 @@
 
 #define C 1
 #define K 1000
-// _v is learned from the data, so no vocabulary seed is applied.
 #define ZERO 1e-36
 
 #define A 1.
@@ -33,14 +32,11 @@ phsmm::phsmm():_n(1),_m(10),_l(2),_k(20),_v(C),_K(K),_a(1),_b(1),_pos(new hpyp(_
 		(*_word)[i]->set_base((*_letter)[i].get());
 	}
 	beta_distribution be;
-	// duration prior
 	for (auto& p : *_lprior)
 		p = 1.-be(A, B);
 
-	// type change prior
 	for (auto& p : *_cprior)
 		p = 1.-be(A, B);
-	//_prior = 1.-be(_change, _len);
 }
 
 phsmm::phsmm(int n, int m, int l, int k):_n(n),_m(m),_l(l),_k(k),_v(C),_K(K),_a(1),_b(1),_pos(new hpyp(_l)),_word(new vector<shared_ptr<hpyp> >),_letter(new vector<shared_ptr<vpyp> >),_lprior(new vector<double>(chartype::n,0)),_cprior(new vector<double>(chartype::n, 0)),_num(new vector<int>(chartype::n,0)),_change(new vector<int>(chartype::n, 0)),_len(new vector<int>(chartype::n, 0)) {
@@ -50,14 +46,11 @@ phsmm::phsmm(int n, int m, int l, int k):_n(n),_m(m),_l(l),_k(k),_v(C),_K(K),_a(
 		(*_word)[i]->set_base((*_letter)[i].get());
 	}
 	beta_distribution be;
-	// duration prior
 	for (auto& p : *_lprior)
 		p = 1.-be(A, B);
 	
-	// type change prior
 	for (auto& p : *_cprior)
 		p = 1.-be(A, B);
-	//_prior = 1.-be(_change, _len);
 }
 
 phsmm::~phsmm() {
@@ -216,7 +209,6 @@ _pos->add(s.wd(s.size()).pos, p);
 }
 */
 
-// initialization by model
 void phsmm::init(sentence& s) {
 	lock_guard<mutex> m(_mutex);
 	shared_ptr<wid> dic = wid::create();
@@ -232,10 +224,6 @@ void phsmm::init(sentence& s) {
 		for (int j = 1; j < _l; ++j) {
 			word& w = s.wd(i-j);
 			p = p->make(w.pos);
-			//context *q = p->make(w.pos);
-			//if (!q)
-			//	break;
-			//p = q;
 		}
 		vector<double> table;
 		for (int k = 1; k < _k+1; ++k) {
@@ -248,7 +236,6 @@ void phsmm::init(sentence& s) {
 				c = d;
 			}
 			double lp = _pos->lp(k, p)+(*_word)[k]->lp(x, c);
-			//cout << k << ":" << lp << endl;
 			table.push_back(lp);
 		}
 		int pos = 1+rd::ln_draw(table);
@@ -271,7 +258,6 @@ void phsmm::init(sentence& s) {
 		(*_len)[wt] += x.len;
 		(*_num)[wt] += x.len-1;
 	}
-	// eos
 	context *h = (*_word)[0]->make(s, s.size());
 	(*_word)[0]->add(s.wd(s.size()),h);
 	context *p = _pos->h();
@@ -304,7 +290,6 @@ void phsmm::add(sentence& s) {
 			_resize();
 		context *h = (*_word)[w.pos]->make(s, rd[i]);
 		(*_word)[w.pos]->add(w, h);
-		// update pos arrangement
 		context *p = _pos->h();
 		for (int j = 1; j < _l; ++j) {
 			word& x = s.wd(rd[i]-j);
@@ -342,7 +327,6 @@ void phsmm::remove(sentence& s) {
 		word& w = s.wd(i);
 		context *h = (*_word)[w.pos]->find(s, i);
 		(*_word)[w.pos]->remove(w, h);
-		// update pos arrangement
 		context *p = _pos->h();
 		for (int j = 1; j < _l; ++j) {
 			word& x = s.wd(i-j);
@@ -374,13 +358,11 @@ void phsmm::estimate(int iter) {
 		(*_letter)[i]->estimate(iter);
 	}
 	_pos->estimate(iter);
-	// type change prior and duration prior
 	beta_distribution be;
 	for (auto t = 0; t < chartype::n; ++t) {
 		(*_lprior)[t] = 1.-be(A+(*_num)[t], B+(*_len)[t]);
 		(*_cprior)[t] = 1.-be(A+(*_change)[t], B+(*_len)[t]);
 	}
-	//_prior = 1.-be(_change, _len);
 }
 
 void phsmm::poisson_correction(int n) {
@@ -392,10 +374,8 @@ void phsmm::poisson_correction(int n) {
 sentence phsmm::parse(io& f, int i) {
 	lattice l(f, i);
 	vt dp;
-	// slice
 	_slice(l);
 	_type_prior(l);
-	// forward filtering
 	for (auto t = 0; t < (int)l.w.size(); ++t) {
 		for (auto j = 0; j < l.size(t); ++j) {
 			/*
@@ -436,7 +416,6 @@ sentence phsmm::parse(io& f, int i) {
 			}
 		}
 	}
-	// backward sampling
 	sentence s;
 	word *w = l.wp(l.w.size(), 1);
 	int t = (int)l.w.size()-w->len;
@@ -493,10 +472,8 @@ sentence phsmm::parse(io& f, int i) {
 sentence phsmm::sample(io& f, int i) {
 	lattice l(f, i);
 	vt dp;
-	// slice
 	_slice(l);
 	_type_prior(l);
-	// forward filtering
 	for (auto t = 0; t < (int)l.w.size(); ++t) {
 		for (auto j = 0; j < l.size(t); ++j) {
 			/*
@@ -537,7 +514,6 @@ sentence phsmm::sample(io& f, int i) {
 			}
 		}
 	}
-	// backward sampling
 	sentence s;
 	word *w = l.wp(l.w.size(), 1);
 	int t = (int)l.w.size()-w->len;
@@ -654,8 +630,6 @@ void phsmm::_slice(lattice& l) {
 	beta_distribution be;
 	shared_ptr<generator> g = generator::create();
 	for (auto t = 0; t < (int)l.w.size(); ++t) {
-		// marginarize \sum_k p(c_{t-j+1}^t, k)
-		//vector<double> lpw;
 		for (auto w = l.w[t].begin(); w != l.w[t].end(); ++w) {
 			double z = 0; // p(c_{t-j+1}^t)
 			vector<double> table;
@@ -664,12 +638,9 @@ void phsmm::_slice(lattice& l) {
 				z = math::lse(z, lp, (z==0));
 				table.push_back(lp);
 			}
-			// p(k|c_{t-j+1}~t)
 			for (auto i = table.begin(); i != table.end(); ++i) {
 				*i -= z;
 			}
-			//lpw.push_back(z);
-			// for slice pos
 			/*
 			   for (auto k = 1; k < _k+1; ++k) {
 			// p(k|c_{t-j+1}~t)
@@ -677,7 +648,6 @@ void phsmm::_slice(lattice& l) {
 			table.push_back(lp);
 			}
 			*/
-			//w->pos = rd::ln_draw(table)+1;
 			int id = rd::ln_draw(table);
 			double mu = log(be(_a, _b))+table[id];
 			for (auto i = 0; i < (int)table.size(); ++i) {
@@ -716,6 +686,7 @@ void phsmm::_shrink() {
 }
 
 void phsmm::_type_prior(lattice& l) {
+	// Segment prior: log NB(c_prior, len-change, change) + log NB(l_prior, 1, len-1).
 	l.prior.resize(l.w.size());
 	for (auto t = 0; t < (int)l.w.size(); ++t) {
 		l.prior[t].resize(l.size(t), 0);

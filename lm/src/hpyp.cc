@@ -273,6 +273,17 @@ double hpyp::pr(chunk& c, const context *h) {
 	return exp(hpyp::lp(c, h));
 }
 
+// Hierarchical Pitman-Yor predictive at context h, with discount d_n and
+// strength theta_n at depth n:
+//
+//   p(w|h) = (c_w - d t_w)/(c + theta) + (theta + d t)/(c + theta) * p(w|parent)
+//
+// c_w and t_w are the customers and tables serving w at h, c and t their totals.
+// The recursion bottoms out at the root, where the base measure takes over.
+// Everything below is that expression in logs, so the two terms are combined
+// with logsumexp rather than added.  The parent call is class-qualified: a
+// derived vpyp overrides lp() with a mixture over depths, and re-entering that
+// here would change the distribution the backoff walks.
 double hpyp::pr(word& w, const context *h) {
 	return exp(hpyp::lp(w, h));
 }
@@ -285,13 +296,7 @@ double hpyp::lp(chunk& ch, const context *h) {
 	if (!h) {
 		return _lpb(ch);
 	}
-	//bool chk = false;
-	//double lpr = _cache.get(ch, h, chk);
 	double lpr = 0;
-	/*
-	if (chk)
-		return lpr;
-		*/
 	double c = h->c();
 	double t = h->t();
 	double cu = h->cu(ch.id);
@@ -305,7 +310,6 @@ double hpyp::lp(chunk& ch, const context *h) {
 	else
 		lpr = math::lse(log(a)-log(d), log(b)+hpyp::lp(ch, h->parent())-log(d));
 	return lpr;
-	//return _cache.set(ch, h, lpr);
 
 }
 
@@ -315,11 +319,6 @@ double hpyp::lp(word& w, const context *h) {
 	}
 	bool chk = false;
 	double lpr = 0;
-	/*
-	double lpr = _cache.get(w, h, chk);
-	if (chk)
-		return lpr;
-		*/
 	double c = h->c();
 	double t = h->t();
 	double cu = h->cu(w.id);
@@ -332,30 +331,13 @@ double hpyp::lp(word& w, const context *h) {
 		lpr = log(b)+hpyp::lp(w,h->parent())-log(d);
 	else
 		lpr = math::lse(log(a)-log(d), log(b)+hpyp::lp(w, h->parent())-log(d));
-	//cout << "c:" << c << " t:" << t << " cu:" << cu << " tu:" << tu << " n:" << n << " stlength:" << (*_strength)[n] << " discount:" << (*_discount)[n] << " v:" << _v << " lp:" << lpr << endl;
 	return lpr;
-	//return _cache.set(w, h, lpr);
 }
 
 double hpyp::lp(int k, const context *h) {
 	if (!h)
 		return -log(_v);
-	// log(1-h->v()/V) = log((V-h->v())/V) = log(V-h->v()) - log(V)
-	/*
-	if (!h && _h->cu(k) == 0 && _h->v() < _v) {
-		return log(_v-_h->v())-log(_v);
-	} else if (!h) {
-		return -log(_v);
-		//return log(_v-_h->v())-log(_v);
-	}
-	*/
-	//bool chk = false;
 	double lpr = 0;
-	/*
-	double lpr = _cache.get(k, h, chk);
-	if (chk)
-		return lpr;
-		*/
 	double c = h->c();
 	double t = h->t();
 	double cu = h->cu(k);
@@ -364,22 +346,12 @@ double hpyp::lp(int k, const context *h) {
 	double a = cu-(*_discount)[n]*tu;
 	double b = (*_strength)[n]+(*_discount)[n]*t;
 	double d = (*_strength)[n]+c;
-	// log((a+b*pr)/d) = log(a+b*pr) - log d
-	// a == 0
-	// log(a+b*pr) - log d = log(b) + log(pr) - log d
-	// otherwise
-	// log(a/d + b*pr/d)
-	// = logsumexp(log(a/d) + log(b*pr/d))
-	// = logsumexp(log a - log d + log b + log pr - log d)
-	// 親は純粋な HPYP 予測に固定する。ここを lp(...) にすると vpyp::lp へ再入する。
-	// _lpb は非仮想なので、ここからは静的に hpyp::_lpb が選ばれる（旧実装と同じ）。
+	// Evaluate log((a+b p)/d) with logsumexp(log(a/d), log(b)+log p-log d).
 	if (a == 0.)
 		lpr = log(b)+hpyp::lp(k,h->parent())-log(d);
 	else
 		lpr = math::lse(log(a)-log(d), log(b)+hpyp::lp(k, h->parent())-log(d));
-	//cout << "c:" << c << " t:" << t << " cu:" << cu << " tu:" << tu << " n:" << n << " stlength:" << (*_strength)[n] << " discount:" << (*_discount)[n] << " v:" << _v << " lp:" << lpr << endl;
 	return lpr;
-	//return _cache.set(k, h, lpr);
 }
 
 context* hpyp::h() const {
@@ -420,16 +392,7 @@ double hpyp::_lpb(chunk& b) const {
 double hpyp::_lpb(word& w) const {
 	if (!_base)
 		return -log(_v);
-	/*
-	   if (!_base && _h->cu(w.id) == 0 && _h->v() < _v) {
-	   return log(_v-_h->v())-log(_v);
-	   } else if (!_base) {
-	   return -log(_v);
-	//return log(_v-_h->v())-log(_v);
-	}
-	   */
 	double correct = 0;
-	// poisson correction
 	if (_lambda != nullptr)
 		correct = _correct(w);
 	double lp = correct;
@@ -447,18 +410,10 @@ double hpyp::_lpb(word& w) const {
 		if (lp < _H_)
 			break;
 	}
-	/*
-	// poisson correction
-	if (_lambda != nullptr) {
-		lp += _correct(w);
-	}
-	*/
 	return max(_H_,lp);
-	//return lp;
 }
 
 double hpyp::_correct(word& w) const {
-	/* use poisson correction for each word type */
 	type t = wordtype::get(w);
 	poisson_distribution po;
 	double lp = po.lp((*_lambda)[t], w.len);
@@ -524,22 +479,12 @@ void hpyp::_estimate_length(int n) {
 void hpyp::_estimate_poisson() {
 	if (_lambda == nullptr) {
 		_lambda = shared_ptr<vector<double> >(new vector<double>(chartype::n, 0));
-		//_w = shared_ptr<vector<int> >(new vector<int>(chartype::n, 0));
-	} //else {
-	  //fill(_w->begin(), _w->end(), 0);
-	  //}
+	}
 	vector<double> a(chartype::n, POISSON_A);
 	vector<double> b(chartype::n, POISSON_B);
-	//_h->estimate_l(a, b, *_w, _bc.get());
 	_h->estimate_l(a, b, _bc.get());
 	shared_ptr<generator> g = generator::create();
 	gamma_dist gm;
-	//int z = 0;
-	/*
-#ifdef _OPENMP
-#pragma omp parallel for reduction(+:z)
-#endif
-*/
 	for (auto i = 0; i < chartype::n; ++i) {
 		gamma_dist::param_type param(a[i], 1./b[i]);
 		gm.param(param);
@@ -554,7 +499,6 @@ bool hpyp::add(int k, context *h) {
 		if (!h)
 			++_v;
 	}
-	//_cache.clear();
 	return add_to_parent;
 }
 
@@ -567,7 +511,6 @@ void hpyp::add(word& w, context *h) {
 		wrap::add_a(w, _base);
 		(*_bc)[w.id].push_back(w);
 	}
-	//_cache.clear();
 }
 
 void hpyp::add(chunk& c, context *h) {
@@ -579,7 +522,6 @@ void hpyp::add(chunk& c, context *h) {
 		wrap::add_a(c, _base);
 		(*_cbc)[c.id].push_back(c);
 	}
-	//_cache.clear();
 }
 
 bool hpyp::remove(int k, context *h) {
@@ -589,7 +531,6 @@ bool hpyp::remove(int k, context *h) {
 		if (!h)
 			--_v;
 	}
-	//_cache.clear();
 	return remove_from_parent;
 }
 
@@ -607,7 +548,6 @@ void hpyp::remove(word& w, context *h) {
 	}
 	if (_bc && _bc->empty())
 		_bc = nullptr;
-	//_cache.clear();
 }
 
 void hpyp::remove(chunk& c, context *h) {
@@ -623,7 +563,6 @@ void hpyp::remove(chunk& c, context *h) {
 	}
 	if (_cbc && _cbc->empty())
 		_cbc = nullptr;
-	//_cache.clear();
 }
 
 void hpyp::estimate(int iter) {
@@ -681,6 +620,13 @@ int hpyp::draw_k(context *h) {
 	return h->sample(this);
 }
 
+// Draw the depth for a VPYLM-style variable order.  Depth d weighs
+//
+//   stop_d * prod_{j<d} pass_j * p_d(w)
+//
+// where stop and pass are the node-local Beta posteriors and p_d is the plain
+// HPYP probability at that depth.  The candidate is pushed before pass_d is
+// folded in, so depth d carries only the passes of the depths above it.
 int hpyp::draw_n(word& w, int i) {
 	vector<double> table;
 	int j = 1;
