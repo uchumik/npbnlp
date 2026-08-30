@@ -231,17 +231,27 @@ unsupervised learning libraries for NLP
 ```
 
 ### reading estimation
+The reading candidates come entirely from a trie dictionary, so build that first
+with `idx` from a `surface<TAB>reading[<TAB>reading ...]` file sorted by key.
 ```
-./re/src/kym
-[Usage]./re/src/kym [options]
+% ./re/src/idx
+Usage:./re/src/idx dict_file(sorted_key_value.tsv) index_file(default.trie.idx)
+
+% ./re/src/ky
+[Usage]./re/src/ky [options]
 [example]
-./re/src/kym --train file --model file_to_save --dic word_dic --trie phonetic_dic
-./re/src/kym --parse file --model modelfile --dic word_dic --trie phonetic_dic
+./re/src/ky --train file --model file_to_save --dic word_dic --trie phonetic_dic
+./re/src/ky --parse file --model modelfile --dic word_dic --trie phonetic_dic
 [options]
+--unit=file(phonetic_dic for unit word)
 -n, --letter_order=int(default 10)
 -m, --phonetic_order=int(default 3)
 -e, --epoch=int(default 100)
 -t, --threads=int(default 4)
--v, --vocab=int(means letter variations. default 5000)
 -s, --supervised=file(labeled_data in kkci format)
+
+% ./re/src/idx reading.tsv reading.trie.idx
+% ./re/src/ky --train sample --model ky.model --dic reading.dic --trie reading.trie.idx
+% ./re/src/ky --parse sample --model ky.model --dic reading.dic --trie reading.trie.idx
+詰め/ツメ 将棋/ショーギ の/ノ 本/ホン を/オ 買っ/カッ て/テ き/キ まし/マシ た/タ 。/。
 ```
