@@ -56,9 +56,17 @@ int main(int argc, char **argv) {
 
 	da<unsigned int, vector<vector<unsigned int> > > trie(3);
 	int id = 0;
+	int skipped = 0;
 	for (auto i = 0; i < (int)f.head.size()-1; ++i) {
 		int p = util::find(d, *f.raw, f.head[i], f.head[i+1]);
 		int key_len = p-f.head[i];
+		// An empty key would be a trie node reachable by consuming nothing, so a
+		// common prefix search returns it at every position and the callers that
+		// index the result by match length read past their own input.
+		if (key_len <= 0) {
+			++skipped;
+			continue;
+		}
 		vector<unsigned int> k;
 		for (auto j = 0; j < key_len; ++j) {
 			k.emplace_back((*f.raw)[f.head[i]+j]);
@@ -78,6 +86,14 @@ int main(int argc, char **argv) {
 		}
 		//trie.insert(keys[id], values[id]);
 		++id;
+	}
+	if (skipped)
+		cerr << "skipped " << skipped << " entries with an empty key" << endl;
+	// da::build walks the first key to seed the root, so an empty set is not a
+	// degenerate index but an out-of-range read.
+	if (keys.empty()) {
+		cerr << "no usable entries in " << *(argv+1) << endl;
+		return 1;
 	}
 	trie.build(keys, values);
 	trie.save(file.c_str(), vv_writer, uint_writer);
