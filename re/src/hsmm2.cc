@@ -119,7 +119,6 @@ double hmm::lattice::lpr(word& w, vector<unsigned int>& r, hpyp& wd, hpyp& phn) 
 		int p = (i < len)? r[i]:0;
 		lp_phone += phn.lp(p, c);
 	}
-	lp_phone /= (len+1);
 	return lp+lp_phone;
 }
 
@@ -604,7 +603,6 @@ double hsmm::_emission(ynode& node, int pos) {
 		int p = (i < len)? node.phonetic[i]:0;
 		lp_phone += (*_phonetic)[pos]->lp(p, c);
 	}
-	lp_phone/=(len+1);
 	return lp+lp_phone;
 }
 
