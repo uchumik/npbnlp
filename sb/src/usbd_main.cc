@@ -239,6 +239,12 @@ void dump_word(io& f, vector<int>& head) {
 	int id = 0;
 	for (int i = 0; i < (int)head.size()-1; ++i) {
 		int t = head[i+1];
+		// The inner loop emits a delimiter only between two words of the same
+		// segment, so the space separating this segment from the previous one has
+		// no emitter.  It is supplied here, except where store_word already cut on
+		// that space and left a zero-length word for the inner loop to print.
+		if (i > 0 && id < s.size() && s.wd(id).len > 0)
+			cout << " ";
 		for (; id < s.size() && s.wd(id).head < t; ++id) {
 			word& w = s.wd(id);
 			for (int j = 0; j < w.len; ++j) {
