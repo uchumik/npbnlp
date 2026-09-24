@@ -592,18 +592,27 @@ int main(int argc, char **argv) {
 		read_param(argc, argv);
 		if (!train.empty()) {
 			io g(train.c_str());
+			// tokenize() loads wdic into the wid singleton, which overwrites the
+			// next id and reinserts the saved words at their saved ids. Indexing
+			// the labelled words before that handed them ids the load then gave
+			// to unrelated words, so the supervised chunks trained the class
+			// emissions against aliased word ids. Tokenize first, index the
+			// labelled words into the loaded dictionary, then re-save it so
+			// parse resolves the same surfaces to the same ids.
+			vector<sentence> ws;
+			tokenize(g, ws);
+			nio f(ws);
 			cio *p = NULL;
 			vector<vector<word> > words;
 			vector<vector<string> > labels;
 			if (!pretrain.empty()) {
 				p = new cio(pretrain.c_str());
 				load_label(*p, words, labels);
+				shared_ptr<wid> d = wid::create();
+				d->save(wdic.c_str());
 			}
 			vector<nsentence> supervised;
 			chunking(words, labels, supervised);
-			vector<sentence> ws;
-			tokenize(g, ws);
-			nio f(ws);
 			vector<nsentence> corpus;
 			init_corpus(f, corpus);
 			//vector<nsentence> corpus(f.head.size()-1);
