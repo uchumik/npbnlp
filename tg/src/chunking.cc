@@ -367,17 +367,25 @@ int chunking(vector<vector<word> >& supervised, vector<vector<string> >& labels,
 		nsentence s;
 		for (auto j = 0; j < (int)supervised[i].size(); ++j) {
 			string& label = labels[i][j];
-			if (label[0] == 'B') {
+			if (label.size() > 2 && label[0] == 'B') {
 				string ne(label, 2, string::npos);
 				if (label_index.find(ne) == label_index.end()) {
 					label_index[ne] = label_id++;
+				}
+				// emit the pending chunk first: without this the token before a
+				// B is dropped and the chunks no longer tile the sentence.
+				if (chunk_len > 0) {
+					chunk c(supervised[i], chunk_head, chunk_len);
+					c.k = chunk_k;
+					c.type = chunktype::get(c);
+					s.c.emplace_back(c);
 				}
 				chunk_head = j;
 				chunk_len = 1;
 				chunk_k = label_index[ne];
 			} else if (label[0] == 'I') {
 				chunk_len++;
-			} else if (label[0] == 'O') {
+			} else {
 				if (chunk_len > 0) {
 					chunk c(supervised[i], chunk_head, chunk_len);
 					c.k = chunk_k;
