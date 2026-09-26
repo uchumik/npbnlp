@@ -56,3 +56,44 @@ Testing/
 
 # editor swap files
 .*.sw?
+
+# Built executables (in-tree cmake build; these have no extension so the
+# patterns above do not catch them). One line per add_executable target.
+/io/src/sentence_test
+/io/src/test
+/io/src/word_test
+/lm/src/hdp_test
+/lm/src/hpy_test
+/lm/src/kn_test
+/lm/src/lm_test
+/lm/src/npy_test
+/lm/src/vhdp_test
+/lm/src/vpy_test
+/ma/src/ma
+/ma/src/ws
+/pa/src/pa
+/pa/src/sp
+/re/src/cps
+/re/src/idx
+/re/src/koyomi
+/re/src/ky
+/re/src/kym
+/re/src/kym2
+/sb/src/ckappa
+/sb/src/correct
+/sb/src/error
+/sb/src/eval
+/sb/src/filter
+/sb/src/fkappa
+/sb/src/label
+/sb/src/pcc
+/sb/src/sbd
+/sb/src/usbd
+/tg/src/ch
+/tg/src/ghmm
+/tg/src/ne
+/tg/src/niw_test
+/tg/src/stats
+/tg/src/tg
+/tg/src/vhmm_test
+/tg/src/vtg
