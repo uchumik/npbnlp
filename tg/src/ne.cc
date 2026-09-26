@@ -609,9 +609,11 @@ int main(int argc, char **argv) {
 			// -k sets the cap K and leaves the initial class count at its
 			// default (k = min(k, K)), so a labelled set carrying more NE types
 			// than that indexes past _chunk / _word / _letter. Grow the initial
-			// count to cover every label. -k keeps its meaning for the
-			// unsupervised path, where nothing forces a minimum.
-			if (label_id > k) {
+			// count to cover every label. label_id starts at 2, so without this
+			// guard -k 1 on its own raised the count to 2 and claimed labelled
+			// types it never saw. An all-O labelled set needs no growth either:
+			// _chunk holds _k+1 entries, so class 1 is already addressable.
+			if (!label_index.empty() && label_id > k) {
 				k = label_id;
 				if (K < k)
 					K = k;
