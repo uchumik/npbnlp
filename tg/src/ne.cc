@@ -473,54 +473,47 @@ int parse(nio& f) {
 	return 0;
 }
 
+// BIO -> the segmentation nphsmm samples over. The chunks must TILE the
+// sentence: add() and remove() walk the class context by chunk position and read
+// the emission context out of the neighbouring chunks, so a sequence that covers
+// only the NE spans describes a different sentence than the one it was cut from.
+// Every O token therefore becomes its own length-1 chunk of class 1, and the NE
+// classes start at 2 (label_id). nphsmm has no O class of its own -- class 1 is
+// the one this gives it.
 int chunking(vector<vector<word> >& supervised, vector<vector<string> >& labels, vector<nsentence>& corpus) {
 	for (auto i = 0; i < (int)supervised.size(); ++i) {
-		int chunk_head = 0;
-		int chunk_len = 0;
-		int chunk_k = 0;
+		if (supervised[i].empty())
+			continue;
 		nsentence s;
-		for (auto j = 0; j < (int)supervised[i].size(); ++j) {
+		int n = (int)supervised[i].size();
+		int j = 0;
+		while (j < n) {
 			string& label = labels[i][j];
-			if (label[0] == 'B') {
+			if (label.size() > 2 && label[0] == 'B') {
 				string ne(label, 2, string::npos);
-				if (label_index.find(ne) == label_index.end()) {
+				if (label_index.find(ne) == label_index.end())
 					label_index[ne] = label_id++;
-				}
-				chunk_head = j;
-				chunk_len = 1;
-				chunk_k = label_index[ne];
-			} else if (label[0] == 'I') {
-				chunk_len++;
-			} else if (label[0] == 'O') {
-			//} else { // if (label[0] == 'O') {
-				//if (chunk_len > 0) {
-				if (chunk_len > 0 && chunk_k > 1) { // for partial annotation
-					chunk c(supervised[i], chunk_head, chunk_len);
-					c.k = chunk_k;
-					c.type = chunktype::get(c);
-					s.c.emplace_back(c);
-				}
-			/*
-				if (label_index.find(label) == label_index.end()) {
-					label_index[label] = label_id++;
-				}
-				*/
-				chunk_head = j;
-				chunk_len = 1;
-				chunk_k = 1;
-				//chunk_k = label_index[label];
+				int e = j;
+				while (e+1 < n && labels[i][e+1].size() > 2 && labels[i][e+1][0] == 'I')
+					++e;
+				chunk c(supervised[i], j, e-j+1);
+				c.k = label_index[ne];
+				c.type = chunktype::get(c);
+				s.c.emplace_back(c);
+				j = e+1;
+			} else {
+				chunk c(supervised[i], j, 1);
+				c.k = 1; // O
+				c.type = chunktype::get(c);
+				s.c.emplace_back(c);
+				++j;
 			}
 		}
-		chunk c(supervised[i], chunk_head, chunk_len);
-		c.k = chunk_k;
-		c.type = chunktype::get(c);
-		s.c.emplace_back(c);
 		s.n.resize(s.c.size()+1, 0);
 		corpus.emplace_back(s);
 	}
 	return 0;
 }
-
 int load_label(cio& file, vector<vector<word> >& corpus, vector<vector<string> >& labels) {
 	int size = file.chunk->size();
 	shared_ptr<wid> dic = wid::create();
@@ -613,6 +606,18 @@ int main(int argc, char **argv) {
 			}
 			vector<nsentence> supervised;
 			chunking(words, labels, supervised);
+			// -k sets the cap K and leaves the initial class count at its
+			// default (k = min(k, K)), so a labelled set carrying more NE types
+			// than that indexes past _chunk / _word / _letter. Grow the initial
+			// count to cover every label. -k keeps its meaning for the
+			// unsupervised path, where nothing forces a minimum.
+			if (label_id > k) {
+				k = label_id;
+				if (K < k)
+					K = k;
+				cerr << "[nphsmm] raising the class count to " << k
+					<< " to cover the labelled NE types" << endl;
+			}
 			vector<nsentence> corpus;
 			init_corpus(f, corpus);
 			//vector<nsentence> corpus(f.head.size()-1);
