@@ -607,16 +607,23 @@ int main(int argc, char **argv) {
 			vector<nsentence> supervised;
 			chunking(words, labels, supervised);
 			// -k sets the cap K and leaves the initial class count at its
-			// default (k = min(k, K)), so a labelled set carrying more NE types
-			// than that indexes past _chunk / _word / _letter. Grow the initial
-			// count to cover every label. -k keeps its meaning for the
-			// unsupervised path, where nothing forces a minimum.
-			if (label_id > k) {
-				k = label_id;
+			// default (k = min(k, K)), so the count can come out too small for
+			// what the corpus actually uses. Two things constrain it:
+			//   class 1 is the O class -- init_corpus() and chunking() both
+			//   assign it, and _chunk / _word / _letter hold _k+1 entries, so
+			//   addressing index 1 needs k >= 1 whatever -k asked for;
+			//   a labelled set needs one class per NE type, ids running up to
+			//   label_id-1.
+			// label_id starts at 2, so asking for it unconditionally would claim
+			// labelled types that were never read.
+			int least = label_index.empty() ? 1 : label_id;
+			if (least > k) {
+				cerr << "[nphsmm] raising the class count to " << least
+					<< (label_index.empty() ? ": class 1 is the O class"
+								: " to cover the labelled NE types") << endl;
+				k = least;
 				if (K < k)
 					K = k;
-				cerr << "[nphsmm] raising the class count to " << k
-					<< " to cover the labelled NE types" << endl;
 			}
 			vector<nsentence> corpus;
 			init_corpus(f, corpus);
