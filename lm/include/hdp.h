@@ -31,7 +31,6 @@ namespace npbnlp {
 			void add(chunk& c, context *h);
 			void remove(chunk& c, context *h);
 			void set_base(lm *m);
-			void set_v(int v);
 			int v() const;
 			int n() const;
 			void estimate(int iter);
@@ -59,7 +58,6 @@ namespace npbnlp {
 			double _a;
 			double _b;
 			lm *_base;
-			int _v;
 			std::shared_ptr<hdp_context> _h;
 			std::shared_ptr<std::vector<double> > _alpha;
 			std::shared_ptr<base_corpus> _bc;

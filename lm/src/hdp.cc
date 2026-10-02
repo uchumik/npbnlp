@@ -3,7 +3,6 @@
 #include"hdp_context.h"
 #include<random>
 
-#define VOCAB 100000
 #define ALPHA 0.001
 #define _H_ log(1e-4)
 
@@ -11,10 +10,10 @@ using namespace std;
 using namespace npbnlp;
 using gamma_dist = gamma_distribution<>;
 
-hdp::hdp(): _n(1), _a(1), _b(1), _base(NULL), _v(VOCAB), _h(new hdp_context), _alpha(new vector<double>(_n, ALPHA)), _bc(nullptr), _cbc(nullptr) {
+hdp::hdp(): _n(1), _a(1), _b(1), _base(NULL), _h(new hdp_context), _alpha(new vector<double>(_n, ALPHA)), _bc(nullptr), _cbc(nullptr) {
 }
 
-hdp::hdp(int n, double a, double b): _n(n), _a(a), _b(b), _base(NULL), _v(VOCAB), _h(new hdp_context), _alpha(new vector<double>(_n, ALPHA)),_bc(nullptr), _cbc(nullptr) {
+hdp::hdp(int n, double a, double b): _n(n), _a(a), _b(b), _base(NULL), _h(new hdp_context), _alpha(new vector<double>(_n, ALPHA)),_bc(nullptr), _cbc(nullptr) {
 }
 
 hdp::~hdp() {
@@ -36,18 +35,12 @@ void hdp::set_base(lm *b) {
 	_base = b;
 }
 
-void hdp::set_v(int v) {
-	if (v < 1)
-		throw "found invalid vocab setting";
-	_v = v;
-}
-
 int hdp::n() const {
 	return _n;
 }
 
 int hdp::v() const {
-	return _v;
+	return _h->v() + 1;
 }
 
 context* hdp::h() const {
@@ -242,7 +235,7 @@ double hdp::lp(word& w, const context *h) {
 
 double hdp::lp(int k, const context *h) {
 	if (!h) {
-		return -log(_v);
+		return -log(v());
 	}
 	/*
 	   if (!h && _h->cu(k) == 0 && _h->v() < _v)
@@ -311,7 +304,7 @@ double hdp::_prb(chunk& c) const {
 
 double hdp::_lpb(word& w) const {
 	if (!_base)
-		return -log(_v);
+		return -log(v());
 	/*
 	   if (!_base && _h->cu(w.id) == 0 && _h->v() < _v) { 
 	   return log(_v-_h->v())-log(_v);
@@ -340,7 +333,7 @@ double hdp::_lpb(word& w) const {
 
 double hdp::_lpb(chunk& b) const {
 	if (!_base)
-		return -log(_v);
+		return -log(v());
 	double lp = 0;
 	for (int i = 0; i < b.len+1; ++i) {
 		int n = _base->n();
@@ -457,7 +450,8 @@ void hdp::save(const char *file) {
 		throw "failed to write _a in hdp::save";
 	if (fwrite(&_b, sizeof(double), 1, fp) != 1)
 		throw "failed to write _b in hdp::save";
-	if (fwrite(&_v, sizeof(int), 1, fp) != 1)
+	int v = this->v();
+	if (fwrite(&v, sizeof(int), 1, fp) != 1)
 		throw "failed to write _v in hdp::save";
 	if (fwrite(&(*_alpha)[0], sizeof(double), _alpha->size(), fp) != _alpha->size())
 		throw "failed to write _alpha in hdp::save";
@@ -475,7 +469,8 @@ void hdp::load(const char *file) {
 		throw "failed to read _a in hdp::load";
 	if (fread(&_b, sizeof(double), 1, fp) != 1)
 		throw "failed to read _b in hdp::load";
-	if (fread(&_v, sizeof(int), 1, fp) != 1)
+	int v;
+	if (fread(&v, sizeof(int), 1, fp) != 1)
 		throw "failed to read _v in hdp::load";
 	_alpha->resize(_n);
 	if (fread(&(*_alpha)[0], sizeof(double), _n, fp) != (size_t)_n)

@@ -28,8 +28,6 @@ int main(int argc, char **argv) {
 	hpyp l(3);
 	vpyp m(10);
 	l.set_base(&m);
-	l.set_v(10000);
-	m.set_v(5000);
 	bool test_flg = false;
 	cout << "V:" << l.v() << " C:" << m.v() << endl;
 	try {

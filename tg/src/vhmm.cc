@@ -822,18 +822,17 @@ void vhmm::_resize_locked() {
 		_word->reserve(_K+2);
 		_letter->reserve(_K+2);
 	}
-	int cv = _v;
 	if (_word->empty()) {
 		_word->push_back(shared_ptr<hpyp>(new hpyp(_wn)));
 		_letter->push_back(shared_ptr<vpyp>(new vpyp(_m)));
-		(*_letter)[0]->set_v(cv); (*_word)[0]->set_base((*_letter)[0].get());
+		(*_word)[0]->set_base((*_letter)[0].get());
 		return;
 	}
 	if (_k+1>_K) return;
 	++_k;
 	_word->push_back(shared_ptr<hpyp>(new hpyp(_wn)));
 	_letter->push_back(shared_ptr<vpyp>(new vpyp(_m)));
-	(*_letter)[_k]->set_v(cv); (*_word)[_k]->set_base((*_letter)[_k].get());
+	(*_word)[_k]->set_base((*_letter)[_k].get());
 }
 void vhmm::_shrink() { if (_k>0) { --_k; _word->pop_back(); _letter->pop_back(); } }
 

@@ -60,7 +60,6 @@ namespace npbnlp {
 			void remove(word& w, context *h);
 			bool remove(int k, context *h);
 			void set_base(hpyp *b);
-			void set_v(int v);
 			void estimate(int iter);
 			void poisson_correction(int n = 1000);
 			void gibbs(int iter);
@@ -75,7 +74,6 @@ namespace npbnlp {
 			double _a;
 			double _b;
 			hpyp *_base;
-			int _v;
 			std::shared_ptr<context> _h;
 			std::shared_ptr<std::vector<double> > _discount;
 			std::shared_ptr<std::vector<double> > _strength;
