@@ -14,7 +14,6 @@ using namespace std;
 using namespace npbnlp;
 using gamma_dist = gamma_distribution<>;
 
-#define VOCAB 1
 #define STRENGTH 1
 #define DISCOUNT 0.5
 #define POISSON_A 0.2
@@ -22,23 +21,22 @@ using gamma_dist = gamma_distribution<>;
 #define MAXLEN 100
 #define _H_ log(1e-4)
 
-hpyp::hpyp():_n(1),_a(1),_b(1),_base(NULL),_v(VOCAB),_h(new context),_discount(new vector<double>(_n, DISCOUNT)),_strength(new vector<double>(_n, STRENGTH)),_bc(nullptr),_cbc(nullptr),/*_poisson(nullptr),*/_lambda(nullptr),/*_w(nullptr),*/_f(0)/*_f(nullptr)*/,_length(nullptr)/*,_lambda(nullptr)*/  {
+hpyp::hpyp():_n(1),_a(1),_b(1),_base(NULL),_h(new context),_discount(new vector<double>(_n, DISCOUNT)),_strength(new vector<double>(_n, STRENGTH)),_bc(nullptr),_cbc(nullptr),/*_poisson(nullptr),*/_lambda(nullptr),/*_w(nullptr),*/_f(0)/*_f(nullptr)*/,_length(nullptr)/*,_lambda(nullptr)*/  {
 }
 
-hpyp::hpyp(int n, double a, double b):_n(n),_a(a),_b(b),_base(NULL),_v(VOCAB),_h(new context),_discount(new vector<double>(_n, DISCOUNT)),_strength(new vector<double>(_n, STRENGTH)),_bc(nullptr),_cbc(nullptr),/*_poisson(nullptr),*/_lambda(nullptr),/*_w(nullptr),*/_f(0)/*_f(nullptr)*/,_length(nullptr)/*,_lambda(nullptr)*/  {
+hpyp::hpyp(int n, double a, double b):_n(n),_a(a),_b(b),_base(NULL),_h(new context),_discount(new vector<double>(_n, DISCOUNT)),_strength(new vector<double>(_n, STRENGTH)),_bc(nullptr),_cbc(nullptr),/*_poisson(nullptr),*/_lambda(nullptr),/*_w(nullptr),*/_f(0)/*_f(nullptr)*/,_length(nullptr)/*,_lambda(nullptr)*/  {
 }
 
-hpyp::hpyp(const hpyp& lm):_n(lm._n),_a(lm._a),_b(lm._b),_v(lm._v),_h(lm._h),_discount(lm._discount),_strength(lm._strength),_bc(lm._bc),_cbc(lm._cbc),_lambda(lm._lambda),_f(lm._f),_length(lm._length) {
+hpyp::hpyp(const hpyp& lm):_n(lm._n),_a(lm._a),_b(lm._b),_h(lm._h),_discount(lm._discount),_strength(lm._strength),_bc(lm._bc),_cbc(lm._cbc),_lambda(lm._lambda),_f(lm._f),_length(lm._length) {
 }
 
-hpyp::hpyp(hpyp&& lm):_n(lm._n),_a(lm._a),_b(lm._b),_v(lm._v),_h(lm._h),_discount(lm._discount),_strength(lm._strength),_bc(lm._bc),_cbc(lm._cbc),_lambda(lm._lambda),_f(lm._f),_length(lm._length) {
+hpyp::hpyp(hpyp&& lm):_n(lm._n),_a(lm._a),_b(lm._b),_h(lm._h),_discount(lm._discount),_strength(lm._strength),_bc(lm._bc),_cbc(lm._cbc),_lambda(lm._lambda),_f(lm._f),_length(lm._length) {
 }
 
 hpyp& hpyp::operator=(const hpyp& lm) {
 	_n = lm._n;
 	_a = lm._a;
 	_b = lm._b;
-	_v = lm._v;
 	_h = lm._h;
 	_bc = lm._bc;
 	_cbc = lm._cbc;
@@ -55,7 +53,6 @@ hpyp& hpyp::operator=(const hpyp&& lm) noexcept {
 	_n = lm._n;
 	_a = lm._a;
 	_b = lm._b;
-	_v = lm._v;
 	_h = lm._h;
 	_bc = lm._bc;
 	_cbc = lm._cbc;
@@ -86,7 +83,8 @@ void hpyp::save(FILE *fp) {
 		throw "failed to write _a in hpyp::save";
 	if (fwrite(&_b, sizeof(double), 1, fp) != 1)
 		throw "failed to write _b in hpyp::save";
-	if (fwrite(&_v, sizeof(int), 1, fp) != 1)
+	int v = this->v();
+	if (fwrite(&v, sizeof(int), 1, fp) != 1)
 		throw "failed to write _v in hpyp::save";
 	if (fwrite(&(*_discount)[0], sizeof(double), _discount->size(), fp) != _discount->size())
 		throw "failed to write _discount in hpyp::save";
@@ -125,7 +123,8 @@ void hpyp::load(FILE *fp) {
 		throw "failed to read _a in hpyp::load";
 	if (fread(&_b, sizeof(double), 1, fp) != 1)
 		throw "failed to read _b in hpyp::load";
-	if (fread(&_v, sizeof(int), 1, fp) != 1)
+	int v;
+	if (fread(&v, sizeof(int), 1, fp) != 1)
 		throw "failed to read _v in hpyp::load";
 	_discount->resize(_n);
 	_strength->resize(_n);
@@ -259,14 +258,8 @@ void hpyp::set_base(hpyp *b) {
 	_base = b;
 }
 
-void hpyp::set_v(int v) {
-	if (v < 1)
-		throw "found invalid vocab setting";
-	_v = v;
-}
-
 int hpyp::v() const {
-	return _v;
+	return _h->v() + 1;
 }
 
 double hpyp::pr(chunk& c, const context *h) {
@@ -336,7 +329,7 @@ double hpyp::lp(word& w, const context *h) {
 
 double hpyp::lp(int k, const context *h) {
 	if (!h)
-		return -log(_v);
+		return -log(v());
 	double lpr = 0;
 	double c = h->c();
 	double t = h->t();
@@ -368,7 +361,7 @@ double hpyp::_prb(word& w) const {
 
 double hpyp::_lpb(chunk& b) const {
 	if (!_base)
-		return -log(_v);
+		return -log(v());
 	double lp = 0;
 	for (int i = 0; i < b.len+1; ++i) {
 		int n = _base->n();
@@ -391,7 +384,7 @@ double hpyp::_lpb(chunk& b) const {
 
 double hpyp::_lpb(word& w) const {
 	if (!_base)
-		return -log(_v);
+		return -log(v());
 	double correct = 0;
 	if (_lambda != nullptr)
 		correct = _correct(w);
@@ -496,8 +489,6 @@ bool hpyp::add(int k, context *h) {
 	bool add_to_parent = false;
 	while (h && (add_to_parent = h->add(k, this))) {
 		h = h->parent();
-		if (!h)
-			++_v;
 	}
 	return add_to_parent;
 }
@@ -528,8 +519,6 @@ bool hpyp::remove(int k, context *h) {
 	bool remove_from_parent = false;
 	while (h && (remove_from_parent = h->remove(k))){
 		h = h->parent();
-		if (!h)
-			--_v;
 	}
 	return remove_from_parent;
 }

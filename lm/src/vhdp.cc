@@ -30,12 +30,11 @@ vhdp::vhdp(int n, double a, double b): _n(n), _a(a), _b(b), _c(1), _d(1), _h(new
 
 vhdp::~vhdp() {}
 
-// The root base is uniform over the distinct states already present: H(k)=1/v.
+// The root base is uniform over the distinct states already present plus one: H(k)=1/(v+1).
 double vhdp::_pr_base() const {
 	const char *m=getenv("VHDP_BASE_MODE");
 	if (m && m[0]=='p') return 1e-4;  // the prototype's _H_
-	int v=_h->v();
-	return v>0 ? 1./v : 1.;
+	return 1./(_h->v()+1);
 }
 
 double vhdp::alpha(int n) const {

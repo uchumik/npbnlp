@@ -44,7 +44,7 @@ double vpyp::pr(chunk& c, const context *h) {
 // the HPYP chain rather than re-entering this mixture.
 double vpyp::lp(int k, const context *h) {
 	if (!h)
-		return -log(_v);
+		return -log(v());
 	// Sum stop_j p(k|context_j) times the passes above j over all depths.
 	double ln_pr = 0;
 	/*
@@ -64,7 +64,7 @@ double vpyp::lp(int k, const context *h) {
 		ln_pr = math::lse(ln_pr+ln_pr_pass,ln_pr_stop+hpyp::lp(k,c),(ln_pr==0));
 		c = c->parent();
 	}
-	return max(-log(_v), ln_pr-z);
+	return max(-log(v()), ln_pr-z);
 	//return _cache.set(k, h, ln_pr-z);
 }
 
@@ -108,7 +108,7 @@ double vpyp::lp(chunk& b, const context *h) {
 
 double vpyp::_lpb(word& w) const {
 	if (!_base)
-		return -log(_v);
+		return -log(v());
 	double lp = 0;
 	for (int i = 0; i < w.len+1; ++i) {
 		int n = w.m[i];
@@ -130,7 +130,7 @@ double vpyp::_lpb(word& w) const {
 
 double vpyp::_lpb(chunk& b) const {
 	if (!_base)
-		return -log(_v);
+		return -log(v());
 	double lp = 0;
 	for (int i = 0;i < b.len+1; ++i) {
 		int n = b.n[i];
