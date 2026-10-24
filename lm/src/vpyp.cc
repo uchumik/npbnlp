@@ -2,6 +2,7 @@
 #include"hpyp.h"
 #include"math.h"
 #include"convinience.h"
+#include"lpb_cache.h"
 #include<random>
 
 #define _H_ log(1e-4)
@@ -109,7 +110,10 @@ double vpyp::lp(chunk& b, const context *h) {
 double vpyp::_lpb(word& w) const {
 	if (!_base)
 		return -log(v());
+	lpb_key key = lpb_word_key(this, 2, w, true);
 	double lp = 0;
+	if (lpb_find(key, lp))
+		return lp;
 	for (int i = 0; i < w.len+1; ++i) {
 		int n = w.m[i];
 		context *h = _base->h();
@@ -124,14 +128,18 @@ double vpyp::_lpb(word& w) const {
 		if (lp < _H_)
 			break;
 	}
-	return max(_H_,lp);
-	//return lp;
+	lp = max(_H_,lp);
+	lpb_store(key, lp);
+	return lp;
 }
 
 double vpyp::_lpb(chunk& b) const {
 	if (!_base)
 		return -log(v());
+	lpb_key key = lpb_chunk_key(this, 3, b, true, dynamic_cast<const vpyp*>(_base) != nullptr);
 	double lp = 0;
+	if (lpb_find(key, lp))
+		return lp;
 	for (int i = 0;i < b.len+1; ++i) {
 		int n = b.n[i];
 		context *h = _base->h();
@@ -146,7 +154,9 @@ double vpyp::_lpb(chunk& b) const {
 		if (lp < _H_)
 			break;
 	}
-	return max(_H_,lp);
+	lp = max(_H_,lp);
+	lpb_store(key, lp);
+	return lp;
 }
 
 double vpyp::_prb(chunk& c) const {

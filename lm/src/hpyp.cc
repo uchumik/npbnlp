@@ -5,6 +5,9 @@
 #include"convinience.h"
 #include"chartype.h"
 #include"wordtype.h"
+#include"lpb_cache.h"
+#include"pc_cache.h"
+#include"vpyp.h"
 #include<random>
 #ifdef _OPENMP
 #include<omp.h>
@@ -22,18 +25,23 @@ using gamma_dist = gamma_distribution<>;
 #define _H_ log(1e-4)
 
 hpyp::hpyp():_n(1),_a(1),_b(1),_base(NULL),_h(new context),_discount(new vector<double>(_n, DISCOUNT)),_strength(new vector<double>(_n, STRENGTH)),_bc(nullptr),_cbc(nullptr),/*_poisson(nullptr),*/_lambda(nullptr),/*_w(nullptr),*/_f(0)/*_f(nullptr)*/,_length(nullptr)/*,_lambda(nullptr)*/  {
+	++lpb_generation;
 }
 
 hpyp::hpyp(int n, double a, double b):_n(n),_a(a),_b(b),_base(NULL),_h(new context),_discount(new vector<double>(_n, DISCOUNT)),_strength(new vector<double>(_n, STRENGTH)),_bc(nullptr),_cbc(nullptr),/*_poisson(nullptr),*/_lambda(nullptr),/*_w(nullptr),*/_f(0)/*_f(nullptr)*/,_length(nullptr)/*,_lambda(nullptr)*/  {
+	++lpb_generation;
 }
 
 hpyp::hpyp(const hpyp& lm):_n(lm._n),_a(lm._a),_b(lm._b),_h(lm._h),_discount(lm._discount),_strength(lm._strength),_bc(lm._bc),_cbc(lm._cbc),_lambda(lm._lambda),_f(lm._f),_length(lm._length) {
+	++lpb_generation;
 }
 
 hpyp::hpyp(hpyp&& lm):_n(lm._n),_a(lm._a),_b(lm._b),_h(lm._h),_discount(lm._discount),_strength(lm._strength),_bc(lm._bc),_cbc(lm._cbc),_lambda(lm._lambda),_f(lm._f),_length(lm._length) {
+	++lpb_generation;
 }
 
 hpyp& hpyp::operator=(const hpyp& lm) {
+	++lpb_generation;
 	_n = lm._n;
 	_a = lm._a;
 	_b = lm._b;
@@ -50,6 +58,7 @@ hpyp& hpyp::operator=(const hpyp& lm) {
 }
 
 hpyp& hpyp::operator=(const hpyp&& lm) noexcept {
+	++lpb_generation;
 	_n = lm._n;
 	_a = lm._a;
 	_b = lm._b;
@@ -66,6 +75,7 @@ hpyp& hpyp::operator=(const hpyp&& lm) noexcept {
 }
 
 hpyp::~hpyp() {
+	++lpb_generation;
 }
 
 void hpyp::save(const char *file) {
@@ -117,6 +127,7 @@ void hpyp::load(const char *file) {
 }
 
 void hpyp::load(FILE *fp) {
+	++lpb_generation;
 	if (fread(&_n, sizeof(int), 1, fp) != 1)
 		throw "failed to read _n in hpyp::load";
 	if (fread(&_a, sizeof(double), 1, fp) != 1)
@@ -255,6 +266,7 @@ context* hpyp::make(word& w, int i) {
 }
 
 void hpyp::set_base(hpyp *b) {
+	++lpb_generation;
 	_base = b;
 }
 
@@ -362,7 +374,10 @@ double hpyp::_prb(word& w) const {
 double hpyp::_lpb(chunk& b) const {
 	if (!_base)
 		return -log(v());
+	lpb_key key = lpb_chunk_key(this, 1, b, false, dynamic_cast<const vpyp*>(_base) != nullptr);
 	double lp = 0;
+	if (lpb_find(key, lp))
+		return lp;
 	for (int i = 0; i < b.len+1; ++i) {
 		int n = _base->n();
 		const context *h = _base->h();
@@ -378,17 +393,22 @@ double hpyp::_lpb(chunk& b) const {
 		if (lp < _H_)
 			break;
 	}
-	return max(_H_,lp);
-	//return lp;
+	lp = max(_H_,lp);
+	lpb_store(key, lp);
+	return lp;
 }
 
 double hpyp::_lpb(word& w) const {
 	if (!_base)
 		return -log(v());
+	lpb_key key = lpb_word_key(this, 0, w, false);
+	double lp = 0;
+	if (lpb_find(key, lp))
+		return lp;
 	double correct = 0;
 	if (_lambda != nullptr)
 		correct = _correct(w);
-	double lp = correct;
+	lp = correct;
 	for (int i = 0; i < w.len+1; ++i) {
 		int n = _base->n();
 		const context *h = _base->h();
@@ -403,7 +423,9 @@ double hpyp::_lpb(word& w) const {
 		if (lp < _H_)
 			break;
 	}
-	return max(_H_,lp);
+	lp = max(_H_,lp);
+	lpb_store(key, lp);
+	return lp;
 }
 
 double hpyp::_correct(word& w) const {
@@ -417,7 +439,7 @@ double hpyp::_correct(word& w) const {
 	return lp;
 }
 
-void hpyp::_sample(vector<unsigned int>& w) {
+void hpyp::_sample(vector<unsigned int>& w, pc_cache& cache) {
 	unsigned int k = w[0];
 	do {
 		context *h = _base->h();
@@ -428,7 +450,7 @@ void hpyp::_sample(vector<unsigned int>& w) {
 			else
 				break;
 		}
-		k = h->sample(_base);
+		k = cache.sample(h, _base);
 		if (k)
 			w.push_back(k);
 	} while ((w.size() == 1 && k == 0) || (k != 0 && w.size() < MAXLEN));
@@ -443,11 +465,12 @@ void hpyp::_estimate_length(int n) {
 		_f = 0;
 	}
 	vector<vector<unsigned int> > k(n,vector<unsigned int>(1, 0));
+	pc_cache cache(_base->h());
 #ifdef _OPENMP
 #pragma omp parallel for
 #endif
 	for (auto i = 0; i < n; ++i) {
-		_sample(k[i]);
+		_sample(k[i], cache);
 	}
 	for (auto i = 0; i < n; ++i) {
 		word w(k[i], 1, (int)k[i].size()-1);
@@ -486,6 +509,7 @@ void hpyp::_estimate_poisson() {
 }
 
 bool hpyp::add(int k, context *h) {
+	++lpb_generation;
 	bool add_to_parent = false;
 	while (h && (add_to_parent = h->add(k, this))) {
 		h = h->parent();
@@ -516,6 +540,7 @@ void hpyp::add(chunk& c, context *h) {
 }
 
 bool hpyp::remove(int k, context *h) {
+	++lpb_generation;
 	bool remove_from_parent = false;
 	while (h && (remove_from_parent = h->remove(k))){
 		h = h->parent();
@@ -555,6 +580,7 @@ void hpyp::remove(chunk& c, context *h) {
 }
 
 void hpyp::estimate(int iter) {
+	++lpb_generation;
 	_h->cleanup();
 	beta_distribution be;
 	gamma_dist gm;
@@ -581,6 +607,7 @@ void hpyp::estimate(int iter) {
 }
 
 void hpyp::poisson_correction(int n) {
+	++lpb_generation;
 	if (_bc != nullptr) {
 		lock_guard<mutex> m(_mutex);
 		_estimate_length(n);

@@ -180,6 +180,13 @@ int context::sample(lm *m) {
 	return k[rd::ln_draw(pr)];
 }
 
+vector<int> context::keys() const {
+	vector<int> k;
+	for (auto it = _restaurant->cbegin(); it != _restaurant->cend(); ++it)
+		k.push_back(it->first);
+	return k;
+}
+
 shared_ptr<vector<int> > context::_get_restaurant(int k) {
 	auto it = _restaurant->find(k);
 	if (it != _restaurant->end()) {

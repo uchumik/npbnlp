@@ -39,6 +39,7 @@ namespace npbnlp {
 			int stop() const;
 			int pass() const;
 			int sample(lm *m);
+			std::vector<int> keys() const;
 			void incr_stop();
 			void incr_pass();
 			void decr_stop();
