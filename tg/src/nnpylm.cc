@@ -181,9 +181,9 @@ void nnpylm::save(const char *file) {
 		int n = _lprior->size();
 		if (fwrite(&n, sizeof(int), 1, fp) != 1)
 			throw "failed to save prior class num in nnpylm::save";
-		if (fwrite(&_lprior, sizeof(double), n, fp) != n)
+		if (fwrite(_lprior->data(), sizeof(double), n, fp) != (size_t)n)
 			throw "failed to save type duration prior in nnpylm::save";
-		if (fwrite(&_cprior, sizeof(double), n, fp) != n)
+		if (fwrite(_cprior->data(), sizeof(double), n, fp) != (size_t)n)
 			throw "failed to save type change prior in nnpylm::save";
 	} catch (const char *ex) {
 		throw ex;
@@ -203,9 +203,11 @@ void nnpylm::load(const char *file) {
 		int n = 0;
 		if (fread(&n, sizeof(int), 1, fp) != 1)
 			throw "failed to read prior class num in nnpylm::load";
-		if (fread(&_lprior, sizeof(double), n, fp) != n)
+		_lprior->resize(n);
+		_cprior->resize(n);
+		if (fread(_lprior->data(), sizeof(double), n, fp) != (size_t)n)
 			throw "failed to load type duration prior in nnpylm::load";
-		if (fread(&_cprior, sizeof(double), n, fp) != n)
+		if (fread(_cprior->data(), sizeof(double), n, fp) != (size_t)n)
 			throw "failed to load type change prior in nnpylm::load";
 		for (auto k = 0; k < chunktype2::n; ++k) {
 			double cdf = 0;
