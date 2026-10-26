@@ -109,9 +109,11 @@ void ihmm::load(const char *file) {
 		if (fread(&_K, sizeof(int), 1, fp) != 1)
 			throw "failed to read _K in ihmm::load";
 		_pos->load(fp);
-		for (auto i = 0; i < _k+1; ++i) {
+		while ((int)_word->size() < _k+1) {
 			_word->push_back(shared_ptr<hpyp>(new hpyp(1)));
 			_letter->push_back(shared_ptr<vpyp>(new vpyp(_m)));
+		}
+		for (auto i = 0; i < _k+1; ++i) {
 			(*_word)[i]->load(fp);
 			(*_letter)[i]->load(fp);
 			(*_word)[i]->set_base((*_letter)[i].get());
@@ -431,6 +433,7 @@ void ihmm::_resize() {
 		_letter->push_back(shared_ptr<vpyp>(new vpyp(_m)));
 		_word->back()->set_base(_letter->back().get());
 	}
+	(*_word)[_k]->set_base((*_letter)[_k].get());
 }
 
 void ihmm::_shrink() {

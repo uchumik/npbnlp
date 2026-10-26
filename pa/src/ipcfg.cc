@@ -635,6 +635,7 @@ void ipcfg::_resize() {
 		_letter->push_back(shared_ptr<vpyp>(new vpyp(_m)));
 		_word->back()->set_base(_letter->back().get());
 	}
+	(*_word)[_k]->set_base((*_letter)[_k].get());
 }
 
 void ipcfg::_shrink() {
