@@ -5,6 +5,7 @@
 #include"wordtype.h"
 #include"chunktype.h"
 #include"negative_binomial.h"
+#include"lpb_cache.h"
 #ifdef _OPENMP
 #include<omp.h>
 #endif
@@ -223,6 +224,7 @@ void nnpylm::load(const char *file) {
 }
 
 nsentence nnpylm::sample(nio& f, int i) {
+	lpb_clear();
 	clattice2 l(f, i, *_chsize);
 	vt dp;
 	_type_prior(l);
@@ -270,6 +272,7 @@ nsentence nnpylm::sample(nio& f, int i) {
 }
 
 nsentence nnpylm::parse(nio& f, int i) {
+	lpb_clear();
 	clattice2 l(f, i, *_chsize);
 	vt dp;
 	_type_prior(l);

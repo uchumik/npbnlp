@@ -11,6 +11,7 @@
 #include <unordered_map>
 #include <chrono>
 #include "vhdp_context.h"
+#include "lpb_cache.h"
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -54,6 +55,7 @@ void vhmm::set_fixed() {
 }
 
 void vhmm::emission_argmax(sentence& s) {
+	lpb_clear();
 	for (int i=0; i<s.size(); ++i) {
 		int best=1; double bv=-DBL_MAX;
 		for (int k=1; k<=_k; ++k) {
@@ -150,6 +152,7 @@ long long vhmm::clamp_total() const {
 }
 
 void vhmm::log_probability_parts(sentence& s, double& em, double& tr) {
+	lpb_clear();
 	for (int i=0;i<=s.size();++i) {
 		word& w=s.wd(i);
 		em+=_emission_word_lp(s,i,w.pos);
@@ -158,10 +161,12 @@ void vhmm::log_probability_parts(sentence& s, double& em, double& tr) {
 }
 
 void vhmm::draw_order(sentence& s) {
+	lpb_clear();
 	_draw_order(s);
 }
 
 double vhmm::log_probability(sentence& s) {
+	lpb_clear();
 	double x=0.;
 	for (int i=0;i<=s.size();++i) {
 		word& w=s.wd(i);
@@ -312,6 +317,7 @@ void vhmm::init(sentence& s, int idx) {
 	s.wd(s.size()).pos=0;
 	s.wd(s.size()).n=s.n[s.size()];
 	for (int i=0; i<s.size(); ++i) {
+		lpb_clear();
 		word& w=s.wd(i);
 		vector<double> table;
 		vector<int> table_n, table_k;
@@ -348,6 +354,7 @@ void vhmm::init(sentence& s, int idx) {
 }
 
 void vhmm::inference_init(sentence& s) {
+	lpb_clear();
 	shared_ptr<wid> d=wid::create();
 	for (int i=0; i<s.size(); ++i)
 		s.wd(i).id=(*d)[s.wd(i)] == 1 ? d->index(s.wd(i)) : (*d)[s.wd(i)];
@@ -520,6 +527,7 @@ int vhmm::_build_lattice(vlattice& l, bool best) {
 }
 
 sentence vhmm::sample(sentence& s) {
+	lpb_clear();
 	return _sample(s,false);
 }
 
@@ -564,6 +572,7 @@ sentence vhmm::_sample(sentence& s, bool best) {
 }
 
 sentence vhmm::parse(sentence& s) {
+	lpb_clear();
 	return _sample(s,false);
 }
 

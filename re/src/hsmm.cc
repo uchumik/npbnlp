@@ -2,6 +2,7 @@
 #include"vtable.h"
 #include"rd.h"
 #include"hsmm.h"
+#include"lpb_cache.h"
 
 #define C 5000
 #define P 5000
@@ -213,6 +214,7 @@ void hsmm::init(io& f, vector<vector<pair<word, vector<unsigned int> > > >& c) {
 }
 
 vector<pair<word, vector<unsigned int> > > hsmm::sample(io& f, int i) {
+	lpb_clear();
 	ylattice l(f, i, *_dic, _unit.get());
 	vt dp;
 	for (auto t = 0; t < (int)l.size(); ++t) {
@@ -248,6 +250,7 @@ vector<pair<word, vector<unsigned int> > > hsmm::sample(io& f, int i) {
 }
 
 vector<pair<word, vector<unsigned int> > > hsmm::parse(io& f, int i) {
+	lpb_clear();
 	ylattice l(f, i, *_dic, _unit.get());
 	vt dp;
 	for (auto t = 0; t < (int)l.size(); ++t) {

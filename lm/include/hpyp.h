@@ -11,6 +11,7 @@
 #include<memory>
 #include<mutex>
 namespace npbnlp {
+	class pc_cache;
 	class hpyp : public lm {
 		public:
 			hpyp();
@@ -90,7 +91,7 @@ namespace npbnlp {
 			double _correct(word& w) const;
 			void _estimate_poisson();
 			void _estimate_length(int n);
-			void _sample(std::vector<unsigned int>& w);
+			void _sample(std::vector<unsigned int>& w, pc_cache& cache);
 			std::mutex _mutex;
 			cache _cache;
 	};

@@ -5,6 +5,9 @@
 #include"convinience.h"
 #include"chartype.h"
 #include"wordtype.h"
+#include"lpb_cache.h"
+#include"pc_cache.h"
+#include"vpyp.h"
 #include<random>
 #ifdef _OPENMP
 #include<omp.h>
@@ -362,7 +365,10 @@ double hpyp::_prb(word& w) const {
 double hpyp::_lpb(chunk& b) const {
 	if (!_base)
 		return -log(v());
+	lpb_key key = lpb_chunk_key(this, 1, b, false, dynamic_cast<const vpyp*>(_base) != nullptr);
 	double lp = 0;
+	if (lpb_find(key, lp))
+		return lp;
 	for (int i = 0; i < b.len+1; ++i) {
 		int n = _base->n();
 		const context *h = _base->h();
@@ -378,17 +384,22 @@ double hpyp::_lpb(chunk& b) const {
 		if (lp < _H_)
 			break;
 	}
-	return max(_H_,lp);
-	//return lp;
+	lp = max(_H_,lp);
+	lpb_store(key, lp);
+	return lp;
 }
 
 double hpyp::_lpb(word& w) const {
 	if (!_base)
 		return -log(v());
+	lpb_key key = lpb_word_key(this, 0, w, false);
+	double lp = 0;
+	if (lpb_find(key, lp))
+		return lp;
 	double correct = 0;
 	if (_lambda != nullptr)
 		correct = _correct(w);
-	double lp = correct;
+	lp = correct;
 	for (int i = 0; i < w.len+1; ++i) {
 		int n = _base->n();
 		const context *h = _base->h();
@@ -403,7 +414,9 @@ double hpyp::_lpb(word& w) const {
 		if (lp < _H_)
 			break;
 	}
-	return max(_H_,lp);
+	lp = max(_H_,lp);
+	lpb_store(key, lp);
+	return lp;
 }
 
 double hpyp::_correct(word& w) const {
@@ -417,7 +430,7 @@ double hpyp::_correct(word& w) const {
 	return lp;
 }
 
-void hpyp::_sample(vector<unsigned int>& w) {
+void hpyp::_sample(vector<unsigned int>& w, pc_cache& cache) {
 	unsigned int k = w[0];
 	do {
 		context *h = _base->h();
@@ -428,7 +441,7 @@ void hpyp::_sample(vector<unsigned int>& w) {
 			else
 				break;
 		}
-		k = h->sample(_base);
+		k = cache.sample(h, _base);
 		if (k)
 			w.push_back(k);
 	} while ((w.size() == 1 && k == 0) || (k != 0 && w.size() < MAXLEN));
@@ -443,11 +456,13 @@ void hpyp::_estimate_length(int n) {
 		_f = 0;
 	}
 	vector<vector<unsigned int> > k(n,vector<unsigned int>(1, 0));
+	pc_cache cache(_base->h());
 #ifdef _OPENMP
 #pragma omp parallel for
 #endif
 	for (auto i = 0; i < n; ++i) {
-		_sample(k[i]);
+		lpb_clear();
+		_sample(k[i], cache);
 	}
 	for (auto i = 0; i < n; ++i) {
 		word w(k[i], 1, (int)k[i].size()-1);

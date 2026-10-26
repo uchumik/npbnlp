@@ -3,6 +3,7 @@
 #include"vtable.h"
 #include"rd.h"
 #include"negative_binomial.h"
+#include"lpb_cache.h"
 #include"wordtype.h"
 #ifdef _OPENMP
 #include<omp.h>
@@ -152,6 +153,7 @@ void npylm::load(const char *file) {
 }
 
 sentence npylm::sample(io& f, int i) {
+	lpb_clear();
 	lattice l(f, i);
 	//_type_prior(l);
 	vt dp;
@@ -200,6 +202,7 @@ sentence npylm::sample(io& f, int i) {
 }
 
 sentence npylm::parse(io& f, int i) {
+	lpb_clear();
 	lattice l(f, i);
 	vt dp;
 	//_type_prior(l);
