@@ -630,9 +630,11 @@ void ipcfg::_resize() {
 	if (_k+1 > _K)
 		return;
 	++_k;
-	_word->resize(_k+1, shared_ptr<hpyp>(new hpyp(1)));
-	_letter->resize(_k+1, shared_ptr<vpyp>(new vpyp(_m)));
-	(*_word)[_k]->set_base((*_letter)[_k].get());
+	while ((int)_word->size() < _k+1) {
+		_word->push_back(shared_ptr<hpyp>(new hpyp(1)));
+		_letter->push_back(shared_ptr<vpyp>(new vpyp(_m)));
+		_word->back()->set_base(_letter->back().get());
+	}
 }
 
 void ipcfg::_shrink() {
