@@ -435,7 +435,6 @@ void ihmm::_resize() {
 	while ((int)_word->size() < _k+1) {
 		_word->push_back(shared_ptr<hpyp>(new hpyp(1)));
 		_letter->push_back(shared_ptr<vpyp>(new vpyp(_m)));
-		_word->back()->set_base(_letter->back().get());
 	}
 	(*_word)[_k]->set_base((*_letter)[_k].get());
 }
