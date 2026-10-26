@@ -6,6 +6,7 @@
 #include"lattice.h"
 #include"generator.h"
 #include"negative_binomial.h"
+#include"lpb_cache.h"
 #include<random>
 #ifdef _OPENMP
 #include<omp.h>
@@ -225,6 +226,7 @@ void phsmm::init(sentence& s) {
 			word& w = s.wd(i-j);
 			p = p->make(w.pos);
 		}
+		lpb_clear();
 		vector<double> table;
 		for (int k = 1; k < _k+1; ++k) {
 			const context *c = (*_word)[k]->h();
@@ -372,6 +374,7 @@ void phsmm::poisson_correction(int n) {
 }
 
 sentence phsmm::parse(io& f, int i) {
+	lpb_clear();
 	lattice l(f, i);
 	vt dp;
 	_slice(l);
@@ -470,6 +473,7 @@ sentence phsmm::parse(io& f, int i) {
 }
 
 sentence phsmm::sample(io& f, int i) {
+	lpb_clear();
 	lattice l(f, i);
 	vt dp;
 	_slice(l);

@@ -4,6 +4,7 @@
 #include"vtable.h"
 #include"hlattice.h"
 #include"generator.h"
+#include"lpb_cache.h"
 #include<random>
 #ifdef _OPENMP
 #include<omp.h>
@@ -134,6 +135,7 @@ void ihmm::init(sentence& s) {
 	lock_guard<mutex> m(_mutex);
 	shared_ptr<wid> dic = wid::create();
 	for (int i = 0; i < s.size(); ++i) {
+		lpb_clear();
 		word& x = s.wd(i);
 		if ((*dic)[x] == 1) {
 			x.id = dic->index(x);
@@ -248,6 +250,7 @@ void ihmm::poisson_correction(int n) {
 }
 
 sentence ihmm::sample(io& f, int i) {
+	lpb_clear();
 	hlattice l(f, i);
 	vt dp;
 	_slice(l);
@@ -298,6 +301,7 @@ sentence ihmm::sample(io& f, int i) {
 }
 
 sentence ihmm::parse(io& f, int i) {
+	lpb_clear();
 	hlattice l(f, i);
 	vt dp;
 	_slice(l, true);

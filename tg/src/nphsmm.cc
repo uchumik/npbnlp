@@ -5,6 +5,7 @@
 #include"wordtype.h"
 #include"chunktype.h"
 #include"negative_binomial.h"
+#include"lpb_cache.h"
 #ifdef _OPENMP
 #include<omp.h>
 #endif
@@ -241,6 +242,7 @@ void nphsmm::init(nsentence& s) {
 			chunk& ch = s.ch(i-j);
 			h = h->make(ch.k);
 		}
+		lpb_clear();
 		vector<double> table;
 		for (int k = 1; k < _k+1; ++k) {
 			const context *c = (*_chunk)[k]->h();
@@ -408,6 +410,7 @@ void nphsmm::poisson_correction(int n) {
 }
 
 nsentence nphsmm::parse(nio& f, int i) {
+	lpb_clear();
 	clattice2 l(f, i, *_clength);
 	vt dp;
 	_slice(l);
@@ -485,6 +488,7 @@ nsentence nphsmm::parse(nio& f, int i) {
 }
 
 nsentence nphsmm::sample(nio& f, int i) {
+	lpb_clear();
 	clattice2 l(f, i, *_clength);
 	vt dp;
 	_slice(l);

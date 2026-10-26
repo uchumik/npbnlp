@@ -3,6 +3,7 @@
 #include"rd.h"
 #include"convinience.h"
 #include"generator.h"
+#include"lpb_cache.h"
 #include<queue>
 
 #ifdef _OPENMP
@@ -90,6 +91,7 @@ void ipcfg::load(const char *f) {
 }
 
 tree ipcfg::sample(io& f, int i) {
+	lpb_clear();
 	cyk c(f, i);
 	if (c.s.size() == 1) {
 		tree t(c.s);
@@ -122,6 +124,7 @@ tree ipcfg::sample(io& f, int i) {
 }
 
 tree ipcfg::parse(io& f, int i) {
+	lpb_clear();
 	cyk c(f, i);
 	if (c.s.size() == 1) {
 		tree t(c.s);

@@ -25,23 +25,18 @@ using gamma_dist = gamma_distribution<>;
 #define _H_ log(1e-4)
 
 hpyp::hpyp():_n(1),_a(1),_b(1),_base(NULL),_h(new context),_discount(new vector<double>(_n, DISCOUNT)),_strength(new vector<double>(_n, STRENGTH)),_bc(nullptr),_cbc(nullptr),/*_poisson(nullptr),*/_lambda(nullptr),/*_w(nullptr),*/_f(0)/*_f(nullptr)*/,_length(nullptr)/*,_lambda(nullptr)*/  {
-	++lpb_generation;
 }
 
 hpyp::hpyp(int n, double a, double b):_n(n),_a(a),_b(b),_base(NULL),_h(new context),_discount(new vector<double>(_n, DISCOUNT)),_strength(new vector<double>(_n, STRENGTH)),_bc(nullptr),_cbc(nullptr),/*_poisson(nullptr),*/_lambda(nullptr),/*_w(nullptr),*/_f(0)/*_f(nullptr)*/,_length(nullptr)/*,_lambda(nullptr)*/  {
-	++lpb_generation;
 }
 
 hpyp::hpyp(const hpyp& lm):_n(lm._n),_a(lm._a),_b(lm._b),_h(lm._h),_discount(lm._discount),_strength(lm._strength),_bc(lm._bc),_cbc(lm._cbc),_lambda(lm._lambda),_f(lm._f),_length(lm._length) {
-	++lpb_generation;
 }
 
 hpyp::hpyp(hpyp&& lm):_n(lm._n),_a(lm._a),_b(lm._b),_h(lm._h),_discount(lm._discount),_strength(lm._strength),_bc(lm._bc),_cbc(lm._cbc),_lambda(lm._lambda),_f(lm._f),_length(lm._length) {
-	++lpb_generation;
 }
 
 hpyp& hpyp::operator=(const hpyp& lm) {
-	++lpb_generation;
 	_n = lm._n;
 	_a = lm._a;
 	_b = lm._b;
@@ -58,7 +53,6 @@ hpyp& hpyp::operator=(const hpyp& lm) {
 }
 
 hpyp& hpyp::operator=(const hpyp&& lm) noexcept {
-	++lpb_generation;
 	_n = lm._n;
 	_a = lm._a;
 	_b = lm._b;
@@ -75,7 +69,6 @@ hpyp& hpyp::operator=(const hpyp&& lm) noexcept {
 }
 
 hpyp::~hpyp() {
-	++lpb_generation;
 }
 
 void hpyp::save(const char *file) {
@@ -127,7 +120,6 @@ void hpyp::load(const char *file) {
 }
 
 void hpyp::load(FILE *fp) {
-	++lpb_generation;
 	if (fread(&_n, sizeof(int), 1, fp) != 1)
 		throw "failed to read _n in hpyp::load";
 	if (fread(&_a, sizeof(double), 1, fp) != 1)
@@ -266,7 +258,6 @@ context* hpyp::make(word& w, int i) {
 }
 
 void hpyp::set_base(hpyp *b) {
-	++lpb_generation;
 	_base = b;
 }
 
@@ -470,6 +461,7 @@ void hpyp::_estimate_length(int n) {
 #pragma omp parallel for
 #endif
 	for (auto i = 0; i < n; ++i) {
+		lpb_clear();
 		_sample(k[i], cache);
 	}
 	for (auto i = 0; i < n; ++i) {
@@ -509,7 +501,6 @@ void hpyp::_estimate_poisson() {
 }
 
 bool hpyp::add(int k, context *h) {
-	++lpb_generation;
 	bool add_to_parent = false;
 	while (h && (add_to_parent = h->add(k, this))) {
 		h = h->parent();
@@ -540,7 +531,6 @@ void hpyp::add(chunk& c, context *h) {
 }
 
 bool hpyp::remove(int k, context *h) {
-	++lpb_generation;
 	bool remove_from_parent = false;
 	while (h && (remove_from_parent = h->remove(k))){
 		h = h->parent();
@@ -580,7 +570,6 @@ void hpyp::remove(chunk& c, context *h) {
 }
 
 void hpyp::estimate(int iter) {
-	++lpb_generation;
 	_h->cleanup();
 	beta_distribution be;
 	gamma_dist gm;
@@ -607,7 +596,6 @@ void hpyp::estimate(int iter) {
 }
 
 void hpyp::poisson_correction(int n) {
-	++lpb_generation;
 	if (_bc != nullptr) {
 		lock_guard<mutex> m(_mutex);
 		_estimate_length(n);

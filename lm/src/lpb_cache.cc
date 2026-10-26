@@ -3,7 +3,6 @@
 
 using namespace std;
 namespace npbnlp {
-	atomic<unsigned long> lpb_generation(0);
 	struct lpb_hash {
 		size_t operator()(const lpb_key& k) const {
 			size_t h = reinterpret_cast<size_t>(k.lm);
@@ -13,7 +12,6 @@ namespace npbnlp {
 		}
 	};
 	static thread_local unordered_map<lpb_key, double, lpb_hash> _lpb;
-	static thread_local unsigned long _generation = 0;
 
 	static void push(lpb_key& k, word& w, bool m) {
 		k.v.push_back(w.len);
@@ -41,11 +39,6 @@ namespace npbnlp {
 	}
 
 	bool lpb_find(const lpb_key& k, double& lp) {
-		unsigned long g = lpb_generation.load();
-		if (_generation != g) {
-			_lpb.clear();
-			_generation = g;
-		}
 		auto it = _lpb.find(k);
 		if (it == _lpb.end())
 			return false;
@@ -55,5 +48,9 @@ namespace npbnlp {
 
 	void lpb_store(const lpb_key& k, double lp) {
 		_lpb[k] = lp;
+	}
+
+	void lpb_clear() {
+		_lpb.clear();
 	}
 }
