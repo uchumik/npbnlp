@@ -23,6 +23,7 @@
 using namespace std;
 using namespace npbnlp;
 
+
 static unordered_map<int, int> cfreq;
 static unordered_map<int, int> kfreq;
 static negative_binomial nb;
@@ -410,236 +411,291 @@ void nphsmm::poisson_correction(int n) {
 }
 
 nsentence nphsmm::parse(nio& f, int i) {
-	lpb_clear();
-	clattice2 l(f, i, *_clength);
-	vt dp;
-	_slice(l);
-	_length_prior(l);
-	for (auto t = 0; t < (int)l.c.size(); ++t) {
-		for (auto j = 0; j < l.size(t); ++j) {
-			chunk& ch = l.ch(t, j+1);
-			double prior = l.prior[t][j];
-			for (auto k = l.begin(t, j); k != l.end(t, j); ++k) {
-				const context *c = (*_chunk)[*k]->h();
-				const context *z = _class->h();
-				for (auto p = 0; p < l.size(t-ch.len); ++p) {
-					const context *h = NULL;
-					chunk& prev = l.ch(t-ch.len, p+1);
-					if (_n > 1)
-						h = c->find(prev.id);
-					for (auto q = l.begin(t-ch.len, p); q != l.end(t-ch.len, p); ++q) {
-						const context *u = NULL;
-						if (_n > 1)
-							u = z->find(*q);
-						if (h && u)
-							_forward(l, t-ch.len-prev.len, h, u, prior, ch, *k, prev, *q, dp[t][j][*k], dp[t-ch.len][p][*q], _n-1, false, false);
-						else if (h)
-							_forward(l, t-ch.len-prev.len, h, z, prior, ch, *k, prev, *q, dp[t][j][*k], dp[t-ch.len][p][*q], _n-1, false, true);
-						else if (u)
-							_forward(l, t-ch.len-prev.len, c, u, prior, ch, *k, prev, *q, dp[t][j][*k], dp[t-ch.len][p][*q], _n-1, true, false);
-						else
-							_forward(l, t-ch.len-prev.len, c, z, prior, ch, *k, prev, *q, dp[t][j][*k], dp[t-ch.len][p][*q], _n-1, true, true);
-					}
-				}
-			}
-		}
-	}
-	nsentence s;
-	chunk *ch = l.cp(l.c.size(), 1);
-	int t = (int)l.c.size()-ch->len;
-	while (t >= 0) {
-		const context *c = (*_chunk)[ch->k]->h();
-		const context *z = _class->h();
-		vector<double> table;
-		vector<int> len;
-		vector<int> k;
-		for (int p = 0; p < l.size(t); ++p) {
-			const context *h = NULL;
-			chunk& prev = l.ch(t, p+1);
-			if (_n > 1)
-				h = c->find(prev.id);
-			for (auto q = l.begin(t, p); q != l.end(t, p); ++q) {
-				const context *u = NULL;
-				int j = table.size();
-				table.push_back(1.);	
-				len.push_back(p+1);
-				k.push_back(*q);
-				if (_n > 1)
-					u = z->find(*q);
-				if (h && u)
-					_backward(l, t-prev.len, h, u, *ch, ch->k, prev, *q, table[j], dp[t][p][*q], _n-1, false, false);
-				else if (h)
-					_backward(l, t-prev.len, h, z, *ch, ch->k, prev, *q, table[j], dp[t][p][*q], _n-1, false, true);
-				else if (u)
-					_backward(l, t-prev.len, c, u, *ch, ch->k, prev, *q, table[j], dp[t][p][*q], _n-1, true, false);
-				else
-					_backward(l, t-prev.len, c, z, *ch, ch->k, prev, *q, table[j], dp[t][p][*q], _n-1, true, true);
-			}
-		}
-		int id = rd::best(table);
-		ch = l.cp(t, len[id]);
-		ch->k = k[id];
-		s.c.push_back(*ch);
-		t -= ch->len;
-	}
-	reverse(s.c.begin(), s.c.end());
-	s.n.resize(s.c.size(), 0);
-	return s;
+	return _minfer(f, i, true, NULL);
 }
 
 nsentence nphsmm::sample(nio& f, int i) {
-	lpb_clear();
-	clattice2 l(f, i, *_clength);
-	vt dp;
-	_slice(l);
-	_length_prior(l);
+	return _minfer(f, i, false, NULL);
+}
+
+nsentence nphsmm::sample(nio& f, int i, nsentence *cur) {
+	return _minfer(f, i, false, cur);
+}
+
+void nphsmm::_slice(clattice2& l, nsentence *cur) {
+	beta_distribution be;
+	vector<vector<int> > anchor(l.c.size());
+	for (auto t = 0; t < (int)l.c.size(); ++t)
+		anchor[t].resize(l.size(t), 0);
+	if (cur) {
+		int t = -1;
+		for (auto c = cur->c.begin(); c != cur->c.end(); ++c) {
+			t += c->len;
+			if (t >= 0 && t < (int)l.c.size() && c->len <= l.size(t))
+				anchor[t][c->len-1] = c->k;
+		}
+	}
 	for (auto t = 0; t < (int)l.c.size(); ++t) {
 		for (auto j = 0; j < l.size(t); ++j) {
-			chunk& ch = l.ch(t, j+1);
-			double prior = l.prior[t][j];
-			for (auto k = l.begin(t, j); k != l.end(t, j); ++k) {
-				const context *c = (*_chunk)[*k]->h();
-				const context *z = _class->h();
-				for (auto p = 0; p < l.size(t-ch.len); ++p) {
-					const context *h = NULL;
-					chunk& prev = l.ch(t-ch.len, p+1);
-					if (_n > 1)
-						h = c->find(prev.id);
-					for (auto q = l.begin(t-ch.len, p); q != l.end(t-ch.len, p); ++q) {
-						const context *u = NULL;
-						if (_n > 1)
-							u = z->find(*q);
-						if (h && u)
-							_forward(l, t-ch.len-prev.len, h, u, prior, ch, *k, prev, *q, dp[t][j][*k], dp[t-ch.len][p][*q], _n-1, false, false);
-						else if (h)
-							_forward(l, t-ch.len-prev.len, h, z, prior, ch, *k, prev, *q, dp[t][j][*k], dp[t-ch.len][p][*q], _n-1, false, true);
-						else if (u)
-							_forward(l, t-ch.len-prev.len, c, u, prior, ch, *k, prev, *q, dp[t][j][*k], dp[t-ch.len][p][*q], _n-1, true, false);
-						else
-							_forward(l, t-ch.len-prev.len, c, z, prior, ch, *k, prev, *q, dp[t][j][*k], dp[t-ch.len][p][*q], _n-1, true, true);
-					}
-				}
-			}
-		}
-	}
-	nsentence s;
-	chunk *ch = l.cp(l.c.size(), 1);
-	int t = (int)l.c.size()-ch->len;
-	while (t >= 0) {
-		const context *c = (*_chunk)[ch->k]->h();
-		const context *z = _class->h();
-		vector<double> table;
-		vector<int> len;
-		vector<int> k;
-		for (int p = 0; p < l.size(t); ++p) {
-			const context *h = NULL;
-			chunk& prev = l.ch(t, p+1);
-			if (_n > 1)
-				h = c->find(prev.id);
-			for (auto q = l.begin(t, p); q != l.end(t, p); ++q) {
-				const context *u = NULL;
-				int j = table.size();
-				table.push_back(1.);	
-				len.push_back(p+1);
-				k.push_back(*q);
-				if (_n > 1)
-					u = z->find(*q);
-				if (h && u)
-					_backward(l, t-prev.len, h, u, *ch, ch->k, prev, *q, table[j], dp[t][p][*q], _n-1, false, false);
-				else if (h)
-					_backward(l, t-prev.len, h, z, *ch, ch->k, prev, *q, table[j], dp[t][p][*q], _n-1, false, true);
-				else if (u)
-					_backward(l, t-prev.len, c, u, *ch, ch->k, prev, *q, table[j], dp[t][p][*q], _n-1, true, false);
-				else
-					_backward(l, t-prev.len, c, z, *ch, ch->k, prev, *q, table[j], dp[t][p][*q], _n-1, true, true);
-			}
-		}
-		int id = rd::ln_draw(table);
-		ch = l.cp(t, len[id]);
-		ch->k = k[id];
-		s.c.push_back(*ch);
-		t -= ch->len;
-	}
-	reverse(s.c.begin(), s.c.end());
-	s.n.resize(s.c.size(), 0);
-	return s;
-}
-
-void nphsmm::_forward(clattice2& l, int i, const context *c, const context *z, double& prior, chunk& ch, int k, chunk& prev, int q, vt& a, vt& b, int n, bool unk, bool not_exist) {
-	if (n <= 1) {
-		a.v = math::lse(a.v, b.v+(*_chunk)[k]->lp(ch, c)+_class->lp(k, z)+prior, !a.is_init());
-		if (!a.is_init())
-			a.set(true);
-	} else {
-		for (auto j = 0; j < l.size(i); ++j) {
-			chunk& y = l.ch(i, j+1);
-			const context *h = NULL;
-			if (!unk && n > 1)
-				h = c->find(y.id);
-			for (auto r = l.begin(i, j); r != l.end(i, j); ++r) {
-				const context *u = NULL;
-				if (!not_exist && n > 1)
-					u = z->find(*r);
-				if (h && u)
-					_forward(l, i-y.len, h, u, prior, ch, k, y, *r, a[prev.len-1][q], b[j][*r], n-1, false, false);
-				else if (h)
-					_forward(l, i-y.len, h, z, prior, ch, k, y, *r, a[prev.len-1][q], b[j][*r], n-1, false, true);
-				else if (u)
-					_forward(l, i-y.len, c, u, prior, ch, k, y, *r, a[prev.len-1][q], b[j][*r], n-1, true, false);
-				else
-					_forward(l, i-y.len, c, z, prior, ch, k, y, *r, a[prev.len-1][q], b[j][*r], n-1, true, true);
-			}
-		}
-	}
-}
-
-void nphsmm::_backward(clattice2& l, int i, const context *c, const context *z, chunk& ch, int k, chunk& prev, int q, double& lpr, vt& b, int n, bool unk, bool not_exist) {
-	if (n <= 1) {
-		lpr = math::lse(lpr, b.v+(*_chunk)[k]->lp(ch, c)+_class->lp(k, z), (lpr == 1.));
-	} else {
-		for (auto j = 0; j < l.size(i); ++j) {
-			chunk& y = l.ch(i, j+1);
-			const context *h = NULL;
-			if (!unk && n > 1)
-				h = c->find(y.id);
-			for (auto r = l.begin(i, j); r != l.end(i, j); ++r) {
-				const context *u = NULL;
-				if (!not_exist && n > 1)
-					u = z->find(*r);
-				if (h && u)
-					_backward(l, i-y.len, h, u, ch, k, y, *r, lpr, b[j][*r], n-1, false, false);
-				else if (h)
-					_backward(l, i-y.len, h, z, ch, k, y, *r, lpr, b[j][*r], n-1, false, true);
-				else if (u)
-					_backward(l, i-y.len, c, u, ch, k, y, *r, lpr, b[j][*r], n-1, true, false);
-				else
-					_backward(l, i-y.len, c, z, ch, k, y, *r, lpr, b[j][*r], n-1, true, true);
-			}
-		}
-	}
-}
-
-void nphsmm::_slice(clattice2& l) {
-	beta_distribution be;
-	shared_ptr<generator> g = generator::create();
-	for (auto t = 0; t < (int)l.c.size(); ++t) {
-		for (auto c = l.c[t].begin(); c != l.c[t].end(); ++c) {
+			chunk& c = l.ch(t, j+1);
 			double z = 0;
 			vector<double> table;
 			for (auto k = 1; k < _k+1; ++k) {
-				double lp = (*_chunk)[k]->lp(*c, (*_chunk)[k]->h())+_class->lp(k, _class->h());
+				double lp = (*_chunk)[k]->lp(c, (*_chunk)[k]->h())+_class->lp(k, _class->h());
 				z = math::lse(z, lp, (z==0));
 				table.push_back(lp);
 			}
 			for (auto i = table.begin(); i != table.end(); ++i) {
 				*i -= z;
 			}
-			int id = rd::ln_draw(table);
+			int id = anchor[t][j]-1;
+			if (id < 0 || id >= _k)
+				id = rd::ln_draw(table);
 			double mu = log(be(_a, _b))+table[id];
 			for (auto i = 0; i < (int)table.size(); ++i) {
 				if (table[i] >= mu)
-					l.k[t][c->len-1].push_back(i+1);
+					l.k[t][j].push_back(i+1);
 			}
+			if (anchor[t][j] && find(l.k[t][j].begin(), l.k[t][j].end(), anchor[t][j]) == l.k[t][j].end())
+				throw "slice removed the current nphsmm state";
+		}
+	}
+}
+
+nsentence nphsmm::_minfer(nio& f, int i, bool best, nsentence *cur) {
+	lpb_clear();
+	clattice2 l(f, i, *_clength);
+	vt dp, am, trm, bos;
+	_slice(l, cur);
+	_length_prior(l);
+	int nw = _n-1;
+	int nc = max(_n-1, 1);
+	vt *node = &bos;
+	for (int d = 0; d < nw+nc; ++d)
+		node = &(*node)[0];
+	node->v = 0;
+	node->set(true);
+	_mfill(l, dp, am, bos, trm);
+
+	nsentence s;
+	chunk *eos = l.cp(l.c.size(), 1);
+	int t = (int)l.c.size()-eos->len;
+	vector<int> lam, rcs, cl, cr;
+	vector<double> tbl;
+	vector<vector<int> > lpath, rpath;
+	_mtable(l, t, nw, nc, (*_chunk)[eos->k]->h(), false, *eos,
+	        am[t], trm, cl, cr, tbl, lpath, rpath);
+	if (tbl.empty())
+		throw "failed to construct backward table in nphsmm::_minfer";
+	int id = best ? rd::best(tbl) : rd::ln_draw(tbl);
+	lam = lpath[id];
+	rcs = rpath[id];
+	while (t >= 0) {
+		int P = rcs[0];
+		int J = 0;
+		if (nw == 0) {
+			vector<double> tb;
+			vector<int> cand;
+			for (auto it = dp[t].begin(); it != dp[t].end(); ++it) {
+				vt *leaf = &(*(it->second))[P];
+				for (int d = 1; d < nc; ++d)
+					leaf = &(*leaf)[rcs[d]];
+				if (leaf->is_init()) {
+					cand.push_back(it->first);
+					tb.push_back(leaf->v);
+				}
+			}
+			if (tb.empty())
+				throw "failed to draw a chunk length in nphsmm::_minfer";
+			J = cand[best ? rd::best(tb) : rd::ln_draw(tb)];
+		} else {
+			J = lam[0];
+		}
+		chunk *ch = l.cp(t, J);
+		ch->k = P;
+		s.c.push_back(*ch);
+		int tn = t-ch->len;
+		if (tn < 0)
+			break;
+		int lnew = 0;
+		if (nw >= 1) {
+			vt *lnode = &dp[t];
+			lnode = &(*lnode)[J];
+			lnode = &(*lnode)[P];
+			for (int d = 1; d < nw; ++d)
+				lnode = &(*lnode)[lam[d]];
+			vector<double> tb;
+			vector<int> cand;
+			for (auto it = lnode->begin(); it != lnode->end(); ++it) {
+				vt *leaf = it->second.get();
+				for (int d = 1; d < nc; ++d)
+					leaf = &(*leaf)[rcs[d]];
+				if (leaf->is_init()) {
+					cand.push_back(it->first);
+					tb.push_back(leaf->v);
+				}
+			}
+			if (tb.empty())
+				throw "failed to draw a context length in nphsmm::_minfer";
+			lnew = cand[best ? rd::best(tb) : rd::ln_draw(tb)];
+		}
+		vt *anode = &am[tn];
+		for (int d = 1; d < nw; ++d)
+			anode = &(*anode)[lam[d]];
+		if (nw >= 1)
+			anode = &(*anode)[lnew];
+		for (int d = 1; d < nc; ++d)
+			anode = &(*anode)[rcs[d]];
+		vector<double> tb;
+		vector<int> cand;
+		vector<int> rc(rcs.begin()+1, rcs.end());
+		for (auto it = anode->begin(); it != anode->end(); ++it) {
+			vt& child = *(it->second);
+			if (!child.is_init())
+				continue;
+			rc.push_back(it->first);
+			double tr = _mtr(P, rc, trm);
+			rc.pop_back();
+			cand.push_back(it->first);
+			tb.push_back(tr+child.v);
+		}
+		if (tb.empty())
+			throw "failed to draw a class in nphsmm::_minfer";
+		int rnew = cand[best ? rd::best(tb) : rd::ln_draw(tb)];
+		for (int d = 0; d+1 < nw; ++d)
+			lam[d] = lam[d+1];
+		if (nw >= 1)
+			lam[nw-1] = lnew;
+		for (int d = 0; d+1 < nc; ++d)
+			rcs[d] = rcs[d+1];
+		rcs[nc-1] = rnew;
+		t = tn;
+	}
+	reverse(s.c.begin(), s.c.end());
+	s.n.resize(s.c.size(), 0);
+	return s;
+}
+
+void nphsmm::_mfill(clattice2& l, vt& dp, vt& am, vt& bos, vt& trm) {
+	int nw = _n-1;
+	for (int t = 0; t < (int)l.c.size(); ++t) {
+		for (int j = 0; j < l.size(t); ++j) {
+			chunk& ch = l.ch(t, j+1);
+			int s = t-ch.len;
+			vt& as = (s < 0) ? bos : am[s];
+			if (!as.is_init())
+				continue;
+			for (auto pt = l.begin(t, j); pt != l.end(t, j); ++pt) {
+				int p = *pt;
+				_mchain(l, s, nw, (*_chunk)[p]->h(), false, ch, p, l.prior[t][j], as,
+				        dp[t][ch.len][p], (nw >= 1) ? am[t][ch.len] : am[t], trm);
+			}
+		}
+	}
+}
+
+void nphsmm::_mchain(clattice2& l, int pos, int d, const context *c, bool unk, chunk& ch, int p, double ln_prior, vt& as, vt& dpn, vt& an, vt& trm) {
+	if (d <= 0) {
+		vector<int> rc;
+		_mcls(max(_n-1, 1), rc, as, dpn, an[p], trm, p, ln_prior+(*_chunk)[p]->lp(ch, c));
+		return;
+	}
+	for (auto it = as.begin(); it != as.end(); ++it) {
+		int lam = it->first;
+		vt& child = *(it->second);
+		if (!child.is_init())
+			continue;
+		chunk& y = (lam > 0 && pos >= 0) ? l.ch(pos, lam) : l.ch(-1, 1);
+		const context *h = !unk ? c->find(y.id) : NULL;
+		_mchain(l, pos-y.len, d-1, h ? h : c, unk || !h, ch, p, ln_prior, child,
+		        dpn[lam], (d > 1) ? an[lam] : an, trm);
+	}
+}
+
+void nphsmm::_mcls(int e, vector<int>& rc, vt& as, vt& dpn, vt& an, vt& trm, int p, double base) {
+	if (e <= 1) {
+		double x = 0;
+		bool init = false;
+		for (auto it = as.begin(); it != as.end(); ++it) {
+			vt& child = *(it->second);
+			if (!child.is_init())
+				continue;
+			rc.push_back(it->first);
+			x = math::lse(x, _mtr(p, rc, trm)+child.v, !init);
+			rc.pop_back();
+			init = true;
+		}
+		if (!init)
+			return;
+		dpn.v = base+x;
+		dpn.set(true);
+		an.v = math::lse(an.v, dpn.v, !an.is_init());
+		an.set(true);
+		return;
+	}
+	for (auto it = as.begin(); it != as.end(); ++it) {
+		vt& child = *(it->second);
+		if (!child.is_init())
+			continue;
+		rc.push_back(it->first);
+		_mcls(e-1, rc, child, dpn[it->first], an[it->first], trm, p, base);
+		rc.pop_back();
+	}
+}
+
+double nphsmm::_mtr(int p, vector<int>& rc, vt& trm) {
+	vt *node = &trm;
+	for (auto r = rc.begin(); r != rc.end(); ++r)
+		node = &(*node)[*r];
+	vt& leaf = (*node)[p];
+	if (!leaf.is_init()) {
+		const context *u = _class->h();
+		int d = 0;
+		for (auto r = rc.begin(); r != rc.end() && d < _n-1; ++r, ++d) {
+			const context *next = u->find(*r);
+			if (!next)
+				break;
+			u = next;
+		}
+		leaf.v = _class->lp(p, u);
+		leaf.set(true);
+	}
+	return leaf.v;
+}
+
+void nphsmm::_mtable(clattice2& l, int pos, int d, int e, const context *c, bool unk, chunk& ch, vt& as, vt& trm, vector<int>& cl, vector<int>& cr, vector<double>& tbl, vector<vector<int> >& lpath, vector<vector<int> >& rpath) {
+	if (d > 0) {
+		for (auto it = as.begin(); it != as.end(); ++it) {
+			int lam = it->first;
+			vt& child = *(it->second);
+			if (!child.is_init())
+				continue;
+			chunk& y = (lam > 0 && pos >= 0) ? l.ch(pos, lam) : l.ch(-1, 1);
+			const context *h = !unk ? c->find(y.id) : NULL;
+			cl.push_back(lam);
+			_mtable(l, pos-y.len, d-1, e, h ? h : c, unk || !h, ch, child, trm, cl, cr, tbl, lpath, rpath);
+			cl.pop_back();
+		}
+	} else if (e > 1) {
+		for (auto it = as.begin(); it != as.end(); ++it) {
+			vt& child = *(it->second);
+			if (!child.is_init())
+				continue;
+			cr.push_back(it->first);
+			_mtable(l, pos, 0, e-1, c, unk, ch, child, trm, cl, cr, tbl, lpath, rpath);
+			cr.pop_back();
+		}
+	} else {
+		double em = (*_chunk)[ch.k]->lp(ch, c);
+		for (auto it = as.begin(); it != as.end(); ++it) {
+			vt& child = *(it->second);
+			if (!child.is_init())
+				continue;
+			cr.push_back(it->first);
+			tbl.push_back(em+_mtr(ch.k, cr, trm)+child.v);
+			lpath.push_back(cl);
+			rpath.push_back(cr);
+			cr.pop_back();
 		}
 	}
 }
