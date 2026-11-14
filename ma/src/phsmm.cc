@@ -28,7 +28,7 @@ static unordered_map<int, int> wfreq;
 static unordered_map<int, int> pfreq;
 static negative_binomial nb;
 
-phsmm::phsmm():_n(1),_m(10),_l(2),_k(20),_v(C),_K(K),_a(1),_b(1),_pos(new hpyp(_l)),_word(new vector<shared_ptr<hpyp> >),_letter(new vector<shared_ptr<vpyp> >),_lprior(new vector<double>(chartype::n, 0)),_cprior(new vector<double>(chartype::n, 0)),_num(new vector<int>(chartype::n, 0)),_change(new vector<int>(chartype::n, 0)),_len(new vector<int>(chartype::n, 0)) {
+phsmm::phsmm():_n(1),_m(10),_l(2),_k(20),_out(0),_v(C),_K(K),_a(1),_b(1),_pos(new hpyp(_l)),_word(new vector<shared_ptr<hpyp> >),_letter(new vector<shared_ptr<vpyp> >),_lprior(new vector<double>(chartype::n, 0)),_cprior(new vector<double>(chartype::n, 0)),_num(new vector<int>(chartype::n, 0)),_change(new vector<int>(chartype::n, 0)),_len(new vector<int>(chartype::n, 0)) {
 	for (auto i = 0; i < _k+1; ++i) {
 		_word->push_back(shared_ptr<hpyp>(new hpyp(_n)));
 		_letter->push_back(shared_ptr<vpyp>(new vpyp(_m)));
@@ -42,7 +42,7 @@ phsmm::phsmm():_n(1),_m(10),_l(2),_k(20),_v(C),_K(K),_a(1),_b(1),_pos(new hpyp(_
 		p = 1.-be(A, B);
 }
 
-phsmm::phsmm(int n, int m, int l, int k):_n(n),_m(m),_l(l),_k(k),_v(C),_K(K),_a(1),_b(1),_pos(new hpyp(_l)),_word(new vector<shared_ptr<hpyp> >),_letter(new vector<shared_ptr<vpyp> >),_lprior(new vector<double>(chartype::n,0)),_cprior(new vector<double>(chartype::n, 0)),_num(new vector<int>(chartype::n,0)),_change(new vector<int>(chartype::n, 0)),_len(new vector<int>(chartype::n, 0)) {
+phsmm::phsmm(int n, int m, int l, int k):_n(n),_m(m),_l(l),_k(k),_out(0),_v(C),_K(K),_a(1),_b(1),_pos(new hpyp(_l)),_word(new vector<shared_ptr<hpyp> >),_letter(new vector<shared_ptr<vpyp> >),_lprior(new vector<double>(chartype::n,0)),_cprior(new vector<double>(chartype::n, 0)),_num(new vector<int>(chartype::n,0)),_change(new vector<int>(chartype::n, 0)),_len(new vector<int>(chartype::n, 0)) {
 	for (auto i = 0; i < _k+1; ++i) {
 		_word->push_back(shared_ptr<hpyp>(new hpyp(_n)));
 		_letter->push_back(shared_ptr<vpyp>(new vpyp(_m)));
@@ -132,6 +132,7 @@ void phsmm::save(const char *file) {
 }
 
 void phsmm::load(const char *file) {
+	_out = 0;
 	FILE *fp = NULL;
 	if ((fp = fopen(file, "rb")) == NULL)
 		throw "failed to open save file in phsmm::load";
@@ -313,10 +314,17 @@ void phsmm::add(sentence& s) {
 		(*_len)[wt] += w.len;
 		(*_num)[wt] += w.len-1;
 	}
+	if (_out > 0)
+		--_out;
+	if (_out == 0) {
+		while (_k > 1 && pfreq[_k] == 0 && pfreq[_k-1] == 0)
+			_shrink();
+	}
 }
 
 void phsmm::remove(sentence& s) {
 	lock_guard<mutex> m(_mutex);
+	++_out;
 	shared_ptr<wid> dic = wid::create();
 	for (auto i = 0; i < s.size(); ++i) {
 		word& w = s.wd(i);
@@ -349,30 +357,6 @@ void phsmm::remove(sentence& s) {
 		}
 		(*_len)[wt] -= w.len;
 		(*_num)[wt] -= w.len-1;
-	}
-	// _shrink pops class _k, so _k is the class that has to be empty. once _k
-	// reaches the cap _K it is an ordinary class rather than the free slot the
-	// walk assumes, and popping it destroys a per-class lm with live seats.
-	while (_k > 1 && pfreq[_k] == 0 && pfreq[_k-1] == 0) {
-		_shrink();
-	}
-	vector<int> popped;
-	for (int i = 0; i < s.size(); ++i) {
-		int pos = s.wd(i).pos;
-		if (pos < _k || pfreq[pos] != 0)
-			continue;
-		if (find(popped.begin(), popped.end(), pos) == popped.end())
-			popped.push_back(pos);
-	}
-	sort(popped.begin(), popped.end());
-	for (auto i = 0; i < (int)popped.size(); ++i) {
-		if (i > 0)
-			_resize();
-		int pos = _k;
-		for (int j = 0; j < s.size(); ++j) {
-			if (s.wd(j).pos == popped[i])
-				s.wd(j).pos = pos;
-		}
 	}
 }
 

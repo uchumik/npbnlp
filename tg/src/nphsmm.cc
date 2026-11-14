@@ -29,7 +29,7 @@ static unordered_map<int, int> cfreq;
 static unordered_map<int, int> kfreq;
 static negative_binomial nb;
 
-nphsmm::nphsmm(): _n(1), _m(2), _l(10), _k(20), _v(C), _K(K), _a(1), _b(1), _class(new hpyp(_n)), _chunk(new vector<shared_ptr<hpyp> >), _word(new vector<shared_ptr<hpyp> >), _letter(new vector<shared_ptr<vpyp> >), _prior(new vector<double>(chunktype2::n, 0)), _length(new vector<int>(chunktype2::n, 0)), _num(new vector<int>(chunktype2::n, 0)), _change(new vector<int>(chunktype2::n, 0)), _clength(new vector<int>(chunktype2::n, 0)), _cprior(new vector<double>(chunktype2::n, 1)) {
+nphsmm::nphsmm(): _n(1), _m(2), _l(10), _k(20), _out(0), _v(C), _K(K), _a(1), _b(1), _class(new hpyp(_n)), _chunk(new vector<shared_ptr<hpyp> >), _word(new vector<shared_ptr<hpyp> >), _letter(new vector<shared_ptr<vpyp> >), _prior(new vector<double>(chunktype2::n, 0)), _length(new vector<int>(chunktype2::n, 0)), _num(new vector<int>(chunktype2::n, 0)), _change(new vector<int>(chunktype2::n, 0)), _clength(new vector<int>(chunktype2::n, 0)), _cprior(new vector<double>(chunktype2::n, 1)) {
 	for (auto i = 0; i < _k+1; ++i) {
 		_chunk->push_back(shared_ptr<hpyp>(new hpyp(_n)));
 		_word->push_back(shared_ptr<hpyp>(new hpyp(_m)));
@@ -55,7 +55,7 @@ nphsmm::nphsmm(): _n(1), _m(2), _l(10), _k(20), _v(C), _K(K), _a(1), _b(1), _cla
 	//_cprior = 1.-be(_change, _clength);
 }
 
-nphsmm::nphsmm(int n, int m, int l, int k): _n(n), _m(m), _l(l), _k(k), _v(C), _K(K), _a(1), _b(1), _class(new hpyp(_n)), _chunk(new vector<shared_ptr<hpyp> >), _word(new vector<shared_ptr<hpyp> >), _letter(new vector<shared_ptr<vpyp> >), _prior(new vector<double>(chunktype2::n, 0)), _length(new vector<int>(chunktype2::n, 0)), _num(new vector<int>(chunktype2::n, 0)), _change(new vector<int>(chunktype2::n, 0)), _clength(new vector<int>(chunktype2::n, 0)), _cprior(new vector<double>(chunktype2::n, 1)) {
+nphsmm::nphsmm(int n, int m, int l, int k): _n(n), _m(m), _l(l), _k(k), _out(0), _v(C), _K(K), _a(1), _b(1), _class(new hpyp(_n)), _chunk(new vector<shared_ptr<hpyp> >), _word(new vector<shared_ptr<hpyp> >), _letter(new vector<shared_ptr<vpyp> >), _prior(new vector<double>(chunktype2::n, 0)), _length(new vector<int>(chunktype2::n, 0)), _num(new vector<int>(chunktype2::n, 0)), _change(new vector<int>(chunktype2::n, 0)), _clength(new vector<int>(chunktype2::n, 0)), _cprior(new vector<double>(chunktype2::n, 1)) {
 	for (auto i = 0; i < _k+1; ++i) {
 		_chunk->push_back(shared_ptr<hpyp>(new hpyp(_n)));
 		_word->push_back(shared_ptr<hpyp>(new hpyp(_m)));
@@ -166,6 +166,7 @@ void nphsmm::save(const char *file) {
 }
 
 void nphsmm::load(const char *file) {
+	_out = 0;
 	FILE *fp = NULL;
 	if ((fp = fopen(file,"rb")) == NULL)
 		throw "failed to open save file in nphsmm::load";
@@ -335,10 +336,17 @@ void nphsmm::add(nsentence& s) {
 		(*_change)[ch.type] += change;
 		//(*_clength)[ch.type] += ch.len;
 	}
+	if (_out > 0)
+		--_out;
+	if (_out == 0) {
+		while (_k > 1 && kfreq[_k] == 0 && kfreq[_k-1] == 0)
+			_shrink();
+	}
 }
 
 void nphsmm::remove(nsentence& s) {
 	lock_guard<mutex> m(_mutex);
+	++_out;
 	shared_ptr<cid> dic = cid::create();
 	for (auto i = 0; i < s.size(); ++i) {
 		chunk& ch = s.ch(i);
@@ -374,32 +382,6 @@ void nphsmm::remove(nsentence& s) {
 		(*_length)[ch.type] -= ch.len;
 		(*_change)[ch.type] -= change;
 		//(*_clength)[ch.type] -= ch.len;
-	}
-	// _shrink pops class _k, so _k is the class that has to be empty. once _k
-	// reaches the cap _K it is an ordinary class rather than the free slot the
-	// walk assumes, and popping it destroys a per-class lm with live seats.
-	// kfreq[0] is structurally 0 (the eos seat's class is never counted), so
-	// the walk keeps at least class 1.
-	while (_k > 1 && kfreq[_k] == 0 && kfreq[_k-1] == 0) {
-		_shrink();
-	}
-	vector<int> popped;
-	for (int i = 0; i < s.size(); ++i) {
-		int k = s.ch(i).k;
-		if (k < _k || kfreq[k] != 0)
-			continue;
-		if (find(popped.begin(), popped.end(), k) == popped.end())
-			popped.push_back(k);
-	}
-	sort(popped.begin(), popped.end());
-	for (auto i = 0; i < (int)popped.size(); ++i) {
-		if (i > 0)
-			_resize();
-		int k = _k;
-		for (int j = 0; j < s.size(); ++j) {
-			if (s.ch(j).k == popped[i])
-				s.ch(j).k = k;
-		}
 	}
 }
 

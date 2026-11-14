@@ -35,6 +35,7 @@ namespace npbnlp {
 			int _m;
 			int _l;
 			int _k;
+			int _out;
 			int _v;
 			int _K;
 			double _a;
