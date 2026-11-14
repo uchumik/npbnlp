@@ -6,6 +6,7 @@
 #include"chunktype.h"
 #include"negative_binomial.h"
 #include"lpb_cache.h"
+#include<algorithm>
 #ifdef _OPENMP
 #include<omp.h>
 #endif
@@ -374,8 +375,31 @@ void nphsmm::remove(nsentence& s) {
 		(*_change)[ch.type] -= change;
 		//(*_clength)[ch.type] -= ch.len;
 	}
-	for (int k = _k-1; kfreq[k] == 0; --k) {
+	// _shrink pops class _k, so _k is the class that has to be empty. once _k
+	// reaches the cap _K it is an ordinary class rather than the free slot the
+	// walk assumes, and popping it destroys a per-class lm with live seats.
+	// kfreq[0] is structurally 0 (the eos seat's class is never counted), so
+	// the walk keeps at least class 1.
+	while (_k > 1 && kfreq[_k] == 0 && kfreq[_k-1] == 0) {
 		_shrink();
+	}
+	vector<int> popped;
+	for (int i = 0; i < s.size(); ++i) {
+		int k = s.ch(i).k;
+		if (k < _k || kfreq[k] != 0)
+			continue;
+		if (find(popped.begin(), popped.end(), k) == popped.end())
+			popped.push_back(k);
+	}
+	sort(popped.begin(), popped.end());
+	for (auto i = 0; i < (int)popped.size(); ++i) {
+		if (i > 0)
+			_resize();
+		int k = _k;
+		for (int j = 0; j < s.size(); ++j) {
+			if (s.ch(j).k == popped[i])
+				s.ch(j).k = k;
+		}
 	}
 }
 

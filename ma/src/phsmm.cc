@@ -8,6 +8,7 @@
 #include"negative_binomial.h"
 #include"lpb_cache.h"
 #include<random>
+#include<algorithm>
 #ifdef _OPENMP
 #include<omp.h>
 #endif
@@ -349,8 +350,29 @@ void phsmm::remove(sentence& s) {
 		(*_len)[wt] -= w.len;
 		(*_num)[wt] -= w.len-1;
 	}
-	for (int k = _k-1; pfreq[k] == 0; --k) {
+	// _shrink pops class _k, so _k is the class that has to be empty. once _k
+	// reaches the cap _K it is an ordinary class rather than the free slot the
+	// walk assumes, and popping it destroys a per-class lm with live seats.
+	while (_k > 1 && pfreq[_k] == 0 && pfreq[_k-1] == 0) {
 		_shrink();
+	}
+	vector<int> popped;
+	for (int i = 0; i < s.size(); ++i) {
+		int pos = s.wd(i).pos;
+		if (pos < _k || pfreq[pos] != 0)
+			continue;
+		if (find(popped.begin(), popped.end(), pos) == popped.end())
+			popped.push_back(pos);
+	}
+	sort(popped.begin(), popped.end());
+	for (auto i = 0; i < (int)popped.size(); ++i) {
+		if (i > 0)
+			_resize();
+		int pos = _k;
+		for (int j = 0; j < s.size(); ++j) {
+			if (s.wd(j).pos == popped[i])
+				s.wd(j).pos = pos;
+		}
 	}
 }
 
