@@ -477,98 +477,85 @@ sentence phsmm::_minfer(io& f, int i, bool best, sentence *cur) {
 	sentence s;
 	word *eos = l.wp(l.w.size(), 1);
 	int t = (int)l.w.size()-eos->len;
-	vector<int> lam, rcs;
+	int dims = 2+nw+nc-1;
+	auto walk = [&](auto&& self, vt& node, int d, vector<int>& path, const auto& visit) -> void {
+		for (auto it = node.begin(); it != node.end(); ++it) {
+			vt& child = *(it->second);
+			path.push_back(it->first);
+			if (d+1 == dims)
+				visit(path, child);
+			else
+				self(self, child, d+1, path, visit);
+			path.pop_back();
+		}
+	};
 	vector<double> tbl;
-	vector<vector<int> > lpath, rpath;
-	vector<int> cl, cr;
-	_mtable(l, t, nw, nc, (*_word)[eos->pos]->h(), false, *eos,
-	        am[t], trm, cl, cr, tbl, lpath, rpath);
+	vector<vector<int> > states;
+	vector<int> path;
+	walk(walk, dp[t], 0, path, [&](const vector<int>& state, vt& leaf) {
+		if (!leaf.is_init())
+			return;
+		const context *ctx = (*_word)[eos->pos]->h();
+		bool unk = false;
+		int pos = t;
+		for (int q = 0; q < nw; ++q) {
+			word& y = (state[2+q] > 0 && pos >= 0) ? l.wd(pos, state[2+q]) : l.wd(-1, 1);
+			const context *h = !unk ? ctx->find(y.id) : NULL;
+			ctx = h ? h : ctx;
+			unk = unk || !h;
+			pos -= y.len;
+		}
+		vector<int> rc(1, state[1]);
+		for (int q = 0; q < nc-1; ++q)
+			rc.push_back(state[2+nw+q]);
+		tbl.push_back(leaf.v+(*_word)[eos->pos]->lp(*eos, ctx)+_mtr(eos->pos, rc, trm));
+		states.push_back(state);
+	});
 	if (tbl.empty())
 		throw "failed to construct backward table in phsmm::_minfer";
-	int id = best ? rd::best(tbl) : rd::ln_draw(tbl);
-	lam = lpath[id];
-	rcs = rpath[id];
+	vector<int> state = states[best ? rd::best(tbl) : rd::ln_draw(tbl)];
 	while (t >= 0) {
-		int P = rcs[0];
-		int J = 0;
-		if (nw == 0) {
-			vector<double> tb;
-			vector<int> cand;
-			for (auto it = dp[t].begin(); it != dp[t].end(); ++it) {
-				vt *leaf = &(*(it->second))[P];
-				for (int d = 1; d < nc; ++d)
-					leaf = &(*leaf)[rcs[d]];
-				if (leaf->is_init()) {
-					cand.push_back(it->first);
-					tb.push_back(leaf->v);
-				}
-			}
-			if (tb.empty())
-				throw "failed to draw a word length in phsmm::_minfer";
-			J = cand[best ? rd::best(tb) : rd::ln_draw(tb)];
-		} else {
-			J = lam[0];
-		}
-		word *w = l.wp(t, J);
-		w->pos = P;
-		s.w.push_back(*w);
-		int tn = t-w->len;
+		int P = state[1];
+		int J = state[0];
+		word& w = l.wd(t, J);
+		w.pos = P;
+		s.w.push_back(w);
+		int tn = t-w.len;
 		if (tn < 0)
 			break;
-		int lnew = 0;
-		if (nw >= 1) {
-			vt *lnode = &dp[t];
-			lnode = &(*lnode)[J];
-			lnode = &(*lnode)[P];
-			for (int d = 1; d < nw; ++d)
-				lnode = &(*lnode)[lam[d]];
-			vector<double> tb;
-			vector<int> cand;
-			for (auto it = lnode->begin(); it != lnode->end(); ++it) {
-				vt *leaf = it->second.get();
-				for (int d = 1; d < nc; ++d)
-					leaf = &(*leaf)[rcs[d]];
-				if (leaf->is_init()) {
-					cand.push_back(it->first);
-					tb.push_back(leaf->v);
-				}
-			}
-			if (tb.empty())
-				throw "failed to draw a context length in phsmm::_minfer";
-			lnew = cand[best ? rd::best(tb) : rd::ln_draw(tb)];
-		}
-		vt *anode = &am[tn];
-		for (int d = 1; d < nw; ++d)
-			anode = &(*anode)[lam[d]];
-		if (nw >= 1)
-			anode = &(*anode)[lnew];
-		for (int d = 1; d < nc; ++d)
-			anode = &(*anode)[rcs[d]];
 		vector<double> tb;
-		vector<int> cand;
-		vector<int> rc(rcs.begin()+1, rcs.end());
-		for (auto it = anode->begin(); it != anode->end(); ++it) {
-			vt& child = *(it->second);
-			if (!child.is_init())
-				continue;
-			rc.push_back(it->first);
-			double tr = _mtr(P, rc, trm);
-			rc.pop_back();
-			cand.push_back(it->first);
-			tb.push_back(tr+child.v);
-		}
+		vector<vector<int> > paths;
+		vector<int> candidate;
+		walk(walk, dp[tn], 0, candidate, [&](const vector<int>& prev, vt& leaf) {
+			if (!leaf.is_init())
+				return;
+			if (nw >= 1 && prev[0] != state[2])
+				return;
+			for (int q = 1; q < nw; ++q)
+				if (prev[1+q] != state[2+q])
+					return;
+			if (nc >= 2 && prev[1] != state[2+nw])
+				return;
+			for (int q = 1; q < nc-1; ++q)
+				if (prev[1+nw+q] != state[2+nw+q])
+					return;
+			vector<int> rc;
+			if (nc == 1)
+				rc.push_back(prev[1]);
+			else {
+				for (int q = 0; q < nc-1; ++q)
+					rc.push_back(state[2+nw+q]);
+				rc.push_back(prev[2+nw+nc-2]);
+			}
+			tb.push_back(leaf.v+_mtr(P, rc, trm));
+			paths.push_back(prev);
+		});
 		if (tb.empty())
-			throw "failed to draw a class in phsmm::_minfer";
-		int rnew = cand[best ? rd::best(tb) : rd::ln_draw(tb)];
-		for (int d = 0; d+1 < nw; ++d)
-			lam[d] = lam[d+1];
-		if (nw >= 1)
-			lam[nw-1] = lnew;
-		for (int d = 0; d+1 < nc; ++d)
-			rcs[d] = rcs[d+1];
-		rcs[nc-1] = rnew;
+			throw "failed to draw a predecessor state in phsmm::_minfer";
+		state = paths[best ? rd::best(tb) : rd::ln_draw(tb)];
 		t = tn;
 	}
+
 	reverse(s.w.begin(), s.w.end());
 	s.n.resize(s.w.size(), 0);
 	return s;
