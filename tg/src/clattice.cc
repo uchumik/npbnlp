@@ -348,6 +348,8 @@ clattice2::clattice2(nio& f, int i, std::vector<int>& chsize) {
 			ch.id = (*dic)[ch];
 			ch.type = t;
 			c[j].push_back(ch);
+			if (k == 0)
+				break;
 			t = chunktype2::transition(t, wt[k-1], wt[k]);
 			if (t < 0)
 				break;
