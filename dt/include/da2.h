@@ -45,8 +45,8 @@ namespace npbnlp {
 				int32_t operator[](T x) {
 					const auto i = _c.find(x);
 					if (i == _c.end()) {
-						if (_id == std::numeric_limits<int32_t>::max())
-							throw "da symbol code exceeds int32";
+						if (_id >= (1 << 29))
+							throw "da symbol code exceeds 29 bits";
 						int32_t id = _id;
 						_c[x] = _id++;
 						return id;

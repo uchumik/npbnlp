@@ -200,10 +200,15 @@ int run_type(const char *path, int alphabet) {
 		ids_before_save[i] = inserted.exactmatch(keys[i]);
 	if (inserted.save(path, write_value<int>, write_key<T>) != 0)
 		return 3;
+	int32_t used_cells = 0;
+	for (auto check : inserted._check) {
+		if (check >= 0)
+			++used_cells;
+	}
 	std::string compressed_path = std::string(path) + ".compressed";
 	if (compress(path, compressed_path.c_str()) != 0)
 		return 4;
-	std::ifstream compacted_file(path, std::ios::binary);
+	std::ifstream compacted_file(compressed_path, std::ios::binary);
 	compacted_file.seekg(28);
 	int32_t compacted_cells = 0;
 	compacted_file.read(reinterpret_cast<char *>(&compacted_cells), sizeof(compacted_cells));
@@ -221,6 +226,10 @@ int run_type(const char *path, int alphabet) {
 	compacted_file.seekg(0, std::ios::end);
 	std::cerr << type_name << "\tcompacted_cells\t" << compacted_cells << std::endl;
 	std::cerr << type_name << "\tcompacted_bytes\t" << compacted_file.tellg() << std::endl;
+	if (compacted_used_cells != used_cells)
+		return 15;
+	if (compacted_cells > (int32_t)inserted._check.size())
+		return 16;
 	for (size_t i = 0; i < keys.size(); ++i) {
 		if (inserted.exactmatch(keys[i]) != ids_before_save[i])
 			return 5;
