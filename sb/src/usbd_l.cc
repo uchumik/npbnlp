@@ -193,8 +193,8 @@ void usbd_l::_estimate_punc_prior(cio& corpus, vector<vector<int> >& boundaries)
 	double e = 0, f = 0;
 	for (auto i = 0; i < (int)corpus.chunk->size(); ++i) {
 		io& doc = (*corpus.chunk)[i];
-		int k = 0;
-		int head = boundaries[i][k];
+		int bsize = (int)boundaries[i].size();
+		int k = 1;
 		int match = 0;
 		int count = 0;
 		for (auto j = 0; j < (int)doc.raw->size(); ++j) {
@@ -202,13 +202,12 @@ void usbd_l::_estimate_punc_prior(cio& corpus, vector<vector<int> >& boundaries)
 			if (it == _punc.end()) {
 				continue;
 			}
-			if (j+1 == head) {
+			while (k < bsize-1 && boundaries[i][k] < j+1)
+				++k;
+			if (k < bsize && boundaries[i][k] == j+1) {
 				++match;
-				head = boundaries[i][++k];
 			} else {
 				++count;
-				if (j >= head)
-					head = boundaries[i][++k];
 			}
 		}
 		e += match;
