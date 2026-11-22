@@ -97,3 +97,5 @@ Testing/
 /tg/src/tg
 /tg/src/vhmm_test
 /tg/src/vtg
+/dt/src/da_compress
+/dt/src/da_e2_test
