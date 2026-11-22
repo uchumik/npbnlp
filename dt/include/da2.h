@@ -12,6 +12,7 @@
 #include<memory>
 #include<cstdint>
 #include<sys/stat.h>
+#include<unistd.h>
 namespace npbnlp {
 	int compress(const char *input, const char *output);
 	template<class T>
@@ -946,7 +947,6 @@ namespace npbnlp {
 			throw "input and output paths must differ";
 		struct stat in_stat;
 		struct stat out_stat;
-		struct stat temporary_stat;
 		if (stat(input, &in_stat) != 0)
 			throw "failed to stat input";
 		if (stat(output, &out_stat) == 0 && in_stat.st_dev == out_stat.st_dev && in_stat.st_ino == out_stat.st_ino)
@@ -955,11 +955,8 @@ namespace npbnlp {
 		if (source == nullptr)
 			throw "failed to open input";
 		FILE *target = nullptr;
-		std::string temporary = std::string(output) + ".tmp";
-		if (stat(temporary.c_str(), &temporary_stat) == 0 && in_stat.st_dev == temporary_stat.st_dev && in_stat.st_ino == temporary_stat.st_ino) {
-			fclose(source);
-			throw "temporary output path is input file";
-		}
+		std::string temporary = std::string(output) + ".XXXXXX";
+		bool created = false;
 		try {
 			const char magic[8] = {'D', 'A', '2', 'E', '2', 'I', '3', '2'};
 			char input_magic[8];
@@ -1029,9 +1026,24 @@ namespace npbnlp {
 			compacted._nid = nid;
 			compacted._compact_free_list();
 			verify_compacted_arrays(base, check, compacted._base, compacted._check, nid);
-			target = fopen(temporary.c_str(), "wb");
-			if (target == nullptr)
+			std::vector<char> name(temporary.begin(), temporary.end());
+			name.emplace_back('\0');
+			int fd = mkstemp(name.data());
+			if (fd < 0)
 				throw "failed to open output";
+			temporary = name.data();
+			created = true;
+			mode_t mask = umask(0);
+			umask(mask);
+			if (fchmod(fd, 0666 & ~mask) != 0) {
+				close(fd);
+				throw "failed to set output permissions";
+			}
+			target = fdopen(fd, "wb");
+			if (target == nullptr) {
+				close(fd);
+				throw "failed to open output";
+			}
 			if (fwrite(magic, 1, sizeof(magic), target) != sizeof(magic) || fwrite(&version, sizeof(version), 1, target) != 1 || fwrite(&compacted._nid, sizeof(int32_t), 1, target) != 1 || fwrite(&compacted._head, sizeof(int32_t), 1, target) != 1 || fwrite(&compacted._tail, sizeof(int32_t), 1, target) != 1 || fwrite(&compacted._listsize, sizeof(int32_t), 1, target) != 1)
 				throw "failed to write compressed DA";
 			int32_t compacted_size = compacted._base.size();
@@ -1057,7 +1069,8 @@ namespace npbnlp {
 				fclose(target);
 			if (source != nullptr)
 				fclose(source);
-			remove(temporary.c_str());
+			if (created)
+				remove(temporary.c_str());
 			throw;
 		}
 		return 0;
