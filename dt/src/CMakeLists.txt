@@ -1,0 +1,8 @@
+add_executable(da_compress da_compress.cc)
+target_include_directories(da_compress PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+target_compile_features(da_compress PRIVATE cxx_std_17)
+add_executable(da_e2_test da_e2_test.cc)
+target_include_directories(da_e2_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+target_compile_features(da_e2_test PRIVATE cxx_std_17)
+enable_testing()
+add_test(NAME da_e2_test COMMAND da_e2_test ${CMAKE_SOURCE_DIR}/experiments/wo123d/test)

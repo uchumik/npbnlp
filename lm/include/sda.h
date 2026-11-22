@@ -66,7 +66,7 @@ namespace npbnlp {
 					int len = 0;
 					for (auto j = i; j > i-n; --j) {
 						long c = da<unsigned int,V>::_base[b] + 1;
-						if (da<unsigned int,V>::_check[c] == b && da<unsigned int,V>::_base[c] < 0)
+						if (c >= 0 && c < (long)da<unsigned int,V>::_check.size() && da<unsigned int,V>::_check[c] == b && da<unsigned int,V>::_base[c] < 0)
 							r.emplace_back(std::make_pair(len, -da<unsigned int,V>::_base[c]));
 						b = da<unsigned int,V>::_traverse(b, s[j]);
 						++len;
@@ -74,7 +74,7 @@ namespace npbnlp {
 							return r;
 					}
 					long c = da<unsigned int,V>::_base[b] + 1;
-					if (da<unsigned int,V>::_check[c] == b && da<unsigned int,V>::_base[c] < 0)
+					if (c >= 0 && c < (long)da<unsigned int,V>::_check.size() && da<unsigned int,V>::_check[c] == b && da<unsigned int,V>::_base[c] < 0)
 						r.emplace_back(std::make_pair(len,-da<unsigned int,V>::_base[c]));
 					return r;
 				}
@@ -84,7 +84,7 @@ namespace npbnlp {
 					int len = 0;
 					for (auto j = i; j > i-n; --j) {
 						long c = da<unsigned int,V>::_base[b] + 1;
-						if (da<unsigned int,V>::_check[c] == b && da<unsigned int,V>::_base[c] < 0)
+						if (c >= 0 && c < (long)da<unsigned int,V>::_check.size() && da<unsigned int,V>::_check[c] == b && da<unsigned int,V>::_base[c] < 0)
 							r.emplace_back(std::make_pair(len, -da<unsigned int,V>::_base[c]));
 						b = da<unsigned int,V>::_traverse(b, w[j]);
 						++len;
@@ -92,7 +92,7 @@ namespace npbnlp {
 							return r;
 					}
 					long c = da<unsigned int,V>::_base[b] + 1;
-					if (da<unsigned int,V>::_check[c] == b && da<unsigned int,V>::_base[c] < 0)
+					if (c >= 0 && c < (long)da<unsigned int,V>::_check.size() && da<unsigned int,V>::_check[c] == b && da<unsigned int,V>::_base[c] < 0)
 						r.emplace_back(std::make_pair(len,-da<unsigned int,V>::_base[c]));
 					return r;
 				}
@@ -102,7 +102,7 @@ namespace npbnlp {
 					int len = 0;
 					for (auto j = i; j > i-n; --j) {
 						long c = da<unsigned int,V>::_base[b] + 1;
-						if (da<unsigned int,V>::_check[c] == b && da<unsigned int,V>::_base[c] < 0) 
+						if (c >= 0 && c < (long)da<unsigned int,V>::_check.size() && da<unsigned int,V>::_check[c] == b && da<unsigned int,V>::_base[c] < 0)
 							r.emplace_back(std::make_pair(len, -da<unsigned int,V>::_base[c]));
 						int key = (j >= 0)? k[j]: 0; 
 						b = da<unsigned int,V>::_traverse(b, key);
@@ -111,7 +111,7 @@ namespace npbnlp {
 							return r;
 					}
 					long c = da<unsigned int,V>::_base[b] + 1;
-					if (da<unsigned int,V>::_check[c] == b && da<unsigned int,V>::_base[c] < 0)
+					if (c >= 0 && c < (long)da<unsigned int,V>::_check.size() && da<unsigned int,V>::_check[c] == b && da<unsigned int,V>::_base[c] < 0)
 						r.emplace_back(std::make_pair(len,-da<unsigned int,V>::_base[c]));
 					return r;
 				}
@@ -278,52 +278,93 @@ namespace npbnlp {
 						}
 					}
 					for (auto& s : t.sibling) {
-						long n = da<unsigned int,V>::_base[b] + da<unsigned int,V>::_c[s.id];
-						//long n = da<unsigned int,V>::_base[b] + _c[s.id];
+						long n = da<unsigned int,V>::_base[b] + s.id;
 						insert_subtree(s, n);
 					}
 				}
 				void make_subtree(node<unsigned int>& t, sentence& s, int i, int n) {
 					node<unsigned int> *p = &t;
-					node<unsigned int> terminal(_terminal); terminal.parent = p;
+					node<unsigned int> terminal(1);
+					terminal.parent = p;
 					p->sibling.emplace_back(terminal);
 					for (auto j = i; j > i-n; --j) {
-						node<unsigned int> n(s[j]); n.parent = p;
-						p->sibling.emplace_back(n);
-						auto next = p->sibling.size()-1;
-						node<unsigned int> m(_terminal); m.parent= &p->sibling[next];
-						p->sibling[next].sibling.emplace_back(m);
-						p = &p->sibling[next];
+						unsigned int bytes[4];
+						int count = encoded_edges(s[j], bytes);
+						for (int z = 0; z < count; ++z) {
+							node<unsigned int> x(bytes[z] + 2);
+							x.parent = p;
+							p->sibling.emplace_back(x);
+							p = &p->sibling.back();
+						}
+						node<unsigned int> m(1);
+						m.parent = p;
+						p->sibling.emplace_back(m);
 					}
 				}
 				void make_subtree(node<unsigned int>& t, word& w, int i, int n) {
 					node<unsigned int> *p = &t;
-					node<unsigned int> terminal(_terminal); terminal.parent = p;
+					node<unsigned int> terminal(1);
+					terminal.parent = p;
 					p->sibling.emplace_back(terminal);
 					for (auto j = i; j > i-n; --j) {
-						node<unsigned int> n(w[j]); n.parent = p;
-						p->sibling.emplace_back(n);
-						auto next = p->sibling.size()-1;
-						node<unsigned int> m(_terminal); m.parent= &p->sibling[next];
-						p->sibling[next].sibling.emplace_back(m);
-						p = &p->sibling[next];
+						unsigned int bytes[4];
+						int count = encoded_edges(w[j], bytes);
+						for (int z = 0; z < count; ++z) {
+							node<unsigned int> x(bytes[z] + 2);
+							x.parent = p;
+							p->sibling.emplace_back(x);
+							p = &p->sibling.back();
+						}
+						node<unsigned int> m(1);
+						m.parent = p;
+						p->sibling.emplace_back(m);
 					}
 				}
 				void make_subtree(node<unsigned int>& t, std::vector<int>& k, int i, int n) {
 					node<unsigned int> *p = &t;
-					node<unsigned int> terminal(_terminal); terminal.parent = p;
+					node<unsigned int> terminal(1);
+					terminal.parent = p;
 					p->sibling.emplace_back(terminal);
 					for (auto j = i; j > i-n; --j) {
-						int key = (j >= 0)? k[j]: 0; 
-						node<unsigned int> n(key); n.parent = p;
-						p->sibling.emplace_back(n);
-						auto next = p->sibling.size()-1;
-						node<unsigned int> m(_terminal); m.parent= &p->sibling[next];
-						p->sibling[next].sibling.emplace_back(m);
-						p = &p->sibling[next];
+						int key = (j >= 0)? k[j]: 0;
+						unsigned int bytes[4];
+						int count = encoded_edges(key, bytes);
+						for (int z = 0; z < count; ++z) {
+							node<unsigned int> x(bytes[z] + 2);
+							x.parent = p;
+							p->sibling.emplace_back(x);
+							p = &p->sibling.back();
+						}
+						node<unsigned int> m(1);
+						m.parent = p;
+						p->sibling.emplace_back(m);
 					}
 				}
 			protected:
+				template<class K>
+				int encoded_edges(K key, unsigned int out[4]) {
+					long code = da<unsigned int,V>::_c[key];
+					if (code < 128) {
+						out[0] = code;
+						return 1;
+					}
+					if (code < 16384) {
+						out[0] = 0x80 | (code >> 8);
+						out[1] = code & 255;
+						return 2;
+					}
+					if (code < 2097152) {
+						out[0] = 0xc0 | (code >> 16);
+						out[1] = (code >> 8) & 255;
+						out[2] = code & 255;
+						return 3;
+					}
+					out[0] = 0xe0 | (code >> 24);
+					out[1] = (code >> 16) & 255;
+					out[2] = (code >> 8) & 255;
+					out[3] = code & 255;
+					return 4;
+				}
 				unsigned int _terminal;
 				//code<unsigned int> _c;
 		};
