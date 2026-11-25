@@ -58,7 +58,9 @@ namespace npbnlp {
 					return da<unsigned int,V>::_value.end();
 				}
 				bool is_erased(long id) {
-					return (std::find(da<unsigned int, V>::_erased.begin(), da<unsigned int,V>::_erased.end(), id) != da<unsigned int,V>::_erased.end());
+					if (id < 0 || id > std::numeric_limits<int32_t>::max())
+						return false;
+					return da<unsigned int,V>::_erased.count((int32_t)id) != 0;
 				}
 				rst cs_search(sentence& s, int i, int n) {
 					rst r;
@@ -153,12 +155,12 @@ namespace npbnlp {
 					return -1;
 				}
 				std::optional<V> getval(long id) {
-					if (id >= (long)da<unsigned int,V>::_value.size() || id < 0 || std::find(da<unsigned int,V>::_erased.begin(), da<unsigned int,V>::_erased.end(), id) != da<unsigned int,V>::_erased.end())
+					if (id >= (long)da<unsigned int,V>::_value.size() || id < 0 || da<unsigned int,V>::_erased.count((int32_t)id) != 0)
 						return std::nullopt;
 					return da<unsigned int,V>::_value[id];
 				}
 				V& val(long id) {
-					if (id >= (long)da<unsigned int,V>::_value.size() || id < 0 || std::find(da<unsigned int,V>::_erased.begin(), da<unsigned int,V>::_erased.end(), id) != da<unsigned int,V>::_erased.end()) {
+					if (id >= (long)da<unsigned int,V>::_value.size() || id < 0 || da<unsigned int,V>::_erased.count((int32_t)id) != 0) {
 						std::cerr << "found invalid id:" << id << std::endl;
 						throw "found invalid id at val(int id)";
 					}
@@ -201,7 +203,7 @@ namespace npbnlp {
 					}
 					b = da<unsigned int,V>::_traverse(b, _terminal);
 					if (b >= 0 && da<unsigned int,V>::_base[b] < 0 && da<unsigned int,V>::_check[b] >= 0) {
-						da<unsigned int,V>::_erased.emplace_back(-da<unsigned int,V>::_base[b]);
+						da<unsigned int,V>::_erased.insert(-da<unsigned int,V>::_base[b]);
 						da<unsigned int,V>::_value[-da<unsigned int,V>::_base[b]] = V(-1);
 						auto p = da<unsigned int,V>::_check[b];
 						da<unsigned int,V>::_link(b);
@@ -227,7 +229,7 @@ namespace npbnlp {
 					}
 					b = da<unsigned int,V>::_traverse(b, _terminal);
 					if (b >= 0 && da<unsigned int,V>::_base[b] < 0 && da<unsigned int,V>::_check[b] >= 0) {
-						da<unsigned int,V>::_erased.emplace_back(-da<unsigned int,V>::_base[b]);
+						da<unsigned int,V>::_erased.insert(-da<unsigned int,V>::_base[b]);
 						da<unsigned int,V>::_value[-da<unsigned int,V>::_base[b]] = V(-1);
 						auto p = da<unsigned int,V>::_check[b];
 						da<unsigned int,V>::_link(b);
@@ -254,7 +256,7 @@ namespace npbnlp {
 					}
 					b = da<unsigned int,V>::_traverse(b, _terminal);
 					if (b >= 0 && da<unsigned int,V>::_base[b] < 0 && da<unsigned int,V>::_check[b] >= 0) {
-						da<unsigned int,V>::_erased.emplace_back(-da<unsigned int,V>::_base[b]);
+						da<unsigned int,V>::_erased.insert(-da<unsigned int,V>::_base[b]);
 						da<unsigned int,V>::_value[-da<unsigned int,V>::_base[b]] = V(-1);
 						auto p = da<unsigned int,V>::_check[b];
 						da<unsigned int,V>::_link(b);

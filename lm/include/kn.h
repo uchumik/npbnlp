@@ -77,7 +77,7 @@ namespace npbnlp {
 				}
 				b = _traverse(b, 3); // terminal
 				if (b >= 0 && _base[b] < 0 && _check[b] >= 0) {
-					_erased.emplace_back(-_base[b]);
+					_erased.insert(-_base[b]);
 					_value[-_base[b]] = 0;
 					auto p = _check[b];
 					_link(b);
@@ -103,7 +103,7 @@ namespace npbnlp {
 				}
 				b = _traverse(b, 3); // terminal
 				if (b >= 0 && _base[b] < 0 && _check[b] >= 0) {
-					_erased.emplace_back(-_base[b]);
+					_erased.insert(-_base[b]);
 					_value[-_base[b]] = 0;
 					auto p = _check[b];
 					_link(b);
