@@ -3,6 +3,7 @@
 
 #include<vector>
 #include<unordered_map>
+#include<unordered_set>
 #include<optional>
 #include<map>
 #include<bits/stdc++.h>
@@ -200,7 +201,7 @@ namespace npbnlp {
 							return; // not found
 					}
 					if (_base[b] < 0 && _check[b] >= 0) { // leaf
-						_erased.emplace_back(-_base[b]);
+						_erased.insert(-_base[b]);
 						_value[-_base[b]] = V();
 						auto p = _check[b]; // parent
 						_link(b);
@@ -218,7 +219,7 @@ namespace npbnlp {
 					}
 				}
 				std::optional<V> getval(long id) {
-					if (id >= (long)_value.size() || id < 0 || std::find(_erased.begin(),_erased.end(),id) != _erased.end())
+					if (id >= (long)_value.size() || id < 0 || _erased.count((int32_t)id) != 0)
 						return std::nullopt;
 					return _value[id];
 				}
@@ -292,8 +293,11 @@ namespace npbnlp {
 					int32_t esize = _erased.size();
 					if (fwrite(&esize, sizeof(int32_t), 1, fp) != 1)
 						return 1;
-					if (esize > 0 && fwrite(&_erased[0], sizeof(int32_t), esize, fp) != (size_t)esize)
-						return 1;
+					if (esize > 0) {
+						std::vector<int32_t> etmp(_erased.begin(), _erased.end());
+						if (fwrite(&etmp[0], sizeof(int32_t), esize, fp) != (size_t)esize)
+							return 1;
+					}
 					int32_t vsize = _value.size();
 					if (fwrite(&vsize, sizeof(int32_t), 1, fp) != 1)
 						return 1;
@@ -341,12 +345,16 @@ namespace npbnlp {
 					_check.resize(csize);
 					if (fread(&_check[0], sizeof(int32_t), csize, fp) != (size_t)csize)
 						return 1;
-					int32_t esize = _erased.size();
+					int32_t esize = 0;
 					if (fread(&esize, sizeof(int32_t), 1, fp) != 1)
 						return 1;
-					_erased.resize(esize,0);
-					if (esize > 0 && fread(&_erased[0], sizeof(int32_t), esize, fp) != (size_t)esize)
-						return 1;
+					_erased.clear();
+					if (esize > 0) {
+						std::vector<int32_t> etmp(esize, 0);
+						if (fread(&etmp[0], sizeof(int32_t), esize, fp) != (size_t)esize)
+							return 1;
+						_erased.insert(etmp.begin(), etmp.end());
+					}
 					int32_t vsize = 0;
 					if (fread(&vsize, sizeof(int32_t), 1, fp) != 1)
 						return 1;
@@ -369,7 +377,7 @@ namespace npbnlp {
 				std::vector<int32_t> _base;
 				std::vector<int32_t> _check;
 				std::vector<V> _value;
-				std::vector<int32_t> _erased;
+				std::unordered_set<int32_t> _erased;
 				int32_t _head;
 				int32_t _tail;
 				int32_t _listsize;
@@ -612,8 +620,9 @@ namespace npbnlp {
 
 				long _next_nid() {
 					if (!_erased.empty()) {
-						long n = _erased[_erased.size()-1];
-						_erased.pop_back();
+						auto it = _erased.begin();
+						long n = *it;
+						_erased.erase(it);
 						return n;
 					}
 					if (_nid >= std::numeric_limits<int32_t>::max())
